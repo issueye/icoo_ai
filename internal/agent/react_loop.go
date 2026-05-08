@@ -20,6 +20,7 @@ type ReactLoop struct {
 	provider      llm.Provider
 	tools         map[string]tools.Tool
 	maxToolRounds int
+	approved      map[string]struct{}
 }
 
 func NewReactLoop(opts ReactLoopOptions) (*ReactLoop, error) {
@@ -38,6 +39,7 @@ func NewReactLoop(opts ReactLoopOptions) (*ReactLoop, error) {
 		provider:      opts.Provider,
 		tools:         toolMap,
 		maxToolRounds: maxToolRounds,
+		approved:      map[string]struct{}{},
 	}, nil
 }
 
@@ -98,7 +100,7 @@ func (l *ReactLoop) run(ctx context.Context, req RunRequest, out chan<- Event) {
 
 		messages = append(messages, llm.Message{Role: "assistant", Content: assistantText, ToolCalls: toolCalls})
 		for _, call := range toolCalls {
-			result, ok := l.executeTool(ctx, req.SessionID, call, out)
+			result, ok := l.executeTool(ctx, req, call, out)
 			if !ok {
 				return
 			}
@@ -117,10 +119,10 @@ func (l *ReactLoop) run(ctx context.Context, req RunRequest, out chan<- Event) {
 	emit(ctx, out, Event{Type: EventRunFailed, SessionID: req.SessionID, Error: "maximum tool rounds exceeded"})
 }
 
-func (l *ReactLoop) executeTool(ctx context.Context, sessionID string, call tools.ToolCall, out chan<- Event) (tools.ToolResult, bool) {
+func (l *ReactLoop) executeTool(ctx context.Context, req RunRequest, call tools.ToolCall, out chan<- Event) (tools.ToolResult, bool) {
 	emit(ctx, out, Event{
 		Type:      EventToolCallStarted,
-		SessionID: sessionID,
+		SessionID: req.SessionID,
 		Data: map[string]any{
 			"id":   call.ID,
 			"name": call.Name,
@@ -130,17 +132,17 @@ func (l *ReactLoop) executeTool(ctx context.Context, sessionID string, call tool
 	tool, ok := l.tools[call.Name]
 	if !ok {
 		result := tools.ToolResult{OK: false, Error: fmt.Sprintf("unknown tool %q", call.Name)}
-		emit(ctx, out, Event{Type: EventToolCallCompleted, SessionID: sessionID, Error: result.Error})
+		emit(ctx, out, Event{Type: EventToolCallCompleted, SessionID: req.SessionID, Error: result.Error})
 		return result, true
 	}
 
-	result, err := tool.Execute(ctx, call.Arguments)
+	result, err := l.executeWithApproval(ctx, req, tool, call, out)
 	if err != nil {
 		result = tools.ToolResult{OK: false, Error: err.Error()}
 	}
 	emit(ctx, out, Event{
 		Type:      EventToolCallCompleted,
-		SessionID: sessionID,
+		SessionID: req.SessionID,
 		Content:   result.Content,
 		Error:     result.Error,
 		Data: map[string]any{
@@ -151,6 +153,67 @@ func (l *ReactLoop) executeTool(ctx context.Context, sessionID string, call tool
 		},
 	})
 	return result, true
+}
+
+func (l *ReactLoop) executeWithApproval(ctx context.Context, req RunRequest, tool tools.Tool, call tools.ToolCall, out chan<- Event) (tools.ToolResult, error) {
+	if capable, ok := tool.(tools.ApprovalCapable); ok {
+		key, ok := capable.ApprovalKey(call.Arguments)
+		if ok {
+			approvalKey := call.Name + "\x00" + key
+			if _, always := l.approved[approvalKey]; always {
+				return capable.ExecuteApproved(ctx, call.Arguments, tools.ApprovalScopeAlways)
+			}
+		}
+	}
+	result, err := tool.Execute(ctx, call.Arguments)
+	if err != nil || !isApprovalRequired(result) {
+		return result, err
+	}
+	capable, ok := tool.(tools.ApprovalCapable)
+	if !ok || req.Options.Approver == nil {
+		return result, err
+	}
+	approvalKey, _ := capable.ApprovalKey(call.Arguments)
+	emit(ctx, out, Event{
+		Type:      EventApprovalRequested,
+		SessionID: req.SessionID,
+		Content:   result.Error,
+		Data: map[string]any{
+			"id":     call.ID,
+			"name":   call.Name,
+			"reason": result.Error,
+			"data":   result.Data,
+		},
+	})
+	decision, approveErr := req.Options.Approver.Approve(ctx, ApprovalRequest{
+		SessionID: req.SessionID,
+		ToolName:  call.Name,
+		ToolCall:  string(call.Arguments),
+		Reason:    result.Error,
+		Data:      result.Data,
+	})
+	if approveErr != nil {
+		return tools.ToolResult{OK: false, Error: approveErr.Error()}, nil
+	}
+	switch decision {
+	case ApprovalDecisionOnce:
+		return capable.ExecuteApproved(ctx, call.Arguments, tools.ApprovalScopeOnce)
+	case ApprovalDecisionAlways:
+		if approvalKey != "" {
+			l.approved[call.Name+"\x00"+approvalKey] = struct{}{}
+		}
+		return capable.ExecuteApproved(ctx, call.Arguments, tools.ApprovalScopeAlways)
+	default:
+		return tools.ToolResult{OK: false, Error: "approval denied", Data: map[string]any{"code": "approval_denied"}}, nil
+	}
+}
+
+func isApprovalRequired(result tools.ToolResult) bool {
+	if result.Data == nil {
+		return false
+	}
+	code, _ := result.Data["code"].(string)
+	return code == "approval_required"
 }
 
 func (l *ReactLoop) toolDefinitions() []tools.ToolDefinition {

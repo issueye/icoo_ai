@@ -17,17 +17,19 @@ type SessionStore interface {
 }
 
 type RuntimeOptions struct {
-	Loop  Loop
-	Store SessionStore
-	CWD   string
-	Model string
+	Loop     Loop
+	Store    SessionStore
+	CWD      string
+	Model    string
+	Approver Approver
 }
 
 type DefaultRuntime struct {
-	loop  Loop
-	store SessionStore
-	cwd   string
-	model string
+	loop     Loop
+	store    SessionStore
+	cwd      string
+	model    string
+	approver Approver
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
@@ -41,11 +43,12 @@ func NewRuntime(opts RuntimeOptions) (*DefaultRuntime, error) {
 		return nil, errors.New("agent runtime requires session store")
 	}
 	return &DefaultRuntime{
-		loop:    opts.Loop,
-		store:   opts.Store,
-		cwd:     opts.CWD,
-		model:   opts.Model,
-		cancels: make(map[string]context.CancelFunc),
+		loop:     opts.Loop,
+		store:    opts.Store,
+		cwd:      opts.CWD,
+		model:    opts.Model,
+		approver: opts.Approver,
+		cancels:  make(map[string]context.CancelFunc),
 	}, nil
 }
 
@@ -86,7 +89,8 @@ func (r *DefaultRuntime) Prompt(ctx context.Context, req PromptRequest) (<-chan 
 		Messages:  sess.Messages,
 		Context:   WorkspaceContext{Root: sess.CWD},
 		Options: RunOptions{
-			Model: r.model,
+			Model:    r.model,
+			Approver: r.approver,
 		},
 	})
 	if err != nil {

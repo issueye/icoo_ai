@@ -26,6 +26,7 @@ type BuildOptions struct {
 	Stdout   *os.File
 	Stderr   *os.File
 	Provider llm.Provider
+	Approver agent.Approver
 }
 
 type Components struct {
@@ -89,10 +90,11 @@ func Build(ctx context.Context, opts BuildOptions) (Components, error) {
 	}
 	storeDir := session.DefaultDir(home)
 	runtime, err := agent.NewRuntime(agent.RuntimeOptions{
-		Loop:  loop,
-		Store: session.NewFileStore(storeDir),
-		CWD:   cwd,
-		Model: opts.Config.Model,
+		Loop:     loop,
+		Store:    session.NewFileStore(storeDir),
+		CWD:      cwd,
+		Model:    opts.Config.Model,
+		Approver: opts.Approver,
 	})
 	if err != nil {
 		return Components{}, err

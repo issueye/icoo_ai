@@ -15,6 +15,39 @@ type mockProvider struct {
 	streams [][]llm.CompletionEvent
 }
 
+type staticApprover struct {
+	decision ApprovalDecision
+}
+
+func (a staticApprover) Approve(ctx context.Context, req ApprovalRequest) (ApprovalDecision, error) {
+	return a.decision, ctx.Err()
+}
+
+type approvalMockTool struct {
+	name          string
+	result        tools.ToolResult
+	approvedCalls int
+}
+
+func (t *approvalMockTool) Name() string        { return t.name }
+func (t *approvalMockTool) Description() string { return t.name }
+func (t *approvalMockTool) Definition() tools.ToolDefinition {
+	return tools.ToolDefinition{Name: t.name, Description: t.name}
+}
+func (t *approvalMockTool) Execute(ctx context.Context, input json.RawMessage) (tools.ToolResult, error) {
+	return tools.ToolResult{OK: false, Error: "needs approval", Data: map[string]any{"code": "approval_required"}}, nil
+}
+func (t *approvalMockTool) ApprovalKey(input json.RawMessage) (string, bool) {
+	return string(input), true
+}
+func (t *approvalMockTool) ExecuteApproved(ctx context.Context, input json.RawMessage, scope tools.ApprovalScope) (tools.ToolResult, error) {
+	t.approvedCalls++
+	if t.result.Content == "" {
+		t.result = tools.ToolResult{OK: true, Content: "approved"}
+	}
+	return t.result, nil
+}
+
 func newMockProvider(streams [][]llm.CompletionEvent) *mockProvider {
 	return &mockProvider{streams: streams}
 }

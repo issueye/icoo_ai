@@ -69,3 +69,58 @@ func TestReactLoopExecutesToolAndContinues(t *testing.T) {
 		t.Fatalf("message delta = %q", eventContent(got, EventMessageDelta))
 	}
 }
+
+func TestReactLoopApprovalOnceRetriesTool(t *testing.T) {
+	provider := newMockProvider([][]llm.CompletionEvent{
+		{{Type: llm.CompletionEventToolCall, ToolCall: &tools.ToolCall{ID: "tc1", Name: "needs_approval", Arguments: json.RawMessage(`{"x":1}`)}}},
+		{{Type: llm.CompletionEventMessageDelta, Delta: "done"}, {Type: llm.CompletionEventCompleted}},
+	})
+	tool := &approvalMockTool{name: "needs_approval", result: tools.ToolResult{OK: true, Content: "approved"}}
+	loop, err := NewReactLoop(ReactLoopOptions{Provider: provider, Tools: []tools.Tool{tool}})
+	if err != nil {
+		t.Fatalf("NewReactLoop() error = %v", err)
+	}
+	events, err := loop.Run(context.Background(), RunRequest{
+		SessionID: "s1",
+		Options:   RunOptions{Approver: staticApprover{decision: ApprovalDecisionOnce}},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	got, err := collectEvents(context.Background(), events)
+	if err != nil {
+		t.Fatalf("CollectEvents() error = %v", err)
+	}
+	if tool.approvedCalls != 1 {
+		t.Fatalf("approved calls = %d", tool.approvedCalls)
+	}
+	if eventContent(got, EventMessageDelta) != "done" {
+		t.Fatalf("message delta = %q", eventContent(got, EventMessageDelta))
+	}
+}
+
+func TestReactLoopApprovalDeniedReturnsToolResult(t *testing.T) {
+	provider := newMockProvider([][]llm.CompletionEvent{
+		{{Type: llm.CompletionEventToolCall, ToolCall: &tools.ToolCall{ID: "tc1", Name: "needs_approval", Arguments: json.RawMessage(`{"x":1}`)}}},
+		{{Type: llm.CompletionEventMessageDelta, Delta: "denied"}, {Type: llm.CompletionEventCompleted}},
+	})
+	tool := &approvalMockTool{name: "needs_approval"}
+	loop, err := NewReactLoop(ReactLoopOptions{Provider: provider, Tools: []tools.Tool{tool}})
+	if err != nil {
+		t.Fatalf("NewReactLoop() error = %v", err)
+	}
+	events, err := loop.Run(context.Background(), RunRequest{
+		SessionID: "s1",
+		Options:   RunOptions{Approver: staticApprover{decision: ApprovalDecisionDeny}},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	_, err = collectEvents(context.Background(), events)
+	if err != nil {
+		t.Fatalf("CollectEvents() error = %v", err)
+	}
+	if tool.approvedCalls != 0 {
+		t.Fatalf("approved calls = %d", tool.approvedCalls)
+	}
+}

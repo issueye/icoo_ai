@@ -47,7 +47,28 @@ type RunOptions struct {
 	Model          string                `json:"model,omitempty"`
 	PermissionMode policy.PermissionMode `json:"permission_mode,omitempty"`
 	MaxToolRounds  int                   `json:"max_tool_rounds,omitempty"`
+	Approver       Approver              `json:"-"`
 	Metadata       map[string]any        `json:"metadata,omitempty"`
+}
+
+type ApprovalDecision string
+
+const (
+	ApprovalDecisionOnce   ApprovalDecision = "once"
+	ApprovalDecisionAlways ApprovalDecision = "always"
+	ApprovalDecisionDeny   ApprovalDecision = "deny"
+)
+
+type ApprovalRequest struct {
+	SessionID string         `json:"session_id"`
+	ToolName  string         `json:"tool_name"`
+	ToolCall  string         `json:"tool_call"`
+	Reason    string         `json:"reason"`
+	Data      map[string]any `json:"data,omitempty"`
+}
+
+type Approver interface {
+	Approve(ctx context.Context, req ApprovalRequest) (ApprovalDecision, error)
 }
 
 type WorkspaceContext struct {

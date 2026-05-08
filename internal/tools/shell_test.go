@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -112,6 +113,48 @@ func TestRunShellRequestsApprovalForHighRiskCommand(t *testing.T) {
 	if len(fake.Calls()) != 0 {
 		t.Fatalf("dangerous command executed: %+v", fake.Calls())
 	}
+}
+
+func TestRunShellExecuteApprovedBypassesApprovalRequest(t *testing.T) {
+	fake := newRecordingShellRunner(shellResponse{result: ShellResult{Stdout: "ok\n", ExitCode: 0}})
+	tool := NewShellTool(ShellToolOptions{Runner: fake})
+	capable, ok := tool.(ApprovalCapable)
+	if !ok {
+		t.Fatal("run_shell does not implement ApprovalCapable")
+	}
+
+	payload := marshalToolInput(t, map[string]any{"command": "git reset --hard"})
+	result, err := capable.ExecuteApproved(context.Background(), payload, ApprovalScopeOnce)
+	if err != nil {
+		t.Fatalf("ExecuteApproved() error = %v", err)
+	}
+	if !result.OK || result.Content != "ok\n" {
+		t.Fatalf("result = %+v", result)
+	}
+	if result.Data["approval"] != ApprovalScopeOnce {
+		t.Fatalf("approval = %v", result.Data["approval"])
+	}
+	if len(fake.Calls()) != 1 {
+		t.Fatalf("calls = %d, want 1", len(fake.Calls()))
+	}
+}
+
+func TestRunShellApprovalKey(t *testing.T) {
+	tool := NewShellTool(ShellToolOptions{WorkspaceRoot: t.TempDir()})
+	capable := tool.(ApprovalCapable)
+	key, ok := capable.ApprovalKey(marshalToolInput(t, map[string]any{"command": "git reset --hard"}))
+	if !ok || !strings.Contains(key, "git reset --hard") {
+		t.Fatalf("key=%q ok=%v", key, ok)
+	}
+}
+
+func marshalToolInput(t *testing.T, input map[string]any) []byte {
+	t.Helper()
+	payload, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	return payload
 }
 
 func TestRunShellBlocksCriticalCommand(t *testing.T) {

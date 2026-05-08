@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -77,7 +78,10 @@ func runPrompt(ctx context.Context, prompt string) error {
 	if err != nil {
 		return err
 	}
-	components, err := app.Build(ctx, app.BuildOptions{Config: cfg})
+	components, err := app.Build(ctx, app.BuildOptions{
+		Config:   cfg,
+		Approver: terminalApprover{in: os.Stdin, out: os.Stderr},
+	})
 	if err != nil {
 		return err
 	}
@@ -112,6 +116,39 @@ func runPrompt(ctx context.Context, prompt string) error {
 	}
 	fmt.Println()
 	return nil
+}
+
+type terminalApprover struct {
+	in  *os.File
+	out *os.File
+}
+
+func (a terminalApprover) Approve(ctx context.Context, req agent.ApprovalRequest) (agent.ApprovalDecision, error) {
+	fmt.Fprintf(a.out, "\nApproval required for tool %s\n", req.ToolName)
+	if req.Reason != "" {
+		fmt.Fprintf(a.out, "Reason: %s\n", req.Reason)
+	}
+	fmt.Fprint(a.out, "Choose: [o]nce, [a]lways, [n]o: ")
+	reader := bufio.NewReader(a.in)
+	for {
+		if err := ctx.Err(); err != nil {
+			return agent.ApprovalDecisionDeny, err
+		}
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return agent.ApprovalDecisionDeny, err
+		}
+		switch strings.ToLower(strings.TrimSpace(line)) {
+		case "o", "once", "y", "yes":
+			return agent.ApprovalDecisionOnce, nil
+		case "a", "always":
+			return agent.ApprovalDecisionAlways, nil
+		case "n", "no", "deny", "reject":
+			return agent.ApprovalDecisionDeny, nil
+		default:
+			fmt.Fprint(a.out, "Enter o, a, or n: ")
+		}
+	}
 }
 
 func printConfig() error {

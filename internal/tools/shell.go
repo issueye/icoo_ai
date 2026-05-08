@@ -103,27 +103,14 @@ func (t runShellTool) Definition() ToolDefinition {
 	return definition(t.Name(), t.Description(), `{"type":"object","required":["command"],"properties":{"command":{"type":"string"},"working_dir":{"type":"string"},"timeout_seconds":{"type":"integer","minimum":1}}}`)
 }
 func (t runShellTool) Execute(ctx context.Context, input json.RawMessage) (ToolResult, error) {
-	var req struct {
-		Command        string `json:"command"`
-		WorkingDir     string `json:"working_dir"`
-		TimeoutSeconds int    `json:"timeout_seconds"`
+	req, result, ok := t.parseRequest(input)
+	if !ok {
+		return result, nil
 	}
-	if err := json.Unmarshal(input, &req); err != nil {
-		return toolError("invalid_json", err.Error(), nil), nil
-	}
-	if req.Command == "" {
-		return toolError("invalid_input", "command is required", nil), nil
-	}
-
-	workingDir, err := t.base.resolveWorkingDir(req.WorkingDir)
-	if err != nil {
-		return toolError("invalid_working_dir", err.Error(), map[string]any{"working_dir": req.WorkingDir}), nil
-	}
-	timeout := t.base.timeout(time.Duration(req.TimeoutSeconds) * time.Second)
 
 	decision := t.base.policy.EvaluateCommand(policy.CommandRequest{
 		Command:    req.Command,
-		WorkingDir: workingDir,
+		WorkingDir: req.WorkingDir,
 	})
 	if decision.Action == policy.DecisionBlock {
 		return policyToolResult("policy_blocked", decision), nil
@@ -131,13 +118,64 @@ func (t runShellTool) Execute(ctx context.Context, input json.RawMessage) (ToolR
 	if decision.Action == policy.DecisionRequestApproval {
 		return policyToolResult("approval_required", decision), nil
 	}
+	return t.executeParsed(ctx, req, "")
+}
+
+func (t runShellTool) ApprovalKey(input json.RawMessage) (string, bool) {
+	req, _, ok := t.parseRequest(input)
+	if !ok {
+		return "", false
+	}
+	return req.WorkingDir + "\x00" + req.Command, true
+}
+
+func (t runShellTool) ExecuteApproved(ctx context.Context, input json.RawMessage, scope ApprovalScope) (ToolResult, error) {
+	req, result, ok := t.parseRequest(input)
+	if !ok {
+		return result, nil
+	}
+	return t.executeParsed(ctx, req, scope)
+}
+
+type shellRequest struct {
+	Command        string
+	WorkingDir     string
+	TimeoutSeconds int
+}
+
+func (t runShellTool) parseRequest(input json.RawMessage) (shellRequest, ToolResult, bool) {
+	var req struct {
+		Command        string `json:"command"`
+		WorkingDir     string `json:"working_dir"`
+		TimeoutSeconds int    `json:"timeout_seconds"`
+	}
+	if err := json.Unmarshal(input, &req); err != nil {
+		return shellRequest{}, toolError("invalid_json", err.Error(), nil), false
+	}
+	if req.Command == "" {
+		return shellRequest{}, toolError("invalid_input", "command is required", nil), false
+	}
+
+	workingDir, err := t.base.resolveWorkingDir(req.WorkingDir)
+	if err != nil {
+		return shellRequest{}, toolError("invalid_working_dir", err.Error(), map[string]any{"working_dir": req.WorkingDir}), false
+	}
+	return shellRequest{Command: req.Command, WorkingDir: workingDir, TimeoutSeconds: req.TimeoutSeconds}, ToolResult{}, true
+}
+
+func (t runShellTool) executeParsed(ctx context.Context, req shellRequest, approval ApprovalScope) (ToolResult, error) {
+	timeout := t.base.timeout(time.Duration(req.TimeoutSeconds) * time.Second)
+	data := map[string]any{}
+	if approval != "" {
+		data["approval"] = approval
+	}
 
 	start := time.Now()
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	result, err := t.base.runner.Run(runCtx, ShellCommand{
 		Command: req.Command,
-		Dir:     workingDir,
+		Dir:     req.WorkingDir,
 		Timeout: timeout,
 	})
 	elapsed := time.Since(start)
@@ -148,7 +186,7 @@ func (t runShellTool) Execute(ctx context.Context, input json.RawMessage) (ToolR
 		}
 		return toolError(code, err.Error(), map[string]any{
 			"command":         req.Command,
-			"working_dir":     workingDir,
+			"working_dir":     req.WorkingDir,
 			"timeout_seconds": int(timeout.Seconds()),
 			"elapsed_ms":      elapsed.Milliseconds(),
 			"stdout":          result.Stdout,
@@ -157,20 +195,18 @@ func (t runShellTool) Execute(ctx context.Context, input json.RawMessage) (ToolR
 		}), nil
 	}
 
+	data["command"] = req.Command
+	data["working_dir"] = req.WorkingDir
+	data["timeout_seconds"] = int(timeout.Seconds())
+	data["elapsed_ms"] = elapsed.Milliseconds()
+	data["stdout"] = result.Stdout
+	data["stderr"] = result.Stderr
+	data["exit_code"] = result.ExitCode
 	return ToolResult{
 		OK:      result.ExitCode == 0,
 		Content: shellContent(result),
 		Error:   shellError(result),
-		Data: map[string]any{
-			"command":         req.Command,
-			"working_dir":     workingDir,
-			"timeout_seconds": int(timeout.Seconds()),
-			"elapsed_ms":      elapsed.Milliseconds(),
-			"stdout":          result.Stdout,
-			"stderr":          result.Stderr,
-			"exit_code":       result.ExitCode,
-			"policy":          decision,
-		},
+		Data:    data,
 	}, nil
 }
 
