@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/icoo-ai/icoo-ai/internal/agent"
+	"github.com/icoo-ai/icoo-ai/internal/app"
 	"github.com/icoo-ai/icoo-ai/internal/config"
 )
 
@@ -24,9 +26,9 @@ func run(args []string) error {
 
 	switch args[0] {
 	case "serve":
-		fmt.Println("icoo-ai serve is not implemented yet")
+		return serve(context.Background())
 	case "run":
-		fmt.Println("icoo-ai run is not implemented yet")
+		return runPrompt(context.Background(), strings.Join(args[1:], " "))
 	case "config":
 		return printConfig()
 	case "doctor":
@@ -35,6 +37,69 @@ func run(args []string) error {
 		return fmt.Errorf("unknown command %q", args[0])
 	}
 
+	return nil
+}
+
+func serve(ctx context.Context) error {
+	cfg, err := config.Load(config.LoadOptions{})
+	if err != nil {
+		return err
+	}
+	server, err := app.NewACPServer(ctx, app.BuildOptions{
+		Config: cfg,
+		Stdin:  os.Stdin,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	})
+	if err != nil {
+		return err
+	}
+	return server.Serve()
+}
+
+func runPrompt(ctx context.Context, prompt string) error {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return fmt.Errorf("prompt is required")
+	}
+	cfg, err := config.Load(config.LoadOptions{})
+	if err != nil {
+		return err
+	}
+	components, err := app.Build(ctx, app.BuildOptions{Config: cfg})
+	if err != nil {
+		return err
+	}
+	session, err := components.Runtime.NewSession(ctx, agent.NewSessionRequest{})
+	if err != nil {
+		return err
+	}
+	events, err := components.Runtime.Prompt(ctx, agent.PromptRequest{
+		SessionID: session.ID,
+		Prompt:    prompt,
+	})
+	if err != nil {
+		return err
+	}
+	for event := range events {
+		switch event.Type {
+		case agent.EventMessageDelta:
+			fmt.Print(event.Content)
+		case agent.EventToolCallStarted:
+			if name, _ := event.Data["name"].(string); name != "" {
+				fmt.Fprintf(os.Stderr, "\n[tool] %s\n", name)
+			}
+		case agent.EventToolCallCompleted:
+			if event.Error != "" {
+				fmt.Fprintf(os.Stderr, "[tool-error] %s\n", event.Error)
+			}
+		case agent.EventRunFailed:
+			return fmt.Errorf(event.Error)
+		case agent.EventRunCancelled:
+			return ctx.Err()
+		}
+	}
+	fmt.Println()
 	return nil
 }
 
