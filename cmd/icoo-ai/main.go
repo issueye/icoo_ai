@@ -39,8 +39,6 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
-
-	return nil
 }
 
 func migrateClaudeConfig(args []string) error {
