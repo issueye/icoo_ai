@@ -15,6 +15,13 @@ func TestRunUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestMigrateClaudeConfigUsage(t *testing.T) {
+	err := run([]string{"migrate-claude-config"})
+	if err == nil || !strings.Contains(err.Error(), "usage: icoo-ai migrate-claude-config") {
+		t.Fatalf("run() error = %v", err)
+	}
+}
+
 func TestConfigCommandPrintsDefaults(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())

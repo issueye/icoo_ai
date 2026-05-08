@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -20,7 +21,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		fmt.Println("icoo-ai: use `serve`, `run`, `config`, or `doctor`")
+		fmt.Println("icoo-ai: use `serve`, `run`, `config`, `doctor`, or `migrate-claude-config`")
 		return nil
 	}
 
@@ -33,11 +34,23 @@ func run(args []string) error {
 		return printConfig()
 	case "doctor":
 		return doctor(context.Background())
+	case "migrate-claude-config":
+		return migrateClaudeConfig(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
 
 	return nil
+}
+
+func migrateClaudeConfig(args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("usage: icoo-ai migrate-claude-config <source.json> <dest.toml>")
+	}
+	return config.MigrateClaudeCodeConfig(config.ClaudeCodeMigrationOptions{
+		SourcePath: args[0],
+		DestPath:   args[1],
+	})
 }
 
 func serve(ctx context.Context) error {
@@ -94,7 +107,7 @@ func runPrompt(ctx context.Context, prompt string) error {
 				fmt.Fprintf(os.Stderr, "[tool-error] %s\n", event.Error)
 			}
 		case agent.EventRunFailed:
-			return fmt.Errorf(event.Error)
+			return errors.New(event.Error)
 		case agent.EventRunCancelled:
 			return ctx.Err()
 		}

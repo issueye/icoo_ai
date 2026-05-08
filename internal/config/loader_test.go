@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -296,10 +295,37 @@ func TestLoadRejectsUnsupportedApprovalMode(t *testing.T) {
 	}
 }
 
-func TestMigrateClaudeCodeConfigPlaceholder(t *testing.T) {
-	err := MigrateClaudeCodeConfig(ClaudeCodeMigrationOptions{})
-	if !errors.Is(err, ErrMigrationNotImplemented) {
-		t.Fatalf("MigrateClaudeCodeConfig() error = %v, want ErrMigrationNotImplemented", err)
+func TestMigrateClaudeCodeConfig(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "claude.json")
+	dest := filepath.Join(dir, ".icoo-ai", "config.toml")
+	writeFile(t, source, `{
+		"model": "gpt-4.1",
+		"permissionMode": "workspace-write",
+		"shellTimeoutSeconds": 42,
+		"skills": ["go-code-review"],
+		"mcpServers": {
+			"filesystem": {
+				"transport": "stdio",
+				"command": "mcp-server-filesystem",
+				"args": ["."]
+			}
+		}
+	}`)
+
+	if err := MigrateClaudeCodeConfig(ClaudeCodeMigrationOptions{SourcePath: source, DestPath: dest}); err != nil {
+		t.Fatalf("MigrateClaudeCodeConfig() error = %v", err)
+	}
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `model = 'gpt-4.1'`) && !strings.Contains(text, `model = "gpt-4.1"`) {
+		t.Fatalf("migrated config missing model: %s", text)
+	}
+	if !strings.Contains(text, "claude_code_compat = true") {
+		t.Fatalf("migrated config missing compat flag: %s", text)
 	}
 }
 

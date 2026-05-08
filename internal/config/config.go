@@ -1,7 +1,13 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 const (
@@ -196,5 +202,132 @@ func Default() Config {
 }
 
 func MigrateClaudeCodeConfig(opts ClaudeCodeMigrationOptions) error {
-	return ErrMigrationNotImplemented
+	if opts.SourcePath == "" {
+		return fmt.Errorf("source path is required")
+	}
+	if opts.DestPath == "" {
+		return fmt.Errorf("destination path is required")
+	}
+	data, err := os.ReadFile(opts.SourcePath)
+	if err != nil {
+		return fmt.Errorf("read Claude Code config: %w", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("parse Claude Code config: %w", err)
+	}
+	cfg := Default()
+	cfg.ClaudeCodeCompat = true
+
+	applyClaudeString(raw, "model", &cfg.Model)
+	applyClaudeString(raw, "provider", &cfg.Provider)
+	applyClaudeString(raw, "baseURL", &cfg.BaseURL)
+	applyClaudeString(raw, "base_url", &cfg.BaseURL)
+	if mode, ok := stringValue(raw, "permissionMode", "permission_mode", "approvalMode", "approval_mode"); ok {
+		cfg.ApprovalMode = ApprovalMode(mode)
+	}
+	if timeout, ok := intValue(raw, "shellTimeoutSeconds", "shell_timeout_seconds"); ok {
+		cfg.ShellTimeoutSeconds = timeout
+	}
+	if maxTokens, ok := intValue(raw, "maxContextTokens", "max_context_tokens"); ok {
+		cfg.MaxContextTokens = maxTokens
+	}
+	if respect, ok := boolValue(raw, "respectGitignore", "respect_gitignore"); ok {
+		cfg.RespectGitignore = respect
+	}
+	if skills, ok := stringSliceValue(raw, "skills"); ok {
+		cfg.Skills.Enabled = skills
+	}
+	if mcpServers, ok := raw["mcpServers"].(map[string]any); ok {
+		cfg.MCP.Enabled = len(mcpServers) > 0
+		cfg.MCP.Servers = map[string]MCPServerConfig{}
+		for name, value := range mcpServers {
+			serverMap, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			server := MCPServerConfig{Enabled: true}
+			applyClaudeString(serverMap, "transport", &server.Transport)
+			applyClaudeString(serverMap, "command", &server.Command)
+			applyClaudeString(serverMap, "url", &server.URL)
+			if args, ok := stringSliceValue(serverMap, "args"); ok {
+				server.Args = args
+			}
+			cfg.MCP.Servers[name] = server
+		}
+	}
+	if err := cfg.validate(); err != nil {
+		return fmt.Errorf("migrated Claude Code config is invalid: %w", err)
+	}
+	encoded, err := toml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("encode migrated config: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(opts.DestPath), 0o755); err != nil {
+		return fmt.Errorf("create destination directory: %w", err)
+	}
+	if err := os.WriteFile(opts.DestPath, encoded, 0o600); err != nil {
+		return fmt.Errorf("write migrated config: %w", err)
+	}
+	return nil
+}
+
+func applyClaudeString(raw map[string]any, key string, target *string) {
+	if value, ok := stringValue(raw, key); ok {
+		*target = value
+	}
+}
+
+func stringValue(raw map[string]any, keys ...string) (string, bool) {
+	for _, key := range keys {
+		value, ok := raw[key]
+		if !ok {
+			continue
+		}
+		text, ok := value.(string)
+		if ok && text != "" {
+			return text, true
+		}
+	}
+	return "", false
+}
+
+func intValue(raw map[string]any, keys ...string) (int, bool) {
+	for _, key := range keys {
+		switch value := raw[key].(type) {
+		case float64:
+			return int(value), true
+		case int:
+			return value, true
+		}
+	}
+	return 0, false
+}
+
+func boolValue(raw map[string]any, keys ...string) (bool, bool) {
+	for _, key := range keys {
+		value, ok := raw[key].(bool)
+		if ok {
+			return value, true
+		}
+	}
+	return false, false
+}
+
+func stringSliceValue(raw map[string]any, key string) ([]string, bool) {
+	value, ok := raw[key]
+	if !ok {
+		return nil, false
+	}
+	items, ok := value.([]any)
+	if !ok {
+		return nil, false
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if text, ok := item.(string); ok && text != "" {
+			out = append(out, text)
+		}
+	}
+	return out, true
 }

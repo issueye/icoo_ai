@@ -11,6 +11,7 @@ import (
 	"github.com/icoo-ai/icoo-ai/internal/audit"
 	"github.com/icoo-ai/icoo-ai/internal/config"
 	"github.com/icoo-ai/icoo-ai/internal/llm"
+	"github.com/icoo-ai/icoo-ai/internal/mcp"
 	"github.com/icoo-ai/icoo-ai/internal/policy"
 	"github.com/icoo-ai/icoo-ai/internal/protocol/acp"
 	"github.com/icoo-ai/icoo-ai/internal/session"
@@ -155,6 +156,16 @@ func buildTools(cwd string, cfg config.Config, p policy.Policy, auditLogger audi
 		Policy:      p,
 		AuditLogger: auditLogger,
 	}))
+	mcpTools, err := tools.NewMCPTools(context.Background(), tools.MCPToolOptions{
+		Config:      cfg.MCP,
+		Factory:     mcp.Mark3LabsClientFactory{},
+		Policy:      p,
+		AuditLogger: auditLogger,
+	})
+	if err != nil {
+		return nil, err
+	}
+	registered = append(registered, mcpTools...)
 	return registered, nil
 }
 
