@@ -16,6 +16,7 @@ const (
 	EventPolicyDecision EventType = "policy_decision"
 	EventSkillUse       EventType = "skill_use"
 	EventHookUse        EventType = "hook_use"
+	EventSubagentRun    EventType = "subagent_run"
 )
 
 type Event struct {

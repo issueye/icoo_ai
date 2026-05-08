@@ -15,6 +15,9 @@ import (
 	"github.com/icoo-ai/icoo-ai/internal/policy"
 	"github.com/icoo-ai/icoo-ai/internal/protocol/acp"
 	"github.com/icoo-ai/icoo-ai/internal/session"
+	"github.com/icoo-ai/icoo-ai/internal/skills"
+	"github.com/icoo-ai/icoo-ai/internal/skilltools"
+	"github.com/icoo-ai/icoo-ai/internal/subagent"
 	"github.com/icoo-ai/icoo-ai/internal/tools"
 )
 
@@ -68,10 +71,6 @@ func Build(ctx context.Context, opts BuildOptions) (Components, error) {
 		}
 	}
 
-	registeredTools, err := buildTools(cwd, opts.Config, p, auditLogger)
-	if err != nil {
-		return Components{}, err
-	}
 	provider := opts.Provider
 	if provider == nil {
 		var err error
@@ -79,6 +78,10 @@ func Build(ctx context.Context, opts BuildOptions) (Components, error) {
 		if err != nil {
 			return Components{}, err
 		}
+	}
+	registeredTools, err := buildTools(cwd, home, opts.Config, p, auditLogger, provider, opts.Approver)
+	if err != nil {
+		return Components{}, err
 	}
 	loop, err := agent.NewReactLoop(agent.ReactLoopOptions{
 		Provider:      provider,
@@ -129,8 +132,8 @@ func buildProvider(cfg config.Config) (llm.Provider, error) {
 	})
 }
 
-func buildTools(cwd string, cfg config.Config, p policy.Policy, auditLogger audit.Logger) ([]tools.Tool, error) {
-	var registered []tools.Tool
+func buildTools(cwd, home string, cfg config.Config, p policy.Policy, auditLogger audit.Logger, provider llm.Provider, approver agent.Approver) ([]tools.Tool, error) {
+	var baseTools []tools.Tool
 	fileTools, err := tools.NewFileTools(tools.FileToolOptions{
 		WorkspaceRoot: cwd,
 		Policy:        p,
@@ -138,23 +141,23 @@ func buildTools(cwd string, cfg config.Config, p policy.Policy, auditLogger audi
 	if err != nil {
 		return nil, err
 	}
-	registered = append(registered, fileTools...)
+	baseTools = append(baseTools, fileTools...)
 	timeout := time.Duration(cfg.ShellTimeoutSeconds) * time.Second
-	registered = append(registered, tools.NewShellTool(tools.ShellToolOptions{
+	baseTools = append(baseTools, tools.NewShellTool(tools.ShellToolOptions{
 		WorkspaceRoot:  cwd,
 		DefaultTimeout: timeout,
 		Policy:         p,
 	}))
-	registered = append(registered, tools.NewGitTools(tools.GitToolOptions{
+	baseTools = append(baseTools, tools.NewGitTools(tools.GitToolOptions{
 		WorkspaceRoot:  cwd,
 		DefaultTimeout: timeout,
 		Policy:         p,
 	})...)
-	registered = append(registered, tools.NewWebSearchTool(tools.WebSearchOptions{
+	baseTools = append(baseTools, tools.NewWebSearchTool(tools.WebSearchOptions{
 		Policy:      p,
 		AuditLogger: auditLogger,
 	}))
-	registered = append(registered, tools.NewWebFetchTool(tools.WebFetchOptions{
+	baseTools = append(baseTools, tools.NewWebFetchTool(tools.WebFetchOptions{
 		Policy:      p,
 		AuditLogger: auditLogger,
 	}))
@@ -167,7 +170,42 @@ func buildTools(cwd string, cfg config.Config, p policy.Policy, auditLogger audi
 	if err != nil {
 		return nil, err
 	}
-	registered = append(registered, mcpTools...)
+	baseTools = append(baseTools, mcpTools...)
+
+	registered := append([]tools.Tool(nil), baseTools...)
+	if provider != nil {
+		runner, err := subagent.NewLocalRunner(subagent.LocalRunnerOptions{
+			Provider:      provider,
+			Tools:         baseTools,
+			Model:         cfg.Model,
+			MaxToolRounds: 6,
+			Approver:      approver,
+		})
+		if err != nil {
+			return nil, err
+		}
+		registered = append(registered, subagent.NewTool(subagent.ToolOptions{
+			Runner:      runner,
+			CWD:         cwd,
+			Model:       cfg.Model,
+			AuditLogger: auditLogger,
+		}))
+		sources := skills.DefaultSources(skills.SourceOptions{
+			HomeDir:    home,
+			ProjectDir: cwd,
+			CustomDirs: cfg.Skills.Paths,
+		})
+		registered = append(registered, skilltools.NewTools(skilltools.Options{
+			Sources:       sources,
+			WorkspaceRoot: cwd,
+			CWD:           cwd,
+			Model:         cfg.Model,
+			Policy:        p,
+			Runner:        runner,
+			Approver:      approver,
+			AuditLogger:   auditLogger,
+		})...)
+	}
 	return registered, nil
 }
 

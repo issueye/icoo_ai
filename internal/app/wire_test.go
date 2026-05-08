@@ -38,6 +38,15 @@ func TestBuildCreatesComponents(t *testing.T) {
 	if components.Runtime == nil || components.Loop == nil || len(components.Tools) == 0 {
 		t.Fatalf("components incomplete: %+v", components)
 	}
+	toolNames := map[string]bool{}
+	for _, tool := range components.Tools {
+		toolNames[tool.Name()] = true
+	}
+	for _, name := range []string{"subagent_run", "skill_list", "skill_get", "skill_add", "skill_delete", "skill_execute"} {
+		if !toolNames[name] {
+			t.Fatalf("tool %q was not registered", name)
+		}
+	}
 }
 
 func TestBuildReturnsMCPConfigError(t *testing.T) {
