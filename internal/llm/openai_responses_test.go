@@ -181,6 +181,60 @@ func TestOpenAIResponsesProviderErrorResponseRedactsAPIKey(t *testing.T) {
 	}
 }
 
+func TestOpenAIResponsesProviderRetriesRetriableStatus(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			http.Error(w, `{"error":{"message":"rate limited"}}`, http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSE(t, w, `{"type":"response.output_text.delta","delta":"ok"}`)
+		writeSSE(t, w, `{"type":"response.completed"}`)
+	}))
+	defer server.Close()
+
+	provider := newTestOpenAIResponsesProviderWithRetry(t, server.URL, RetryConfig{
+		MaxAttempts:  2,
+		InitialDelay: time.Millisecond,
+		MaxDelay:     time.Millisecond,
+	})
+	events, err := provider.Stream(context.Background(), CompletionRequest{Messages: []Message{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+	got := collectCompletionEvents(t, events)
+	if text := completionText(got); text != "ok" {
+		t.Fatalf("text = %q", text)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+}
+
+func TestOpenAIResponsesProviderDoesNotRetryBadRequest(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		http.Error(w, `{"error":{"message":"bad request"}}`, http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	provider := newTestOpenAIResponsesProviderWithRetry(t, server.URL, RetryConfig{
+		MaxAttempts:  3,
+		InitialDelay: time.Millisecond,
+		MaxDelay:     time.Millisecond,
+	})
+	_, err := provider.Stream(context.Background(), CompletionRequest{Messages: []Message{{Role: "user", Content: "hi"}}})
+	if err == nil {
+		t.Fatal("Stream() error = nil")
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
+	}
+}
+
 func TestOpenAIResponsesProviderCancelBeforeResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
@@ -213,10 +267,17 @@ func TestOpenAIResponsesProviderCancelBeforeResponse(t *testing.T) {
 
 func newTestOpenAIResponsesProvider(t *testing.T, baseURL string) *OpenAIResponsesProvider {
 	t.Helper()
+	return newTestOpenAIResponsesProviderWithRetry(t, baseURL, RetryConfig{MaxAttempts: 1})
+}
+
+func newTestOpenAIResponsesProviderWithRetry(t *testing.T, baseURL string, retry RetryConfig) *OpenAIResponsesProvider {
+	t.Helper()
 	provider, err := NewOpenAIResponsesProvider(OpenAIResponsesConfig{
-		APIKey:  "test-key",
-		BaseURL: baseURL,
-		Model:   "gpt-default",
+		APIKey:       "test-key",
+		BaseURL:      baseURL,
+		Model:        "gpt-default",
+		Retry:        retry,
+		RetrySleeper: func(context.Context, time.Duration) error { return nil },
 	})
 	if err != nil {
 		t.Fatalf("NewOpenAIResponsesProvider() error = %v", err)

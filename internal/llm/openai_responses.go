@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/icoo-ai/icoo-ai/internal/tools"
 )
@@ -19,20 +20,34 @@ import (
 const (
 	defaultOpenAIResponsesBaseURL = "https://api.openai.com/v1"
 	openAIResponsesPath           = "/responses"
+	defaultRetryMaxAttempts       = 3
+	defaultRetryInitialDelay      = 500 * time.Millisecond
+	defaultRetryMaxDelay          = 5 * time.Second
 )
 
 type OpenAIResponsesConfig struct {
-	APIKey     string
-	BaseURL    string
-	Model      string
-	HTTPClient *http.Client
+	APIKey       string
+	BaseURL      string
+	Model        string
+	HTTPClient   *http.Client
+	Retry        RetryConfig
+	RetrySleeper func(context.Context, time.Duration) error
+}
+
+type RetryConfig struct {
+	MaxAttempts      int
+	InitialDelay     time.Duration
+	MaxDelay         time.Duration
+	RetryStatusCodes []int
 }
 
 type OpenAIResponsesProvider struct {
-	apiKey     string
-	baseURL    string
-	model      string
-	httpClient *http.Client
+	apiKey       string
+	baseURL      string
+	model        string
+	httpClient   *http.Client
+	retry        RetryConfig
+	retrySleeper func(context.Context, time.Duration) error
 }
 
 func NewOpenAIResponsesProvider(cfg OpenAIResponsesConfig) (*OpenAIResponsesProvider, error) {
@@ -58,10 +73,12 @@ func NewOpenAIResponsesProvider(cfg OpenAIResponsesConfig) (*OpenAIResponsesProv
 	}
 
 	return &OpenAIResponsesProvider{
-		apiKey:     apiKey,
-		baseURL:    baseURL,
-		model:      strings.TrimSpace(cfg.Model),
-		httpClient: httpClient,
+		apiKey:       apiKey,
+		baseURL:      baseURL,
+		model:        strings.TrimSpace(cfg.Model),
+		httpClient:   httpClient,
+		retry:        normalizeRetryConfig(cfg.Retry),
+		retrySleeper: firstRetrySleeper(cfg.RetrySleeper, sleepContext),
 	}, nil
 }
 
@@ -93,21 +110,9 @@ func (p *OpenAIResponsesProvider) Stream(ctx context.Context, req CompletionRequ
 		return nil, fmt.Errorf("encode OpenAI responses request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+openAIResponsesPath, bytes.NewReader(body))
+	resp, err := p.doWithRetry(ctx, body)
 	if err != nil {
-		return nil, fmt.Errorf("create OpenAI responses request: %w", err)
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	resp, err := p.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("openai responses request failed: %w", sanitizeAPIKey(err, p.apiKey))
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		defer resp.Body.Close()
-		return nil, openAIErrorResponse(resp)
+		return nil, err
 	}
 
 	out := make(chan CompletionEvent)
@@ -117,6 +122,48 @@ func (p *OpenAIResponsesProvider) Stream(ctx context.Context, req CompletionRequ
 		readOpenAIResponsesStream(ctx, resp.Body, out)
 	}()
 	return out, nil
+}
+
+func (p *OpenAIResponsesProvider) doWithRetry(ctx context.Context, body []byte) (*http.Response, error) {
+	attempts := p.retry.MaxAttempts
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		resp, err := p.doOnce(ctx, body)
+		if err == nil && resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+			return resp, nil
+		}
+		if err != nil {
+			lastErr = fmt.Errorf("openai responses request failed: %w", sanitizeAPIKey(err, p.apiKey))
+			if !isRetriableRequestError(ctx, err) || attempt == attempts {
+				return nil, lastErr
+			}
+		} else {
+			if !isRetriableStatus(p.retry, resp.StatusCode) || attempt == attempts {
+				defer resp.Body.Close()
+				return nil, openAIErrorResponse(resp)
+			}
+			lastErr = fmt.Errorf("openai responses request failed with status %d", resp.StatusCode)
+			drainAndClose(resp.Body)
+		}
+		if err := p.retrySleeper(ctx, retryDelay(p.retry, attempt)); err != nil {
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
+
+func (p *OpenAIResponsesProvider) doOnce(ctx context.Context, body []byte) (*http.Response, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+openAIResponsesPath, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create OpenAI responses request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+	return p.httpClient.Do(httpReq)
 }
 
 type openAIResponsesRequest struct {
@@ -419,6 +466,88 @@ func openAIErrorResponse(resp *http.Response) error {
 		message = resp.Status
 	}
 	return fmt.Errorf("openai responses request failed with status %d: %s", resp.StatusCode, message)
+}
+
+func normalizeRetryConfig(cfg RetryConfig) RetryConfig {
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = defaultRetryMaxAttempts
+	}
+	if cfg.InitialDelay <= 0 {
+		cfg.InitialDelay = defaultRetryInitialDelay
+	}
+	if cfg.MaxDelay <= 0 {
+		cfg.MaxDelay = defaultRetryMaxDelay
+	}
+	if cfg.MaxDelay < cfg.InitialDelay {
+		cfg.MaxDelay = cfg.InitialDelay
+	}
+	if len(cfg.RetryStatusCodes) == 0 {
+		cfg.RetryStatusCodes = []int{http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout}
+	} else {
+		cfg.RetryStatusCodes = append([]int(nil), cfg.RetryStatusCodes...)
+	}
+	return cfg
+}
+
+func isRetriableStatus(cfg RetryConfig, status int) bool {
+	for _, code := range cfg.RetryStatusCodes {
+		if status == code {
+			return true
+		}
+	}
+	return false
+}
+
+func isRetriableRequestError(ctx context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	if ctx.Err() != nil {
+		return false
+	}
+	return true
+}
+
+func retryDelay(cfg RetryConfig, attempt int) time.Duration {
+	delay := cfg.InitialDelay
+	for i := 1; i < attempt; i++ {
+		delay *= 2
+		if delay >= cfg.MaxDelay {
+			return cfg.MaxDelay
+		}
+	}
+	return delay
+}
+
+func sleepContext(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return ctx.Err()
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func firstRetrySleeper(values ...func(context.Context, time.Duration) error) func(context.Context, time.Duration) error {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return sleepContext
+}
+
+func drainAndClose(body io.ReadCloser) {
+	if body == nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, 64*1024))
+	_ = body.Close()
 }
 
 func sanitizeAPIKey(err error, apiKey string) error {

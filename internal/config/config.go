@@ -33,6 +33,7 @@ type Config struct {
 	AgentLoop           string          `json:"agent_loop" toml:"agent_loop"`
 	ClaudeCodeCompat    bool            `json:"claude_code_compat,omitempty" toml:"claude_code_compat,omitempty"`
 	WebSearch           WebSearchConfig `json:"web_search" toml:"web_search"`
+	Retry               RetryConfig     `json:"retry" toml:"retry"`
 	Skills              SkillsConfig    `json:"skills" toml:"skills"`
 	Hooks               HooksConfig     `json:"hooks" toml:"hooks"`
 	Audit               AuditConfig     `json:"audit" toml:"audit"`
@@ -50,6 +51,12 @@ const (
 
 type WebSearchConfig struct {
 	Provider string `json:"provider" toml:"provider"`
+}
+
+type RetryConfig struct {
+	MaxAttempts        int `json:"max_attempts,omitempty" toml:"max_attempts,omitempty"`
+	InitialDelayMillis int `json:"initial_delay_millis,omitempty" toml:"initial_delay_millis,omitempty"`
+	MaxDelayMillis     int `json:"max_delay_millis,omitempty" toml:"max_delay_millis,omitempty"`
 }
 
 type SkillsConfig struct {
@@ -122,6 +129,7 @@ type ConfigPatch struct {
 	AgentLoop           *string         `toml:"agent_loop,omitempty"`
 	ClaudeCodeCompat    *bool           `toml:"claude_code_compat,omitempty"`
 	WebSearch           *WebSearchPatch `toml:"web_search,omitempty"`
+	Retry               *RetryPatch     `toml:"retry,omitempty"`
 	Skills              *SkillsPatch    `toml:"skills,omitempty"`
 	Hooks               *HooksPatch     `toml:"hooks,omitempty"`
 	Audit               *AuditPatch     `toml:"audit,omitempty"`
@@ -130,6 +138,12 @@ type ConfigPatch struct {
 
 type WebSearchPatch struct {
 	Provider *string `toml:"provider,omitempty"`
+}
+
+type RetryPatch struct {
+	MaxAttempts        *int `toml:"max_attempts,omitempty"`
+	InitialDelayMillis *int `toml:"initial_delay_millis,omitempty"`
+	MaxDelayMillis     *int `toml:"max_delay_millis,omitempty"`
 }
 
 type SkillsPatch struct {
@@ -194,6 +208,11 @@ func Default() Config {
 		AgentLoop:        DefaultAgentLoop,
 		WebSearch: WebSearchConfig{
 			Provider: DefaultWebSearchProvider,
+		},
+		Retry: RetryConfig{
+			MaxAttempts:        3,
+			InitialDelayMillis: 500,
+			MaxDelayMillis:     5000,
 		},
 		Skills: SkillsConfig{},
 		Hooks:  HooksConfig{},

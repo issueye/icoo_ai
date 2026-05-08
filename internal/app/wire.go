@@ -139,6 +139,11 @@ func buildProvider(cfg config.Config) (llm.Provider, error) {
 		APIKey:  apiKey,
 		BaseURL: cfg.BaseURL,
 		Model:   cfg.Model,
+		Retry: llm.RetryConfig{
+			MaxAttempts:  cfg.Retry.MaxAttempts,
+			InitialDelay: time.Duration(cfg.Retry.InitialDelayMillis) * time.Millisecond,
+			MaxDelay:     time.Duration(cfg.Retry.MaxDelayMillis) * time.Millisecond,
+		},
 	})
 }
 

@@ -39,6 +39,9 @@ func (cfg *Config) applyPatch(patch ConfigPatch) error {
 	if patch.WebSearch != nil {
 		cfg.WebSearch.applyPatch(*patch.WebSearch)
 	}
+	if patch.Retry != nil {
+		cfg.Retry.applyPatch(*patch.Retry)
+	}
 	if patch.Skills != nil {
 		cfg.Skills.applyPatch(*patch.Skills)
 	}
@@ -60,6 +63,18 @@ func (cfg *Config) applyPatch(patch ConfigPatch) error {
 func (cfg *WebSearchConfig) applyPatch(patch WebSearchPatch) {
 	if patch.Provider != nil {
 		cfg.Provider = *patch.Provider
+	}
+}
+
+func (cfg *RetryConfig) applyPatch(patch RetryPatch) {
+	if patch.MaxAttempts != nil {
+		cfg.MaxAttempts = *patch.MaxAttempts
+	}
+	if patch.InitialDelayMillis != nil {
+		cfg.InitialDelayMillis = *patch.InitialDelayMillis
+	}
+	if patch.MaxDelayMillis != nil {
+		cfg.MaxDelayMillis = *patch.MaxDelayMillis
 	}
 }
 
@@ -201,6 +216,15 @@ func (cfg Config) validate() error {
 	}
 	if cfg.AgentLoop == "" {
 		return fmt.Errorf("agent_loop must not be empty")
+	}
+	if cfg.Retry.MaxAttempts < 0 {
+		return fmt.Errorf("retry.max_attempts must not be negative")
+	}
+	if cfg.Retry.InitialDelayMillis < 0 {
+		return fmt.Errorf("retry.initial_delay_millis must not be negative")
+	}
+	if cfg.Retry.MaxDelayMillis < 0 {
+		return fmt.Errorf("retry.max_delay_millis must not be negative")
 	}
 	if cfg.Audit.MaxSizeMB < 0 {
 		return fmt.Errorf("audit.max_size_mb must not be negative")

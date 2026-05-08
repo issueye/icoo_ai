@@ -19,6 +19,11 @@ claude_code_compat = true
 [web_search]
 provider = "duckduckgo"
 
+[retry]
+max_attempts = 3
+initial_delay_millis = 500
+max_delay_millis = 5000
+
 [skills]
 enabled = []
 disabled = []

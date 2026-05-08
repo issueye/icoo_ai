@@ -62,6 +62,11 @@ claude_code_compat = true
 [web_search]
 provider = "duckduckgo"
 
+[retry]
+max_attempts = 3
+initial_delay_millis = 500
+max_delay_millis = 5000
+
 [skills]
 enabled = []
 disabled = []
@@ -84,6 +89,8 @@ args = ["."]
 ```
 
 审计日志使用 Go `slog` JSON 输出，默认写入用户目录下的 `.icoo-ai/audit/audit.jsonl`。当日志超过 `max_size_mb` 后会自动轮转，最多保留 `max_backups` 个历史文件。
+
+OpenAI Responses 请求会按 `[retry]` 配置进行重试。默认只重试网络错误、`429` 和 `5xx` 响应，不会重试 `400`、`401`、`403` 等配置或认证错误。
 
 需要设置以下任意一个环境变量：
 

@@ -35,6 +35,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.AgentLoop != "react" {
 		t.Fatalf("AgentLoop = %q, want react", cfg.AgentLoop)
 	}
+	if cfg.Retry.MaxAttempts != 3 || cfg.Retry.InitialDelayMillis != 500 || cfg.Retry.MaxDelayMillis != 5000 {
+		t.Fatalf("Retry defaults = %+v", cfg.Retry)
+	}
 	if !cfg.RespectGitignore {
 		t.Fatalf("RespectGitignore = false, want true")
 	}
@@ -52,6 +55,11 @@ respect_gitignore = false
 
 [web_search]
 provider = "user-search"
+
+[retry]
+max_attempts = 4
+initial_delay_millis = 100
+max_delay_millis = 1000
 
 [skills]
 enabled = ["user-skill"]
@@ -114,6 +122,9 @@ args = ["."]
 	if cfg.WebSearch.Provider != "user-search" {
 		t.Fatalf("WebSearch.Provider = %q, want user-search", cfg.WebSearch.Provider)
 	}
+	if cfg.Retry.MaxAttempts != 4 || cfg.Retry.InitialDelayMillis != 100 || cfg.Retry.MaxDelayMillis != 1000 {
+		t.Fatalf("Retry = %+v, want user retry config", cfg.Retry)
+	}
 	if cfg.RespectGitignore {
 		t.Fatalf("RespectGitignore = true, want explicit user false")
 	}
@@ -157,19 +168,22 @@ provider = "project-search"
 		HomeDir: home,
 		CWD:     cwd,
 		Env: map[string]string{
-			"ICOO_AI_MODEL":                 "env-model",
-			"ICOO_AI_PROVIDER":              "env-provider",
-			"ICOO_AI_API_KEY":               "env-key",
-			"ICOO_AI_APPROVAL_MODE":         "full-auto",
-			"ICOO_AI_RESPECT_GITIGNORE":     "false",
-			"ICOO_AI_WEB_SEARCH_PROVIDER":   "env-search",
-			"ICOO_AI_SKILLS_ENABLED":        "go-code-review,tests",
-			"ICOO_AI_HOOKS_ENABLED":         "true",
-			"ICOO_AI_AUDIT_ENABLED":         "false",
-			"ICOO_AI_AUDIT_MAX_SIZE_MB":     "4",
-			"ICOO_AI_AUDIT_MAX_BACKUPS":     "7",
-			"ICOO_AI_MCP_ENABLED":           "true",
-			"ICOO_AI_SHELL_TIMEOUT_SECONDS": "90",
+			"ICOO_AI_MODEL":                      "env-model",
+			"ICOO_AI_PROVIDER":                   "env-provider",
+			"ICOO_AI_API_KEY":                    "env-key",
+			"ICOO_AI_APPROVAL_MODE":              "full-auto",
+			"ICOO_AI_RESPECT_GITIGNORE":          "false",
+			"ICOO_AI_WEB_SEARCH_PROVIDER":        "env-search",
+			"ICOO_AI_RETRY_MAX_ATTEMPTS":         "5",
+			"ICOO_AI_RETRY_INITIAL_DELAY_MILLIS": "25",
+			"ICOO_AI_RETRY_MAX_DELAY_MILLIS":     "250",
+			"ICOO_AI_SKILLS_ENABLED":             "go-code-review,tests",
+			"ICOO_AI_HOOKS_ENABLED":              "true",
+			"ICOO_AI_AUDIT_ENABLED":              "false",
+			"ICOO_AI_AUDIT_MAX_SIZE_MB":          "4",
+			"ICOO_AI_AUDIT_MAX_BACKUPS":          "7",
+			"ICOO_AI_MCP_ENABLED":                "true",
+			"ICOO_AI_SHELL_TIMEOUT_SECONDS":      "90",
 		},
 	})
 	if err != nil {
@@ -190,6 +204,9 @@ provider = "project-search"
 	}
 	if cfg.WebSearch.Provider != "env-search" {
 		t.Fatalf("WebSearch.Provider = %q, want env-search", cfg.WebSearch.Provider)
+	}
+	if cfg.Retry.MaxAttempts != 5 || cfg.Retry.InitialDelayMillis != 25 || cfg.Retry.MaxDelayMillis != 250 {
+		t.Fatalf("Retry = %+v, want env retry config", cfg.Retry)
 	}
 	if got := strings.Join(cfg.Skills.Enabled, ","); got != "go-code-review,tests" {
 		t.Fatalf("Skills.Enabled = %q, want go-code-review,tests", got)
@@ -221,6 +238,7 @@ func TestLoadExplicitOverridesHaveHighestPriority(t *testing.T) {
 	overrideAPI := "explicit-api"
 	overrideApproval := ApprovalModeReadonly
 	overrideSearch := "explicit-search"
+	overrideRetryAttempts := 6
 	overrideHooks := false
 	cfg, err := Load(LoadOptions{
 		HomeDir: home,
@@ -238,6 +256,9 @@ func TestLoadExplicitOverridesHaveHighestPriority(t *testing.T) {
 			ApprovalMode: &overrideApproval,
 			WebSearch: &WebSearchPatch{
 				Provider: &overrideSearch,
+			},
+			Retry: &RetryPatch{
+				MaxAttempts: &overrideRetryAttempts,
 			},
 			Hooks: &HooksPatch{
 				Enabled: &overrideHooks,
@@ -262,6 +283,9 @@ func TestLoadExplicitOverridesHaveHighestPriority(t *testing.T) {
 	}
 	if cfg.WebSearch.Provider != "explicit-search" {
 		t.Fatalf("WebSearch.Provider = %q, want explicit-search", cfg.WebSearch.Provider)
+	}
+	if cfg.Retry.MaxAttempts != 6 {
+		t.Fatalf("Retry.MaxAttempts = %d, want 6", cfg.Retry.MaxAttempts)
 	}
 	if cfg.Hooks.Enabled {
 		t.Fatalf("Hooks.Enabled = true, want explicit false")

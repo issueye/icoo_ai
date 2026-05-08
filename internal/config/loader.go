@@ -146,6 +146,20 @@ func envPatch(env map[string]string) (ConfigPatch, error) {
 		patch.WebSearch = &webSearch
 	}
 
+	var retry RetryPatch
+	if err := setInt(env, envPrefix+"RETRY_MAX_ATTEMPTS", &retry.MaxAttempts); err != nil {
+		return ConfigPatch{}, err
+	}
+	if err := setInt(env, envPrefix+"RETRY_INITIAL_DELAY_MILLIS", &retry.InitialDelayMillis); err != nil {
+		return ConfigPatch{}, err
+	}
+	if err := setInt(env, envPrefix+"RETRY_MAX_DELAY_MILLIS", &retry.MaxDelayMillis); err != nil {
+		return ConfigPatch{}, err
+	}
+	if retry.MaxAttempts != nil || retry.InitialDelayMillis != nil || retry.MaxDelayMillis != nil {
+		patch.Retry = &retry
+	}
+
 	var skills SkillsPatch
 	setStringSlice(env, envPrefix+"SKILLS_ENABLED", &skills.Enabled)
 	setStringSlice(env, envPrefix+"SKILLS_DISABLED", &skills.Disabled)
