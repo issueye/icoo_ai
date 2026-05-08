@@ -20,6 +20,7 @@ type ToolDefinition struct {
 
 type ToolCall struct {
 	ID        string          `json:"id"`
+	ItemID    string          `json:"item_id,omitempty"`
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }

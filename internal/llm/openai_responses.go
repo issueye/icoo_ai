@@ -141,6 +141,22 @@ type openAITool struct {
 func openAIInput(messages []Message) []map[string]any {
 	input := make([]map[string]any, 0, len(messages))
 	for _, msg := range messages {
+		if len(msg.ToolCalls) > 0 {
+			for _, call := range msg.ToolCalls {
+				item := map[string]any{
+					"type":      "function_call",
+					"call_id":   call.ID,
+					"name":      call.Name,
+					"arguments": string(call.Arguments),
+					"status":    "completed",
+				}
+				if call.ItemID != "" {
+					item["id"] = call.ItemID
+				}
+				input = append(input, item)
+			}
+			continue
+		}
 		if msg.Role == "tool" {
 			item := map[string]any{
 				"type":   "function_call_output",
@@ -357,6 +373,7 @@ func emitOpenAIToolCall(ctx context.Context, state *openAIStreamState, itemID, c
 		Type: CompletionEventToolCall,
 		ToolCall: &tools.ToolCall{
 			ID:        id,
+			ItemID:    itemID,
 			Name:      call.Name,
 			Arguments: json.RawMessage(call.Arguments.String()),
 		},

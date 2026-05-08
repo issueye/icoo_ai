@@ -96,9 +96,7 @@ func (l *ReactLoop) run(ctx context.Context, req RunRequest, out chan<- Event) {
 			return
 		}
 
-		if assistantText != "" {
-			messages = append(messages, llm.Message{Role: "assistant", Content: assistantText})
-		}
+		messages = append(messages, llm.Message{Role: "assistant", Content: assistantText, ToolCalls: toolCalls})
 		for _, call := range toolCalls {
 			result, ok := l.executeTool(ctx, req.SessionID, call, out)
 			if !ok {
