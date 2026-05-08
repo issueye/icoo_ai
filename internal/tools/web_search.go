@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/icoo-ai/icoo-ai/internal/audit"
+	"github.com/icoo-ai/icoo-ai/internal/netutil"
 	"github.com/icoo-ai/icoo-ai/internal/policy"
 )
 
@@ -45,6 +46,7 @@ type WebSearchOptions struct {
 	AuditLogger audit.Logger
 	Timeout     time.Duration
 	MaxResults  int
+	Proxy       netutil.ProxyConfig
 	Now         func() time.Time
 }
 
@@ -67,7 +69,7 @@ func NewWebSearchTool(opts WebSearchOptions) Tool {
 	}
 	client := opts.Client
 	if client == nil {
-		client = NewDuckDuckGoSearchClient(DuckDuckGoSearchOptions{Policy: p, Timeout: timeout})
+		client = NewDuckDuckGoSearchClient(DuckDuckGoSearchOptions{Policy: p, Timeout: timeout, Proxy: opts.Proxy})
 	}
 	return webSearchTool{
 		client:      client,
@@ -201,6 +203,7 @@ type DuckDuckGoSearchOptions struct {
 	BaseURL string
 	Client  *http.Client
 	Policy  policy.Policy
+	Proxy   netutil.ProxyConfig
 	Timeout time.Duration
 	Now     func() time.Time
 }
@@ -223,27 +226,33 @@ func NewDuckDuckGoSearchClient(opts DuckDuckGoSearchOptions) SearchClient {
 		baseURL = defaultDuckDuckGoLiteURL
 	}
 	client := opts.Client
+	var clientErr error
 	if client == nil {
-		client = safeHTTPClient(p, defaultWebFetchRedirects)
+		client, clientErr = safeHTTPClient(p, defaultWebFetchRedirects, opts.Proxy)
 	}
 	return duckDuckGoSearchClient{
-		baseURL: baseURL,
-		client:  client,
-		policy:  p,
-		timeout: timeout,
-		now:     now,
+		baseURL:   baseURL,
+		client:    client,
+		clientErr: clientErr,
+		policy:    p,
+		timeout:   timeout,
+		now:       now,
 	}
 }
 
 type duckDuckGoSearchClient struct {
-	baseURL string
-	client  *http.Client
-	policy  policy.Policy
-	timeout time.Duration
-	now     func() time.Time
+	baseURL   string
+	client    *http.Client
+	clientErr error
+	policy    policy.Policy
+	timeout   time.Duration
+	now       func() time.Time
 }
 
 func (c duckDuckGoSearchClient) Search(ctx context.Context, req SearchRequest) (SearchResponse, error) {
+	if c.clientErr != nil {
+		return SearchResponse{}, fmt.Errorf("configure web_search proxy: %w", c.clientErr)
+	}
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
 		return SearchResponse{}, fmt.Errorf("query is required")

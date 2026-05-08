@@ -62,6 +62,20 @@ claude_code_compat = true
 [web_search]
 provider = "duckduckgo"
 
+[network]
+# 未配置时默认读取标准环境代理变量。
+# http_proxy = "http://127.0.0.1:7890"
+# https_proxy = "http://127.0.0.1:7890"
+# no_proxy = "localhost,127.0.0.1,.local"
+
+# 可选：只给 LLM 配置代理。
+# [network.llm]
+# https_proxy = "http://127.0.0.1:7890"
+
+# 可选：只给 DuckDuckGo 配置代理。
+# [network.duckduckgo]
+# http_proxy = "http://127.0.0.1:7890"
+
 [retry]
 max_attempts = 3
 initial_delay_millis = 500
@@ -91,6 +105,27 @@ args = ["."]
 审计日志使用 Go `slog` JSON 输出，默认写入用户目录下的 `.icoo-ai/audit/audit.jsonl`。当日志超过 `max_size_mb` 后会自动轮转，最多保留 `max_backups` 个历史文件。
 
 OpenAI Responses 请求会按 `[retry]` 配置进行重试。默认只重试网络错误、`429` 和 `5xx` 响应，不会重试 `400`、`401`、`403` 等配置或认证错误。
+
+网络代理可以通过 `[network]` 配置，也可以使用标准环境变量。显式配置 `[network]` 后会优先使用配置文件中的代理设置：
+
+```toml
+[network]
+http_proxy = "http://127.0.0.1:7890"
+https_proxy = "http://127.0.0.1:7890"
+no_proxy = "localhost,127.0.0.1,.local"
+```
+
+也可以只配置其中一个网络调用方向：
+
+```toml
+[network.llm]
+https_proxy = "http://127.0.0.1:7890"
+
+[network.duckduckgo]
+http_proxy = "http://127.0.0.1:7891"
+```
+
+对应环境变量为 `ICOO_AI_LLM_HTTP_PROXY`、`ICOO_AI_LLM_HTTPS_PROXY`、`ICOO_AI_LLM_NO_PROXY`，以及 `ICOO_AI_DUCKDUCKGO_HTTP_PROXY`、`ICOO_AI_DUCKDUCKGO_HTTPS_PROXY`、`ICOO_AI_DUCKDUCKGO_NO_PROXY`。
 
 需要设置以下任意一个环境变量：
 

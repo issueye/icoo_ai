@@ -12,6 +12,7 @@ import (
 	"github.com/icoo-ai/icoo-ai/internal/config"
 	"github.com/icoo-ai/icoo-ai/internal/llm"
 	"github.com/icoo-ai/icoo-ai/internal/mcp"
+	"github.com/icoo-ai/icoo-ai/internal/netutil"
 	"github.com/icoo-ai/icoo-ai/internal/policy"
 	"github.com/icoo-ai/icoo-ai/internal/protocol/acp"
 	"github.com/icoo-ai/icoo-ai/internal/session"
@@ -144,6 +145,7 @@ func buildProvider(cfg config.Config) (llm.Provider, error) {
 			InitialDelay: time.Duration(cfg.Retry.InitialDelayMillis) * time.Millisecond,
 			MaxDelay:     time.Duration(cfg.Retry.MaxDelayMillis) * time.Millisecond,
 		},
+		Proxy: llmProxyConfig(cfg),
 	})
 }
 
@@ -171,10 +173,12 @@ func buildTools(cwd, home string, cfg config.Config, p policy.Policy, auditLogge
 	baseTools = append(baseTools, tools.NewWebSearchTool(tools.WebSearchOptions{
 		Policy:      p,
 		AuditLogger: auditLogger,
+		Proxy:       duckDuckGoProxyConfig(cfg),
 	}))
 	baseTools = append(baseTools, tools.NewWebFetchTool(tools.WebFetchOptions{
 		Policy:      p,
 		AuditLogger: auditLogger,
+		Proxy:       proxyConfig(cfg),
 	}))
 	mcpTools, err := tools.NewMCPTools(context.Background(), tools.MCPToolOptions{
 		Config:      cfg.MCP,
@@ -222,6 +226,35 @@ func buildTools(cwd, home string, cfg config.Config, p policy.Policy, auditLogge
 		})...)
 	}
 	return registered, nil
+}
+
+func proxyConfig(cfg config.Config) netutil.ProxyConfig {
+	return netutil.ProxyConfig{
+		HTTPProxy:  cfg.Network.HTTPProxy,
+		HTTPSProxy: cfg.Network.HTTPSProxy,
+		NoProxy:    cfg.Network.NoProxy,
+	}
+}
+
+func llmProxyConfig(cfg config.Config) netutil.ProxyConfig {
+	return proxyOverride(proxyConfig(cfg), cfg.Network.LLM)
+}
+
+func duckDuckGoProxyConfig(cfg config.Config) netutil.ProxyConfig {
+	return proxyOverride(proxyConfig(cfg), cfg.Network.DuckDuckGo)
+}
+
+func proxyOverride(base netutil.ProxyConfig, override config.NetworkProxyConfig) netutil.ProxyConfig {
+	if override.HTTPProxy != "" {
+		base.HTTPProxy = override.HTTPProxy
+	}
+	if override.HTTPSProxy != "" {
+		base.HTTPSProxy = override.HTTPSProxy
+	}
+	if override.NoProxy != "" {
+		base.NoProxy = override.NoProxy
+	}
+	return base
 }
 
 func NewACPServer(ctx context.Context, opts BuildOptions) (*acp.Server, error) {

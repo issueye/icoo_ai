@@ -36,6 +36,9 @@ func (cfg *Config) applyPatch(patch ConfigPatch) error {
 	if patch.ClaudeCodeCompat != nil {
 		cfg.ClaudeCodeCompat = *patch.ClaudeCodeCompat
 	}
+	if patch.Network != nil {
+		cfg.Network.applyPatch(*patch.Network)
+	}
 	if patch.WebSearch != nil {
 		cfg.WebSearch.applyPatch(*patch.WebSearch)
 	}
@@ -63,6 +66,36 @@ func (cfg *Config) applyPatch(patch ConfigPatch) error {
 func (cfg *WebSearchConfig) applyPatch(patch WebSearchPatch) {
 	if patch.Provider != nil {
 		cfg.Provider = *patch.Provider
+	}
+}
+
+func (cfg *NetworkConfig) applyPatch(patch NetworkPatch) {
+	if patch.HTTPProxy != nil {
+		cfg.HTTPProxy = *patch.HTTPProxy
+	}
+	if patch.HTTPSProxy != nil {
+		cfg.HTTPSProxy = *patch.HTTPSProxy
+	}
+	if patch.NoProxy != nil {
+		cfg.NoProxy = *patch.NoProxy
+	}
+	if patch.LLM != nil {
+		cfg.LLM.applyPatch(*patch.LLM)
+	}
+	if patch.DuckDuckGo != nil {
+		cfg.DuckDuckGo.applyPatch(*patch.DuckDuckGo)
+	}
+}
+
+func (cfg *NetworkProxyConfig) applyPatch(patch NetworkProxyPatch) {
+	if patch.HTTPProxy != nil {
+		cfg.HTTPProxy = *patch.HTTPProxy
+	}
+	if patch.HTTPSProxy != nil {
+		cfg.HTTPSProxy = *patch.HTTPSProxy
+	}
+	if patch.NoProxy != nil {
+		cfg.NoProxy = *patch.NoProxy
 	}
 }
 

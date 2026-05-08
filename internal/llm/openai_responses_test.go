@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/icoo-ai/icoo-ai/internal/netutil"
 	"github.com/icoo-ai/icoo-ai/internal/tools"
 )
 
@@ -232,6 +233,41 @@ func TestOpenAIResponsesProviderDoesNotRetryBadRequest(t *testing.T) {
 	}
 	if attempts != 1 {
 		t.Fatalf("attempts = %d, want 1", attempts)
+	}
+}
+
+func TestOpenAIResponsesProviderUsesConfiguredProxy(t *testing.T) {
+	proxyRequests := 0
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyRequests++
+		if r.URL.Scheme != "http" || r.URL.Host == "" {
+			t.Fatalf("proxy request URL = %s", r.URL.String())
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSE(t, w, `{"type":"response.output_text.delta","delta":"proxied"}`)
+		writeSSE(t, w, `{"type":"response.completed"}`)
+	}))
+	defer proxy.Close()
+
+	provider, err := NewOpenAIResponsesProvider(OpenAIResponsesConfig{
+		APIKey:  "test-key",
+		BaseURL: "http://api.example.test",
+		Model:   "gpt-default",
+		Retry:   RetryConfig{MaxAttempts: 1},
+		Proxy:   netutil.ProxyConfig{HTTPProxy: proxy.URL},
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAIResponsesProvider() error = %v", err)
+	}
+	events, err := provider.Stream(context.Background(), CompletionRequest{Messages: []Message{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+	if text := completionText(collectCompletionEvents(t, events)); text != "proxied" {
+		t.Fatalf("text = %q", text)
+	}
+	if proxyRequests != 1 {
+		t.Fatalf("proxy requests = %d, want 1", proxyRequests)
 	}
 }
 

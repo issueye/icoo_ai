@@ -23,6 +23,24 @@ func TestBuildRequiresOpenAIKey(t *testing.T) {
 	}
 }
 
+func TestScopedProxyConfigOverridesGlobal(t *testing.T) {
+	cfg := config.Default()
+	cfg.Network.HTTPProxy = "http://global-proxy:8080"
+	cfg.Network.HTTPSProxy = "http://global-secure-proxy:8080"
+	cfg.Network.NoProxy = "localhost"
+	cfg.Network.LLM.HTTPSProxy = "http://llm-proxy:8080"
+	cfg.Network.DuckDuckGo.HTTPProxy = "http://ddg-proxy:8080"
+
+	llmProxy := llmProxyConfig(cfg)
+	if llmProxy.HTTPProxy != "http://global-proxy:8080" || llmProxy.HTTPSProxy != "http://llm-proxy:8080" || llmProxy.NoProxy != "localhost" {
+		t.Fatalf("llm proxy = %+v", llmProxy)
+	}
+	ddgProxy := duckDuckGoProxyConfig(cfg)
+	if ddgProxy.HTTPProxy != "http://ddg-proxy:8080" || ddgProxy.HTTPSProxy != "http://global-secure-proxy:8080" || ddgProxy.NoProxy != "localhost" {
+		t.Fatalf("duckduckgo proxy = %+v", ddgProxy)
+	}
+}
+
 func TestBuildUsesConfigAPIKey(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("ICOO_AI_OPENAI_API_KEY", "")

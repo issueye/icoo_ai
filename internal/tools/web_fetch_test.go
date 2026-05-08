@@ -1,12 +1,14 @@
 package tools
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/icoo-ai/icoo-ai/internal/netutil"
 	"github.com/icoo-ai/icoo-ai/internal/policy"
 )
 
@@ -86,6 +88,30 @@ func TestWebFetchLimitsRedirects(t *testing.T) {
 	}
 }
 
+func TestWebFetchUsesConfiguredHTTPProxy(t *testing.T) {
+	requests := 0
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.String() != "http://example.com/resource" {
+			t.Fatalf("proxy URL = %s", r.URL.String())
+		}
+		_, _ = w.Write([]byte("proxied"))
+	}))
+	defer proxy.Close()
+
+	tool := NewWebFetchTool(WebFetchOptions{
+		Policy: allowProxyPolicy{},
+		Proxy:  netutil.ProxyConfig{HTTPProxy: proxy.URL},
+	})
+	result := runTool(t, tool, map[string]any{"url": "http://example.com/resource"})
+	if !result.OK || result.Content != "proxied" {
+		t.Fatalf("result = %+v", result)
+	}
+	if requests != 1 {
+		t.Fatalf("proxy requests = %d, want 1", requests)
+	}
+}
+
 type allowPolicy struct{}
 
 func (allowPolicy) EvaluateCommand(policy.CommandRequest) policy.Decision {
@@ -125,4 +151,28 @@ func (blockNetworkPolicy) EvaluateMCP(policy.MCPRequest) policy.Decision {
 
 func fixedNow() time.Time {
 	return time.Date(2026, 5, 8, 1, 2, 3, 4, time.UTC)
+}
+
+type allowProxyPolicy struct{}
+
+func (allowProxyPolicy) EvaluateCommand(policy.CommandRequest) policy.Decision {
+	return policy.Decision{Action: policy.DecisionAllow, Risk: policy.RiskLevelLow}
+}
+func (allowProxyPolicy) EvaluatePath(policy.PathRequest) policy.Decision {
+	return policy.Decision{Action: policy.DecisionAllow, Risk: policy.RiskLevelLow}
+}
+func (allowProxyPolicy) EvaluateNetwork(req policy.NetworkRequest) policy.Decision {
+	if len(req.ResolvedIPs) == 0 {
+		return policy.Decision{Action: policy.DecisionAllow, Risk: policy.RiskLevelLow}
+	}
+	for _, ipText := range req.ResolvedIPs {
+		ip := net.ParseIP(ipText)
+		if ip != nil && ip.IsLoopback() {
+			return policy.Decision{Action: policy.DecisionAllow, Risk: policy.RiskLevelLow}
+		}
+	}
+	return policy.Decision{Action: policy.DecisionAllow, Risk: policy.RiskLevelLow}
+}
+func (allowProxyPolicy) EvaluateMCP(policy.MCPRequest) policy.Decision {
+	return policy.Decision{Action: policy.DecisionAllow, Risk: policy.RiskLevelLow}
 }

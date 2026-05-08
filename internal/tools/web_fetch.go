@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/icoo-ai/icoo-ai/internal/audit"
+	"github.com/icoo-ai/icoo-ai/internal/netutil"
 	"github.com/icoo-ai/icoo-ai/internal/policy"
 )
 
@@ -34,6 +35,7 @@ type WebFetchOptions struct {
 	Timeout      time.Duration
 	MaxRedirects int
 	Policy       policy.Policy
+	Proxy        netutil.ProxyConfig
 	AuditLogger  audit.Logger
 	Now          func() time.Time
 }
@@ -67,6 +69,7 @@ func NewWebFetchTool(opts WebFetchOptions) Tool {
 		maxBytes:     maxBytes,
 		timeout:      timeout,
 		maxRedirects: maxRedirects,
+		proxy:        opts.Proxy,
 		auditLogger:  opts.AuditLogger,
 		now:          now,
 	}
@@ -77,6 +80,7 @@ type webFetchTool struct {
 	maxBytes     int64
 	timeout      time.Duration
 	maxRedirects int
+	proxy        netutil.ProxyConfig
 	auditLogger  audit.Logger
 	now          func() time.Time
 }
@@ -122,7 +126,10 @@ func (t webFetchTool) Execute(ctx context.Context, input json.RawMessage) (ToolR
 		return toolError("policy_blocked", decision.Reason, decision.Details), nil
 	}
 
-	client := safeHTTPClient(t.policy, t.maxRedirects)
+	client, err := safeHTTPClient(t.policy, t.maxRedirects, t.proxy)
+	if err != nil {
+		return toolError("proxy_config_error", err.Error(), nil), nil
+	}
 	httpReq, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, req.URL, nil)
 	if err != nil {
 		return toolError("invalid_url", err.Error(), map[string]any{"url": req.URL}), nil
@@ -202,9 +209,13 @@ func (t webFetchTool) logNetwork(ctx context.Context, sourceURL, finalURL string
 	})
 }
 
-func safeHTTPClient(p policy.Policy, maxRedirects int) *http.Client {
+func safeHTTPClient(p policy.Policy, maxRedirects int, proxyCfg netutil.ProxyConfig) (*http.Client, error) {
+	proxy, err := netutil.ProxyFunc(proxyCfg)
+	if err != nil {
+		return nil, err
+	}
 	transport := &http.Transport{
-		Proxy: nil,
+		Proxy: proxy,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(address)
 			if err != nil {
@@ -239,7 +250,7 @@ func safeHTTPClient(p policy.Policy, maxRedirects int) *http.Client {
 			}
 			return nil
 		},
-	}
+	}, nil
 }
 
 func authorizeNetwork(ctx context.Context, p policy.Policy, rawURL, method string) policy.Decision {

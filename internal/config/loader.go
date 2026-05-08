@@ -140,6 +140,28 @@ func envPatch(env map[string]string) (ConfigPatch, error) {
 		return ConfigPatch{}, err
 	}
 
+	var network NetworkPatch
+	setString(env, envPrefix+"HTTP_PROXY", &network.HTTPProxy)
+	setString(env, envPrefix+"HTTPS_PROXY", &network.HTTPSProxy)
+	setString(env, envPrefix+"NO_PROXY", &network.NoProxy)
+	var llmProxy NetworkProxyPatch
+	setString(env, envPrefix+"LLM_HTTP_PROXY", &llmProxy.HTTPProxy)
+	setString(env, envPrefix+"LLM_HTTPS_PROXY", &llmProxy.HTTPSProxy)
+	setString(env, envPrefix+"LLM_NO_PROXY", &llmProxy.NoProxy)
+	if llmProxy.HTTPProxy != nil || llmProxy.HTTPSProxy != nil || llmProxy.NoProxy != nil {
+		network.LLM = &llmProxy
+	}
+	var duckDuckGoProxy NetworkProxyPatch
+	setString(env, envPrefix+"DUCKDUCKGO_HTTP_PROXY", &duckDuckGoProxy.HTTPProxy)
+	setString(env, envPrefix+"DUCKDUCKGO_HTTPS_PROXY", &duckDuckGoProxy.HTTPSProxy)
+	setString(env, envPrefix+"DUCKDUCKGO_NO_PROXY", &duckDuckGoProxy.NoProxy)
+	if duckDuckGoProxy.HTTPProxy != nil || duckDuckGoProxy.HTTPSProxy != nil || duckDuckGoProxy.NoProxy != nil {
+		network.DuckDuckGo = &duckDuckGoProxy
+	}
+	if network.HTTPProxy != nil || network.HTTPSProxy != nil || network.NoProxy != nil || network.LLM != nil || network.DuckDuckGo != nil {
+		patch.Network = &network
+	}
+
 	var webSearch WebSearchPatch
 	setString(env, envPrefix+"WEB_SEARCH_PROVIDER", &webSearch.Provider)
 	if webSearch.Provider != nil {

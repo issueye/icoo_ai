@@ -32,6 +32,7 @@ type Config struct {
 	RespectGitignore    bool            `json:"respect_gitignore" toml:"respect_gitignore"`
 	AgentLoop           string          `json:"agent_loop" toml:"agent_loop"`
 	ClaudeCodeCompat    bool            `json:"claude_code_compat,omitempty" toml:"claude_code_compat,omitempty"`
+	Network             NetworkConfig   `json:"network" toml:"network"`
 	WebSearch           WebSearchConfig `json:"web_search" toml:"web_search"`
 	Retry               RetryConfig     `json:"retry" toml:"retry"`
 	Skills              SkillsConfig    `json:"skills" toml:"skills"`
@@ -51,6 +52,20 @@ const (
 
 type WebSearchConfig struct {
 	Provider string `json:"provider" toml:"provider"`
+}
+
+type NetworkConfig struct {
+	HTTPProxy  string             `json:"http_proxy,omitempty" toml:"http_proxy,omitempty"`
+	HTTPSProxy string             `json:"https_proxy,omitempty" toml:"https_proxy,omitempty"`
+	NoProxy    string             `json:"no_proxy,omitempty" toml:"no_proxy,omitempty"`
+	LLM        NetworkProxyConfig `json:"llm,omitempty" toml:"llm,omitempty"`
+	DuckDuckGo NetworkProxyConfig `json:"duckduckgo,omitempty" toml:"duckduckgo,omitempty"`
+}
+
+type NetworkProxyConfig struct {
+	HTTPProxy  string `json:"http_proxy,omitempty" toml:"http_proxy,omitempty"`
+	HTTPSProxy string `json:"https_proxy,omitempty" toml:"https_proxy,omitempty"`
+	NoProxy    string `json:"no_proxy,omitempty" toml:"no_proxy,omitempty"`
 }
 
 type RetryConfig struct {
@@ -128,6 +143,7 @@ type ConfigPatch struct {
 	RespectGitignore    *bool           `toml:"respect_gitignore,omitempty"`
 	AgentLoop           *string         `toml:"agent_loop,omitempty"`
 	ClaudeCodeCompat    *bool           `toml:"claude_code_compat,omitempty"`
+	Network             *NetworkPatch   `toml:"network,omitempty"`
 	WebSearch           *WebSearchPatch `toml:"web_search,omitempty"`
 	Retry               *RetryPatch     `toml:"retry,omitempty"`
 	Skills              *SkillsPatch    `toml:"skills,omitempty"`
@@ -138,6 +154,20 @@ type ConfigPatch struct {
 
 type WebSearchPatch struct {
 	Provider *string `toml:"provider,omitempty"`
+}
+
+type NetworkPatch struct {
+	HTTPProxy  *string            `toml:"http_proxy,omitempty"`
+	HTTPSProxy *string            `toml:"https_proxy,omitempty"`
+	NoProxy    *string            `toml:"no_proxy,omitempty"`
+	LLM        *NetworkProxyPatch `toml:"llm,omitempty"`
+	DuckDuckGo *NetworkProxyPatch `toml:"duckduckgo,omitempty"`
+}
+
+type NetworkProxyPatch struct {
+	HTTPProxy  *string `toml:"http_proxy,omitempty"`
+	HTTPSProxy *string `toml:"https_proxy,omitempty"`
+	NoProxy    *string `toml:"no_proxy,omitempty"`
 }
 
 type RetryPatch struct {
@@ -252,6 +282,15 @@ func MigrateClaudeCodeConfig(opts ClaudeCodeMigrationOptions) error {
 	applyClaudeString(raw, "api_key", &cfg.APIKey)
 	applyClaudeString(raw, "baseURL", &cfg.BaseURL)
 	applyClaudeString(raw, "base_url", &cfg.BaseURL)
+	if proxy, ok := stringValue(raw, "httpProxy", "http_proxy"); ok {
+		cfg.Network.HTTPProxy = proxy
+	}
+	if proxy, ok := stringValue(raw, "httpsProxy", "https_proxy"); ok {
+		cfg.Network.HTTPSProxy = proxy
+	}
+	if noProxy, ok := stringValue(raw, "noProxy", "no_proxy"); ok {
+		cfg.Network.NoProxy = noProxy
+	}
 	if mode, ok := stringValue(raw, "permissionMode", "permission_mode", "approvalMode", "approval_mode"); ok {
 		cfg.ApprovalMode = ApprovalMode(mode)
 	}

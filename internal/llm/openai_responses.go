@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/icoo-ai/icoo-ai/internal/netutil"
 	"github.com/icoo-ai/icoo-ai/internal/tools"
 )
 
@@ -31,6 +32,7 @@ type OpenAIResponsesConfig struct {
 	Model        string
 	HTTPClient   *http.Client
 	Retry        RetryConfig
+	Proxy        netutil.ProxyConfig
 	RetrySleeper func(context.Context, time.Duration) error
 }
 
@@ -67,9 +69,9 @@ func NewOpenAIResponsesProvider(cfg OpenAIResponsesConfig) (*OpenAIResponsesProv
 		return nil, fmt.Errorf("invalid OpenAI base URL: %w", err)
 	}
 
-	httpClient := cfg.HTTPClient
-	if httpClient == nil {
-		httpClient = http.DefaultClient
+	httpClient, err := netutil.HTTPClient(cfg.HTTPClient, cfg.Proxy)
+	if err != nil {
+		return nil, fmt.Errorf("configure OpenAI HTTP proxy: %w", err)
 	}
 
 	return &OpenAIResponsesProvider{

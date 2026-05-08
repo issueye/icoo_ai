@@ -56,6 +56,17 @@ respect_gitignore = false
 [web_search]
 provider = "user-search"
 
+[network]
+http_proxy = "http://user-proxy:8080"
+https_proxy = "http://user-secure-proxy:8080"
+no_proxy = "localhost,.internal"
+
+[network.llm]
+https_proxy = "http://user-llm-proxy:8080"
+
+[network.duckduckgo]
+http_proxy = "http://user-ddg-proxy:8080"
+
 [retry]
 max_attempts = 4
 initial_delay_millis = 100
@@ -122,6 +133,15 @@ args = ["."]
 	if cfg.WebSearch.Provider != "user-search" {
 		t.Fatalf("WebSearch.Provider = %q, want user-search", cfg.WebSearch.Provider)
 	}
+	if cfg.Network.HTTPProxy != "http://user-proxy:8080" || cfg.Network.HTTPSProxy != "http://user-secure-proxy:8080" || cfg.Network.NoProxy != "localhost,.internal" {
+		t.Fatalf("Network = %+v", cfg.Network)
+	}
+	if cfg.Network.LLM.HTTPSProxy != "http://user-llm-proxy:8080" {
+		t.Fatalf("Network.LLM = %+v", cfg.Network.LLM)
+	}
+	if cfg.Network.DuckDuckGo.HTTPProxy != "http://user-ddg-proxy:8080" {
+		t.Fatalf("Network.DuckDuckGo = %+v", cfg.Network.DuckDuckGo)
+	}
 	if cfg.Retry.MaxAttempts != 4 || cfg.Retry.InitialDelayMillis != 100 || cfg.Retry.MaxDelayMillis != 1000 {
 		t.Fatalf("Retry = %+v, want user retry config", cfg.Retry)
 	}
@@ -174,6 +194,11 @@ provider = "project-search"
 			"ICOO_AI_APPROVAL_MODE":              "full-auto",
 			"ICOO_AI_RESPECT_GITIGNORE":          "false",
 			"ICOO_AI_WEB_SEARCH_PROVIDER":        "env-search",
+			"ICOO_AI_HTTP_PROXY":                 "http://env-proxy:8080",
+			"ICOO_AI_HTTPS_PROXY":                "http://env-secure-proxy:8080",
+			"ICOO_AI_NO_PROXY":                   "localhost",
+			"ICOO_AI_LLM_HTTPS_PROXY":            "http://env-llm-proxy:8080",
+			"ICOO_AI_DUCKDUCKGO_HTTP_PROXY":      "http://env-ddg-proxy:8080",
 			"ICOO_AI_RETRY_MAX_ATTEMPTS":         "5",
 			"ICOO_AI_RETRY_INITIAL_DELAY_MILLIS": "25",
 			"ICOO_AI_RETRY_MAX_DELAY_MILLIS":     "250",
@@ -204,6 +229,15 @@ provider = "project-search"
 	}
 	if cfg.WebSearch.Provider != "env-search" {
 		t.Fatalf("WebSearch.Provider = %q, want env-search", cfg.WebSearch.Provider)
+	}
+	if cfg.Network.HTTPProxy != "http://env-proxy:8080" || cfg.Network.HTTPSProxy != "http://env-secure-proxy:8080" || cfg.Network.NoProxy != "localhost" {
+		t.Fatalf("Network = %+v, want env proxy config", cfg.Network)
+	}
+	if cfg.Network.LLM.HTTPSProxy != "http://env-llm-proxy:8080" {
+		t.Fatalf("Network.LLM = %+v, want env llm proxy config", cfg.Network.LLM)
+	}
+	if cfg.Network.DuckDuckGo.HTTPProxy != "http://env-ddg-proxy:8080" {
+		t.Fatalf("Network.DuckDuckGo = %+v, want env duckduckgo proxy config", cfg.Network.DuckDuckGo)
 	}
 	if cfg.Retry.MaxAttempts != 5 || cfg.Retry.InitialDelayMillis != 25 || cfg.Retry.MaxDelayMillis != 250 {
 		t.Fatalf("Retry = %+v, want env retry config", cfg.Retry)
@@ -238,6 +272,8 @@ func TestLoadExplicitOverridesHaveHighestPriority(t *testing.T) {
 	overrideAPI := "explicit-api"
 	overrideApproval := ApprovalModeReadonly
 	overrideSearch := "explicit-search"
+	overrideHTTPProxy := "http://explicit-proxy:8080"
+	overrideLLMProxy := "http://explicit-llm-proxy:8080"
 	overrideRetryAttempts := 6
 	overrideHooks := false
 	cfg, err := Load(LoadOptions{
@@ -256,6 +292,12 @@ func TestLoadExplicitOverridesHaveHighestPriority(t *testing.T) {
 			ApprovalMode: &overrideApproval,
 			WebSearch: &WebSearchPatch{
 				Provider: &overrideSearch,
+			},
+			Network: &NetworkPatch{
+				HTTPProxy: &overrideHTTPProxy,
+				LLM: &NetworkProxyPatch{
+					HTTPSProxy: &overrideLLMProxy,
+				},
 			},
 			Retry: &RetryPatch{
 				MaxAttempts: &overrideRetryAttempts,
@@ -283,6 +325,12 @@ func TestLoadExplicitOverridesHaveHighestPriority(t *testing.T) {
 	}
 	if cfg.WebSearch.Provider != "explicit-search" {
 		t.Fatalf("WebSearch.Provider = %q, want explicit-search", cfg.WebSearch.Provider)
+	}
+	if cfg.Network.HTTPProxy != "http://explicit-proxy:8080" {
+		t.Fatalf("Network.HTTPProxy = %q, want explicit proxy", cfg.Network.HTTPProxy)
+	}
+	if cfg.Network.LLM.HTTPSProxy != "http://explicit-llm-proxy:8080" {
+		t.Fatalf("Network.LLM.HTTPSProxy = %q, want explicit llm proxy", cfg.Network.LLM.HTTPSProxy)
 	}
 	if cfg.Retry.MaxAttempts != 6 {
 		t.Fatalf("Retry.MaxAttempts = %d, want 6", cfg.Retry.MaxAttempts)

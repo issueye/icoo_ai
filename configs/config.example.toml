@@ -19,6 +19,19 @@ claude_code_compat = true
 [web_search]
 provider = "duckduckgo"
 
+[network]
+# If unset, standard environment proxy variables are used by default.
+# http_proxy = "http://127.0.0.1:7890"
+# https_proxy = "http://127.0.0.1:7890"
+# no_proxy = "localhost,127.0.0.1,.local"
+
+# Optional scoped overrides. Configure only one side if needed.
+# [network.llm]
+# https_proxy = "http://127.0.0.1:7890"
+#
+# [network.duckduckgo]
+# http_proxy = "http://127.0.0.1:7890"
+
 [retry]
 max_attempts = 3
 initial_delay_millis = 500
