@@ -121,6 +121,8 @@ func envPatch(env map[string]string) (ConfigPatch, error) {
 
 	setString(env, envPrefix+"MODEL", &patch.Model)
 	setString(env, envPrefix+"PROVIDER", &patch.Provider)
+	setString(env, envPrefix+"API_KEY", &patch.APIKey)
+	setString(env, envPrefix+"OPENAI_API_KEY", &patch.APIKey)
 	setString(env, envPrefix+"BASE_URL", &patch.BaseURL)
 	setString(env, envPrefix+"API", &patch.API)
 	setPermissionMode(env, envPrefix+"APPROVAL_MODE", &patch.ApprovalMode)

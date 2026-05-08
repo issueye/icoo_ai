@@ -9,6 +9,9 @@ func (cfg *Config) applyPatch(patch ConfigPatch) error {
 	if patch.Provider != nil {
 		cfg.Provider = *patch.Provider
 	}
+	if patch.APIKey != nil {
+		cfg.APIKey = *patch.APIKey
+	}
 	if patch.BaseURL != nil {
 		cfg.BaseURL = *patch.BaseURL
 	}

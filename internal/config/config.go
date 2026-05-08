@@ -23,6 +23,7 @@ var ErrMigrationNotImplemented = errors.New("claude code config migration is not
 type Config struct {
 	Model               string          `json:"model,omitempty" toml:"model,omitempty"`
 	Provider            string          `json:"provider" toml:"provider"`
+	APIKey              string          `json:"api_key,omitempty" toml:"api_key,omitempty"`
 	BaseURL             string          `json:"base_url,omitempty" toml:"base_url,omitempty"`
 	API                 string          `json:"api" toml:"api"`
 	ApprovalMode        ApprovalMode    `json:"approval_mode" toml:"approval_mode"`
@@ -109,6 +110,7 @@ type MCPServerConfig struct {
 type ConfigPatch struct {
 	Model               *string         `toml:"model,omitempty"`
 	Provider            *string         `toml:"provider,omitempty"`
+	APIKey              *string         `toml:"api_key,omitempty"`
 	BaseURL             *string         `toml:"base_url,omitempty"`
 	API                 *string         `toml:"api,omitempty"`
 	ApprovalMode        *ApprovalMode   `toml:"approval_mode,omitempty"`
@@ -221,6 +223,8 @@ func MigrateClaudeCodeConfig(opts ClaudeCodeMigrationOptions) error {
 
 	applyClaudeString(raw, "model", &cfg.Model)
 	applyClaudeString(raw, "provider", &cfg.Provider)
+	applyClaudeString(raw, "apiKey", &cfg.APIKey)
+	applyClaudeString(raw, "api_key", &cfg.APIKey)
 	applyClaudeString(raw, "baseURL", &cfg.BaseURL)
 	applyClaudeString(raw, "base_url", &cfg.BaseURL)
 	if mode, ok := stringValue(raw, "permissionMode", "permission_mode", "approvalMode", "approval_mode"); ok {

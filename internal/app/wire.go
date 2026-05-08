@@ -123,7 +123,13 @@ func buildProvider(cfg config.Config) (llm.Provider, error) {
 		apiKey = os.Getenv("ICOO_AI_OPENAI_API_KEY")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("OPENAI_API_KEY or ICOO_AI_OPENAI_API_KEY is required")
+		apiKey = os.Getenv("ICOO_AI_API_KEY")
+	}
+	if apiKey == "" {
+		apiKey = cfg.APIKey
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("OPENAI_API_KEY, ICOO_AI_OPENAI_API_KEY, ICOO_AI_API_KEY, or config api_key is required")
 	}
 	return llm.NewOpenAIResponsesProvider(llm.OpenAIResponsesConfig{
 		APIKey:  apiKey,

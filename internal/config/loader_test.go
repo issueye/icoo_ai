@@ -46,6 +46,7 @@ func TestLoadAppliesUserThenProjectConfig(t *testing.T) {
 	writeFile(t, filepath.Join(home, ".icoo-ai", "config.toml"), `
 model = "user-model"
 provider = "anthropic"
+api_key = "user-key"
 approval_mode = "readonly"
 respect_gitignore = false
 
@@ -99,6 +100,9 @@ args = ["."]
 	if cfg.Provider != "anthropic" {
 		t.Fatalf("Provider = %q, want user provider to remain", cfg.Provider)
 	}
+	if cfg.APIKey != "user-key" {
+		t.Fatalf("APIKey = %q, want user-key", cfg.APIKey)
+	}
 	if cfg.API != "chat_completions" {
 		t.Fatalf("API = %q, want project value", cfg.API)
 	}
@@ -150,6 +154,7 @@ provider = "project-search"
 		Env: map[string]string{
 			"ICOO_AI_MODEL":                 "env-model",
 			"ICOO_AI_PROVIDER":              "env-provider",
+			"ICOO_AI_API_KEY":               "env-key",
 			"ICOO_AI_APPROVAL_MODE":         "full-auto",
 			"ICOO_AI_RESPECT_GITIGNORE":     "false",
 			"ICOO_AI_WEB_SEARCH_PROVIDER":   "env-search",
@@ -166,6 +171,9 @@ provider = "project-search"
 
 	if cfg.Model != "env-model" || cfg.Provider != "env-provider" {
 		t.Fatalf("environment did not override top-level config: %+v", cfg)
+	}
+	if cfg.APIKey != "env-key" {
+		t.Fatalf("APIKey = %q, want env-key", cfg.APIKey)
 	}
 	if cfg.ApprovalMode != ApprovalModeFullAuto {
 		t.Fatalf("ApprovalMode = %q, want full-auto", cfg.ApprovalMode)
@@ -199,6 +207,7 @@ func TestLoadExplicitOverridesHaveHighestPriority(t *testing.T) {
 	writeFile(t, filepath.Join(cwd, ".icoo-ai.toml"), `provider = "project"`)
 
 	overrideProvider := "explicit-provider"
+	overrideAPIKey := "explicit-key"
 	overrideAPI := "explicit-api"
 	overrideApproval := ApprovalModeReadonly
 	overrideSearch := "explicit-search"
@@ -208,11 +217,13 @@ func TestLoadExplicitOverridesHaveHighestPriority(t *testing.T) {
 		CWD:     cwd,
 		Env: map[string]string{
 			"ICOO_AI_PROVIDER":      "env-provider",
+			"ICOO_AI_API_KEY":       "env-key",
 			"ICOO_AI_API":           "env-api",
 			"ICOO_AI_HOOKS_ENABLED": "true",
 		},
 		Overrides: ConfigPatch{
 			Provider:     &overrideProvider,
+			APIKey:       &overrideAPIKey,
 			API:          &overrideAPI,
 			ApprovalMode: &overrideApproval,
 			WebSearch: &WebSearchPatch{
@@ -229,6 +240,9 @@ func TestLoadExplicitOverridesHaveHighestPriority(t *testing.T) {
 
 	if cfg.Provider != "explicit-provider" {
 		t.Fatalf("Provider = %q, want explicit-provider", cfg.Provider)
+	}
+	if cfg.APIKey != "explicit-key" {
+		t.Fatalf("APIKey = %q, want explicit-key", cfg.APIKey)
 	}
 	if cfg.API != "explicit-api" {
 		t.Fatalf("API = %q, want explicit-api", cfg.API)
@@ -301,6 +315,7 @@ func TestMigrateClaudeCodeConfig(t *testing.T) {
 	dest := filepath.Join(dir, ".icoo-ai", "config.toml")
 	writeFile(t, source, `{
 		"model": "gpt-4.1",
+		"apiKey": "claude-key",
 		"permissionMode": "workspace-write",
 		"shellTimeoutSeconds": 42,
 		"skills": ["go-code-review"],
@@ -323,6 +338,9 @@ func TestMigrateClaudeCodeConfig(t *testing.T) {
 	text := string(data)
 	if !strings.Contains(text, `model = 'gpt-4.1'`) && !strings.Contains(text, `model = "gpt-4.1"`) {
 		t.Fatalf("migrated config missing model: %s", text)
+	}
+	if !strings.Contains(text, `api_key = 'claude-key'`) && !strings.Contains(text, `api_key = "claude-key"`) {
+		t.Fatalf("migrated config missing api_key: %s", text)
 	}
 	if !strings.Contains(text, "claude_code_compat = true") {
 		t.Fatalf("migrated config missing compat flag: %s", text)

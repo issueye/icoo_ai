@@ -11,6 +11,8 @@ import (
 
 func TestBuildRequiresOpenAIKey(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ICOO_AI_OPENAI_API_KEY", "")
+	t.Setenv("ICOO_AI_API_KEY", "")
 	_, err := Build(context.Background(), BuildOptions{
 		Config: config.Default(),
 		CWD:    t.TempDir(),
@@ -18,6 +20,26 @@ func TestBuildRequiresOpenAIKey(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Build() error = nil, want missing key")
+	}
+}
+
+func TestBuildUsesConfigAPIKey(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ICOO_AI_OPENAI_API_KEY", "")
+	t.Setenv("ICOO_AI_API_KEY", "")
+	cfg := config.Default()
+	cfg.Model = "gpt-4.1"
+	cfg.APIKey = "config-key"
+	components, err := Build(context.Background(), BuildOptions{
+		Config: cfg,
+		CWD:    t.TempDir(),
+		Home:   t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if components.Runtime == nil {
+		t.Fatal("Runtime = nil")
 	}
 }
 

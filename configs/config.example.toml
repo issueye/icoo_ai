@@ -1,0 +1,46 @@
+# icoo-ai example configuration.
+# Copy this file to ~/.icoo-ai/config.toml for user-level settings,
+# or to .icoo-ai.toml for project-level settings.
+
+model = "gpt-5.4"
+provider = "openai"
+# Prefer environment variables for secrets when possible:
+# OPENAI_API_KEY, ICOO_AI_OPENAI_API_KEY, or ICOO_AI_API_KEY.
+# api_key = "sk-..."
+base_url = "https://api.openai.com/v1"
+api = "responses"
+approval_mode = "workspace-write"
+agent_loop = "react"
+respect_gitignore = true
+shell_timeout_seconds = 60
+max_context_tokens = 128000
+claude_code_compat = true
+
+[web_search]
+provider = "duckduckgo"
+
+[skills]
+enabled = []
+disabled = []
+paths = []
+
+[hooks]
+enabled = false
+
+[audit]
+enabled = true
+format = "jsonl"
+# path = "/absolute/path/to/audit.jsonl"
+
+[audit.remote]
+enabled = false
+# url = "https://audit.example.com/events"
+
+[mcp]
+enabled = false
+
+[mcp.servers.filesystem]
+enabled = false
+transport = "stdio"
+command = "mcp-server-filesystem"
+args = ["."]

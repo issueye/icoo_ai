@@ -6,11 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/icoo-ai/icoo-ai/internal/agent"
 	"github.com/icoo-ai/icoo-ai/internal/app"
 	"github.com/icoo-ai/icoo-ai/internal/config"
+)
+
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
 )
 
 func main() {
@@ -22,7 +29,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		fmt.Println("icoo-ai: use `serve`, `run`, `config`, `doctor`, or `migrate-claude-config`")
+		fmt.Println("icoo-ai: use `serve`, `run`, `config`, `doctor`, `version`, or `migrate-claude-config`")
 		return nil
 	}
 
@@ -35,6 +42,9 @@ func run(args []string) error {
 		return printConfig()
 	case "doctor":
 		return doctor(context.Background())
+	case "version":
+		printVersion()
+		return nil
 	case "migrate-claude-config":
 		return migrateClaudeConfig(args[1:])
 	default:
@@ -164,6 +174,14 @@ func printConfig() error {
 	return nil
 }
 
+func printVersion() {
+	fmt.Printf("icoo-ai %s\n", version)
+	fmt.Printf("commit=%s\n", commit)
+	fmt.Printf("date=%s\n", date)
+	fmt.Printf("go=%s\n", runtime.Version())
+	fmt.Printf("platform=%s/%s\n", runtime.GOOS, runtime.GOARCH)
+}
+
 func doctor(ctx context.Context) error {
 	cfg, err := config.Load(config.LoadOptions{})
 	if err != nil {
@@ -178,7 +196,7 @@ func doctor(ctx context.Context) error {
 		{name: "provider", ok: cfg.Provider != "", info: cfg.Provider},
 		{name: "api", ok: cfg.API == "responses", info: cfg.API},
 		{name: "approval", ok: cfg.ApprovalMode != "", info: string(cfg.ApprovalMode)},
-		{name: "openai key", ok: hasAnyEnv("OPENAI_API_KEY", "ICOO_AI_OPENAI_API_KEY"), info: redactedEnvStatus("OPENAI_API_KEY", "ICOO_AI_OPENAI_API_KEY")},
+		{name: "openai key", ok: hasAnyEnv("OPENAI_API_KEY", "ICOO_AI_OPENAI_API_KEY", "ICOO_AI_API_KEY") || cfg.APIKey != "", info: redactedKeyStatus(cfg)},
 	}
 	for _, check := range checks {
 		status := "ok"
@@ -210,4 +228,15 @@ func redactedEnvStatus(names ...string) string {
 		return "not set"
 	}
 	return strings.Join(present, ",")
+}
+
+func redactedKeyStatus(cfg config.Config) string {
+	envStatus := redactedEnvStatus("OPENAI_API_KEY", "ICOO_AI_OPENAI_API_KEY", "ICOO_AI_API_KEY")
+	if cfg.APIKey == "" {
+		return envStatus
+	}
+	if envStatus == "not set" {
+		return "config api_key=[set]"
+	}
+	return envStatus + ",config api_key=[set]"
 }
