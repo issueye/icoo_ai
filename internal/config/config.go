@@ -81,10 +81,12 @@ type HookConfig struct {
 }
 
 type AuditConfig struct {
-	Enabled bool              `json:"enabled" toml:"enabled"`
-	Path    string            `json:"path,omitempty" toml:"path,omitempty"`
-	Format  string            `json:"format,omitempty" toml:"format,omitempty"`
-	Remote  AuditRemoteConfig `json:"remote,omitempty" toml:"remote,omitempty"`
+	Enabled    bool              `json:"enabled" toml:"enabled"`
+	Path       string            `json:"path,omitempty" toml:"path,omitempty"`
+	Format     string            `json:"format,omitempty" toml:"format,omitempty"`
+	MaxSizeMB  int               `json:"max_size_mb,omitempty" toml:"max_size_mb,omitempty"`
+	MaxBackups int               `json:"max_backups,omitempty" toml:"max_backups,omitempty"`
+	Remote     AuditRemoteConfig `json:"remote,omitempty" toml:"remote,omitempty"`
 }
 
 type AuditRemoteConfig struct {
@@ -150,10 +152,12 @@ type HooksPatch struct {
 }
 
 type AuditPatch struct {
-	Enabled *bool             `toml:"enabled,omitempty"`
-	Path    *string           `toml:"path,omitempty"`
-	Format  *string           `toml:"format,omitempty"`
-	Remote  *AuditRemotePatch `toml:"remote,omitempty"`
+	Enabled    *bool             `toml:"enabled,omitempty"`
+	Path       *string           `toml:"path,omitempty"`
+	Format     *string           `toml:"format,omitempty"`
+	MaxSizeMB  *int              `toml:"max_size_mb,omitempty"`
+	MaxBackups *int              `toml:"max_backups,omitempty"`
+	Remote     *AuditRemotePatch `toml:"remote,omitempty"`
 }
 
 type AuditRemotePatch struct {
@@ -194,8 +198,10 @@ func Default() Config {
 		Skills: SkillsConfig{},
 		Hooks:  HooksConfig{},
 		Audit: AuditConfig{
-			Enabled: true,
-			Format:  "jsonl",
+			Enabled:    true,
+			Format:     "jsonl",
+			MaxSizeMB:  100,
+			MaxBackups: 5,
 		},
 		MCP: MCPConfig{
 			Servers: map[string]MCPServerConfig{},

@@ -118,6 +118,12 @@ func (cfg *AuditConfig) applyPatch(patch AuditPatch) {
 	if patch.Format != nil {
 		cfg.Format = *patch.Format
 	}
+	if patch.MaxSizeMB != nil {
+		cfg.MaxSizeMB = *patch.MaxSizeMB
+	}
+	if patch.MaxBackups != nil {
+		cfg.MaxBackups = *patch.MaxBackups
+	}
 	if patch.Remote != nil {
 		cfg.Remote.applyPatch(*patch.Remote)
 	}
@@ -195,6 +201,12 @@ func (cfg Config) validate() error {
 	}
 	if cfg.AgentLoop == "" {
 		return fmt.Errorf("agent_loop must not be empty")
+	}
+	if cfg.Audit.MaxSizeMB < 0 {
+		return fmt.Errorf("audit.max_size_mb must not be negative")
+	}
+	if cfg.Audit.MaxBackups < 0 {
+		return fmt.Errorf("audit.max_backups must not be negative")
 	}
 	return nil
 }

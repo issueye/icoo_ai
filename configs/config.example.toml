@@ -30,6 +30,8 @@ enabled = false
 [audit]
 enabled = true
 format = "jsonl"
+max_size_mb = 100
+max_backups = 5
 # path = "/absolute/path/to/audit.jsonl"
 
 [audit.remote]

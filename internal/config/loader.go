@@ -168,7 +168,13 @@ func envPatch(env map[string]string) (ConfigPatch, error) {
 	}
 	setString(env, envPrefix+"AUDIT_PATH", &audit.Path)
 	setString(env, envPrefix+"AUDIT_FORMAT", &audit.Format)
-	if audit.Enabled != nil || audit.Path != nil || audit.Format != nil {
+	if err := setInt(env, envPrefix+"AUDIT_MAX_SIZE_MB", &audit.MaxSizeMB); err != nil {
+		return ConfigPatch{}, err
+	}
+	if err := setInt(env, envPrefix+"AUDIT_MAX_BACKUPS", &audit.MaxBackups); err != nil {
+		return ConfigPatch{}, err
+	}
+	if audit.Enabled != nil || audit.Path != nil || audit.Format != nil || audit.MaxSizeMB != nil || audit.MaxBackups != nil {
 		patch.Audit = &audit
 	}
 

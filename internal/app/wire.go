@@ -67,7 +67,11 @@ func Build(ctx context.Context, opts BuildOptions) (Components, error) {
 			auditPath = audit.DefaultPath(home)
 		}
 		if auditPath != "" {
-			auditLogger = audit.NewJSONLLogger(auditPath)
+			auditLogger = audit.NewSlogLogger(audit.LoggerOptions{
+				Path:       auditPath,
+				MaxSizeMB:  opts.Config.Audit.MaxSizeMB,
+				MaxBackups: opts.Config.Audit.MaxBackups,
+			})
 		}
 	}
 

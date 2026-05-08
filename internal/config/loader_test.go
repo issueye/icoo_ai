@@ -58,6 +58,8 @@ enabled = ["user-skill"]
 
 [audit]
 path = "user-audit.jsonl"
+max_size_mb = 2
+max_backups = 3
 `)
 	writeFile(t, filepath.Join(cwd, ".icoo-ai.toml"), `
 model = "project-model"
@@ -130,6 +132,9 @@ args = ["."]
 	if !cfg.MCP.Enabled {
 		t.Fatalf("MCP.Enabled = false, want true")
 	}
+	if cfg.Audit.MaxSizeMB != 2 || cfg.Audit.MaxBackups != 3 {
+		t.Fatalf("Audit rotation = %d/%d, want 2/3", cfg.Audit.MaxSizeMB, cfg.Audit.MaxBackups)
+	}
 	server := cfg.MCP.Servers["filesystem"]
 	if !server.Enabled || server.Transport != "stdio" || server.Command != "mcp-server-filesystem" {
 		t.Fatalf("MCP server not applied: %+v", server)
@@ -161,6 +166,8 @@ provider = "project-search"
 			"ICOO_AI_SKILLS_ENABLED":        "go-code-review,tests",
 			"ICOO_AI_HOOKS_ENABLED":         "true",
 			"ICOO_AI_AUDIT_ENABLED":         "false",
+			"ICOO_AI_AUDIT_MAX_SIZE_MB":     "4",
+			"ICOO_AI_AUDIT_MAX_BACKUPS":     "7",
 			"ICOO_AI_MCP_ENABLED":           "true",
 			"ICOO_AI_SHELL_TIMEOUT_SECONDS": "90",
 		},
@@ -192,6 +199,9 @@ provider = "project-search"
 	}
 	if cfg.Audit.Enabled {
 		t.Fatalf("Audit.Enabled = true, want false")
+	}
+	if cfg.Audit.MaxSizeMB != 4 || cfg.Audit.MaxBackups != 7 {
+		t.Fatalf("Audit rotation = %d/%d, want 4/7", cfg.Audit.MaxSizeMB, cfg.Audit.MaxBackups)
 	}
 	if !cfg.MCP.Enabled {
 		t.Fatalf("MCP.Enabled = false, want true")
