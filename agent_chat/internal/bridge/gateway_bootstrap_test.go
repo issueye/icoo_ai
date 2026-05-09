@@ -139,3 +139,61 @@ func TestGatewayLaunchArgsFromSettings(t *testing.T) {
 		t.Fatalf("unexpected args: %#v", args)
 	}
 }
+
+func TestGatewayBootstrapperStopManagedProcess_SkipsUnmanagedPID(t *testing.T) {
+	t.Parallel()
+
+	stopHandleCalls := 0
+	stopPIDCalls := 0
+	b := &gatewayBootstrapper{
+		managedPID: 3333,
+		stopProcess: func(process *os.Process) error {
+			stopHandleCalls++
+			return nil
+		},
+		stopProcessByPID: func(pid int) error {
+			stopPIDCalls++
+			return nil
+		},
+	}
+
+	if err := b.StopManagedProcess(); err != nil {
+		t.Fatalf("StopManagedProcess returned error: %v", err)
+	}
+	if stopHandleCalls != 0 {
+		t.Fatalf("stop handle calls = %d, want 0", stopHandleCalls)
+	}
+	if stopPIDCalls != 0 {
+		t.Fatalf("stop pid calls = %d, want 0", stopPIDCalls)
+	}
+}
+
+func TestGatewayBootstrapperStopManagedProcess_StopsOwnedProcess(t *testing.T) {
+	t.Parallel()
+
+	stopHandleCalls := 0
+	stopPIDCalls := 0
+	b := &gatewayBootstrapper{
+		managedProcess: &os.Process{Pid: 1111},
+		managedPID:     2222,
+		managedOwned:   true,
+		stopProcess: func(process *os.Process) error {
+			stopHandleCalls++
+			return nil
+		},
+		stopProcessByPID: func(pid int) error {
+			stopPIDCalls++
+			return nil
+		},
+	}
+
+	if err := b.StopManagedProcess(); err != nil {
+		t.Fatalf("StopManagedProcess returned error: %v", err)
+	}
+	if stopHandleCalls != 1 {
+		t.Fatalf("stop handle calls = %d, want 1", stopHandleCalls)
+	}
+	if stopPIDCalls != 1 {
+		t.Fatalf("stop pid calls = %d, want 1", stopPIDCalls)
+	}
+}

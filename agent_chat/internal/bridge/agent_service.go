@@ -102,14 +102,11 @@ func (s *AgentService) RestartGateway(ctx context.Context) (GatewayStatus, error
 	logger.Info("gateway restart requested")
 	s.emitGatewayStatus(GatewayStatusReconnecting, "正在重启网关服务", nil)
 	s.stopGatewayEventStream()
+	stopManagedErr := error(nil)
 	if s.bootstrap != nil {
 		if err := s.bootstrap.StopManagedProcess(); err != nil {
-			logger.Error("gateway restart failed to stop managed process", "error", err)
-			return GatewayStatus{}, &BridgeError{
-				Code:      ErrorCodeGatewayBootstrap,
-				Message:   fmt.Sprintf("stop managed gateway process failed: %v", err),
-				Retryable: true,
-			}
+			stopManagedErr = err
+			logger.Warn("gateway restart failed to stop managed process, continue to ensure running", "error", err)
 		}
 	}
 	s.mu.Lock()
@@ -122,7 +119,13 @@ func (s *AgentService) RestartGateway(ctx context.Context) (GatewayStatus, error
 		})
 		return GatewayStatus{}, err
 	}
-	s.emitGatewayStatus(GatewayStatusReady, "网关重启完成", nil)
+	if stopManagedErr != nil {
+		s.emitGatewayStatus(GatewayStatusReady, "网关重启完成（未强制结束旧进程）", map[string]any{
+			"warning": stopManagedErr.Error(),
+		})
+	} else {
+		s.emitGatewayStatus(GatewayStatusReady, "网关重启完成", nil)
+	}
 	baseCtx := s.serviceCtx
 	if baseCtx == nil {
 		baseCtx = ctx

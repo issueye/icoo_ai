@@ -38,6 +38,7 @@ type gatewayBootstrapper struct {
 	processMu      sync.Mutex
 	managedProcess *os.Process
 	managedPID     int
+	managedOwned   bool
 }
 
 func newGatewayBootstrapper() *gatewayBootstrapper {
@@ -63,15 +64,18 @@ func newGatewayBootstrapper() *gatewayBootstrapper {
 func (b *gatewayBootstrapper) EnsureRunning(ctx context.Context) (*gatewayProxy, error) {
 	proxy, _, err := b.discoverHealthy(ctx)
 	if err == nil {
+		logger.Debug("gateway already running, reuse discovered endpoint", "baseURL", proxy.baseURL)
 		return proxy, nil
 	}
 	lastErr := err
 
 	startedProcess, err := b.startProcess(ctx)
 	if err != nil {
+		logger.Error("start gateway process failed", "error", err)
 		return nil, fmt.Errorf("start agent_gateway process: %w", err)
 	}
 	if startedProcess != nil {
+		logger.Info("gateway process started", "pid", startedProcess.Pid)
 		b.setManagedProcess(startedProcess)
 	}
 
@@ -84,11 +88,15 @@ func (b *gatewayBootstrapper) EnsureRunning(ctx context.Context) (*gatewayProxy,
 		if err == nil {
 			if endpoint.PID > 0 {
 				b.setManagedPID(endpoint.PID)
+				logger.Info("gateway endpoint discovered", "baseURL", proxy.baseURL, "pid", endpoint.PID)
+			} else {
+				logger.Info("gateway endpoint discovered", "baseURL", proxy.baseURL)
 			}
 			return proxy, nil
 		}
 		lastErr = err
 		if !b.now().Before(deadline) {
+			logger.Error("gateway bootstrap timed out", "timeout", b.waitTimeout, "error", lastErr)
 			_ = b.StopManagedProcess()
 			return nil, fmt.Errorf("gateway bootstrap timeout after %s: %w", b.waitTimeout, lastErr)
 		}
@@ -102,6 +110,7 @@ func (b *gatewayBootstrapper) setManagedProcess(process *os.Process) {
 	}
 	b.processMu.Lock()
 	b.managedProcess = process
+	b.managedOwned = true
 	b.processMu.Unlock()
 }
 
@@ -123,6 +132,8 @@ func (b *gatewayBootstrapper) StopManagedProcess() error {
 	b.managedProcess = nil
 	pid := b.managedPID
 	b.managedPID = 0
+	owned := b.managedOwned
+	b.managedOwned = false
 	stopFn := b.stopProcess
 	stopByPIDFn := b.stopProcessByPID
 	b.processMu.Unlock()
@@ -135,14 +146,35 @@ func (b *gatewayBootstrapper) StopManagedProcess() error {
 	if stopByPIDFn == nil {
 		stopByPIDFn = defaultStopGatewayProcessByPID
 	}
-	if pid > 0 {
-		if err := stopByPIDFn(pid); err != nil {
-			return err
-		}
+	if !owned {
+		logger.Info("skip stopping unmanaged gateway process")
 		return nil
 	}
-	if err := stopFn(process); err != nil {
-		return err
+	var stopErr error
+	if process != nil {
+		if err := stopFn(process); err != nil {
+			if !errors.Is(err, os.ErrProcessDone) {
+				logger.Error("stop managed gateway process handle failed", "pid", process.Pid, "error", err)
+				stopErr = err
+			}
+		} else {
+			logger.Info("stopped managed gateway process handle", "pid", process.Pid)
+		}
+	}
+	if pid > 0 && (process == nil || pid != process.Pid) {
+		if err := stopByPIDFn(pid); err != nil {
+			if !errors.Is(err, os.ErrProcessDone) {
+				logger.Error("stop managed gateway process by pid failed", "pid", pid, "error", err)
+				if stopErr == nil {
+					stopErr = err
+				}
+			}
+		} else {
+			logger.Info("stopped managed gateway process by pid", "pid", pid)
+		}
+	}
+	if stopErr != nil {
+		return stopErr
 	}
 	return nil
 }
@@ -180,6 +212,9 @@ type gatewayCommandSpec struct {
 }
 
 func defaultStartGatewayProcess(ctx context.Context, devMode bool) (*os.Process, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	spec, err := resolveGatewayCommand(devMode)
 	if err != nil {
 		return nil, err
@@ -190,7 +225,7 @@ func defaultStartGatewayProcess(ctx context.Context, devMode bool) (*os.Process,
 	}
 	defer logFile.Close()
 
-	cmd := exec.CommandContext(ctx, spec.command, spec.args...)
+	cmd := exec.Command(spec.command, spec.args...)
 	cmd.Dir = spec.dir
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -230,6 +265,9 @@ func resolveGatewayCommand(devMode bool) (gatewayCommandSpec, error) {
 
 	if strings.TrimSpace(settings.GatewayBinaryPath) != "" {
 		bin := strings.TrimSpace(settings.GatewayBinaryPath)
+		if !fileExists(bin) {
+			return gatewayCommandSpec{}, fmt.Errorf("configured gateway_binary_path not found: %s", bin)
+		}
 		return gatewayCommandSpec{command: bin, args: launchArgs}, nil
 	}
 

@@ -30,6 +30,7 @@ log_format = "text"
 ```
 
 `agent_chat` 启动时读取该文件；设置页保存后也会回写同一文件。
+其中 `gateway_binary_path` 可留空，留空时使用自动发现；如填写则必须是存在的可执行文件路径。
 
 前端单独调试时可在 `frontend/` 目录运行 `npm run dev`。
 

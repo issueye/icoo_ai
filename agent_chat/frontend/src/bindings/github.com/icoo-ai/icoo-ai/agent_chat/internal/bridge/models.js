@@ -37,6 +37,20 @@ export class AppSettings {
              */
             this["gatewayPort"] = undefined;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["logLevel"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["logFormat"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }

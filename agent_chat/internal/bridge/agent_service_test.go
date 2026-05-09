@@ -533,6 +533,7 @@ func TestServiceShutdown_StopsManagedGatewayProcess(t *testing.T) {
 			return nil
 		},
 		managedProcess: process,
+		managedOwned:   true,
 	}
 
 	if err := svc.ServiceShutdown(); err != nil {
@@ -576,6 +577,7 @@ func TestRestartGateway_StopsManagedProcessAndReconnects(t *testing.T) {
 	svc.gateway = &gatewayProxy{baseURL: "http://127.0.0.1:50001", token: "old"}
 	svc.bootstrap = &gatewayBootstrapper{
 		managedProcess: managedProcess,
+		managedOwned:   true,
 		discover: func(string) (gatewayclient.Endpoint, string, error) {
 			return gatewayclient.Endpoint{BaseURL: "http://127.0.0.1:60001", PID: 9999}, "new-token", nil
 		},
@@ -616,6 +618,43 @@ func TestRestartGateway_StopsManagedProcessAndReconnects(t *testing.T) {
 	}
 	if svc.gateway.token != "new-token" {
 		t.Fatalf("unexpected gateway token: %s", svc.gateway.token)
+	}
+	if status.Status != GatewayStatusReady {
+		t.Fatalf("expected status %q, got %q", GatewayStatusReady, status.Status)
+	}
+}
+
+func TestRestartGateway_ContinuesWhenStopManagedProcessFails(t *testing.T) {
+	t.Parallel()
+
+	svc := NewAgentService()
+	svc.gateway = &gatewayProxy{baseURL: "http://127.0.0.1:50001", token: "old"}
+	svc.bootstrap = &gatewayBootstrapper{
+		managedProcess: &os.Process{Pid: 1234},
+		managedOwned:   true,
+		stopProcess: func(*os.Process) error {
+			return errors.New("access denied")
+		},
+		discover: func(string) (gatewayclient.Endpoint, string, error) {
+			return gatewayclient.Endpoint{BaseURL: "http://127.0.0.1:60001", PID: 9999}, "new-token", nil
+		},
+		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
+			return nil
+		},
+		startProcess: func(context.Context) (*os.Process, error) {
+			return nil, nil
+		},
+	}
+
+	status, err := svc.RestartGateway(context.Background())
+	if err != nil {
+		t.Fatalf("RestartGateway returned error: %v", err)
+	}
+	if svc.gateway == nil {
+		t.Fatal("expected gateway proxy to be reloaded")
+	}
+	if svc.gateway.baseURL != "http://127.0.0.1:60001" {
+		t.Fatalf("unexpected gateway baseURL: %s", svc.gateway.baseURL)
 	}
 	if status.Status != GatewayStatusReady {
 		t.Fatalf("expected status %q, got %q", GatewayStatusReady, status.Status)

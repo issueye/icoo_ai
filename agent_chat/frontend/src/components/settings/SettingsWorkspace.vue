@@ -97,10 +97,10 @@ async function restartGateway() {
 }
 
 function resetToDefault() {
-  gatewayPath.value = './runtime/gateway/agent-gateway.exe'
+  gatewayPath.value = ''
   gatewayHost.value = '127.0.0.1'
   gatewayPort.value = 17889
-  app.pushToast({ type: 'info', message: '已恢复默认路径，请保存配置' })
+  app.pushToast({ type: 'info', message: '已恢复默认配置，请保存后重启网关' })
 }
 </script>
 

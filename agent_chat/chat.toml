@@ -1,0 +1,5 @@
+gateway_binary_path = "E:\\codes\\icoo_ai\\dist\\runtime\\gateway\\agent-gateway.exe"
+gateway_host = "127.0.0.1"
+gateway_port = 17889
+log_level = "info"
+log_format = "text"
