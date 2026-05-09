@@ -13,6 +13,12 @@ type AgentProfile struct {
 	Description string   `json:"description,omitempty"`
 }
 
+type Skill struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
 type Session struct {
 	ID             string    `json:"id"`
 	Title          string    `json:"title"`

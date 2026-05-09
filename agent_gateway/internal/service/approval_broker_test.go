@@ -2,13 +2,61 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
+type approvalBrokerFakeConnector struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (f *approvalBrokerFakeConnector) Initialize(context.Context, connector.InitializeRequest) (connector.InitializeResponse, error) {
+	return connector.InitializeResponse{}, nil
+}
+
+func (f *approvalBrokerFakeConnector) NewSession(context.Context, connector.NewSessionRequest) (connector.NewSessionResponse, error) {
+	return connector.NewSessionResponse{}, nil
+}
+
+func (f *approvalBrokerFakeConnector) Prompt(context.Context, connector.PromptRequest) (connector.PromptResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.n++
+	now := time.Now().UTC()
+	return connector.PromptResponse{
+		RunID:   fmt.Sprintf("run_approval_broker_%d", f.n),
+		Output:  "ok",
+		EndedAt: &now,
+		Approvals: []connector.ApprovalRequest{
+			{
+				RequestID: fmt.Sprintf("req_approval_broker_%d", f.n),
+				Action:    "write_file",
+				Message:   "needs approval",
+			},
+		},
+	}, nil
+}
+
+func (f *approvalBrokerFakeConnector) Cancel(context.Context, connector.CancelRequest) (connector.CancelResponse, error) {
+	return connector.CancelResponse{Status: "cancelled"}, nil
+}
+
+func (f *approvalBrokerFakeConnector) Close() error {
+	return nil
+}
+
+func newApprovalBrokerPromptService() *MockGatewayService {
+	return NewConnectorGatewayServiceWithAgentsAndStore(defaultAgents(), store.NewMemoryStore(), &approvalBrokerFakeConnector{})
+}
+
 func TestApprovalBrokerDecisionDoesNotCrossSession(t *testing.T) {
-	svc := NewMockGatewayService()
+	svc := newApprovalBrokerPromptService()
 	ctx := context.Background()
 
 	sessionA, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "A"})
@@ -59,7 +107,7 @@ func TestApprovalBrokerDecisionDoesNotCrossSession(t *testing.T) {
 }
 
 func TestApprovalBrokerCancelExpiresPendingApprovalInSession(t *testing.T) {
-	svc := NewMockGatewayService()
+	svc := newApprovalBrokerPromptService()
 	ctx := context.Background()
 
 	sessionA, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "A"})
@@ -216,7 +264,7 @@ func TestApprovalBrokerExpirePendingBySessionCleansIndexes(t *testing.T) {
 }
 
 func TestApprovalBrokerConcurrentSessionIsolation(t *testing.T) {
-	svc := NewMockGatewayService()
+	svc := newApprovalBrokerPromptService()
 	ctx := context.Background()
 
 	sessionA, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "A"})
@@ -304,7 +352,7 @@ func TestApprovalBrokerConcurrentSessionIsolation(t *testing.T) {
 func TestApprovalBrokerConcurrentSessionIsolationRepeated(t *testing.T) {
 	const rounds = 20
 	for i := 0; i < rounds; i++ {
-		svc := NewMockGatewayService()
+		svc := newApprovalBrokerPromptService()
 		ctx := context.Background()
 
 		sessionA, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "A"})

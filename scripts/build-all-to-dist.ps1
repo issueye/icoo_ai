@@ -78,10 +78,10 @@ if (-not $SkipChat) {
     Invoke-Step "Build agent_chat -> dist/agent_chat.exe" { Build-AgentChat-ToDist }
 }
 if (-not $SkipGateway) {
-    Invoke-Step "Build agent_gateway -> dist/agent-gateway.exe" { Build-AgentGateway-ToDist }
+    Invoke-Step "Build agent_gateway -> dist/runtime/gateway/agent-gateway.exe" { Build-AgentGateway-ToDist }
 }
 if (-not $SkipServer) {
-    Invoke-Step "Build agent_server -> dist/icoo-ai.exe" { Build-AgentServer-ToDist }
+    Invoke-Step "Build agent_server -> dist/runtime/agent/icoo-ai.exe" { Build-AgentServer-ToDist }
 }
 
 Write-Host "Done. Artifacts in: $DistDir"

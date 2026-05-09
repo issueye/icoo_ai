@@ -65,7 +65,7 @@ type NewSessionRequest struct {
 
 type PromptRequest struct {
 	SessionID   string `json:"sessionId"`
-	Prompt      string `json:"prompt"`
+	Content     string `json:"content"`
 	Cwd         string `json:"cwd,omitempty"`
 	WorkspaceID string `json:"workspaceId,omitempty"`
 	Mode        string `json:"mode,omitempty"`

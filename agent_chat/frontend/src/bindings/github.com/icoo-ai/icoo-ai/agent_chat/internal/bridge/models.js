@@ -580,12 +580,12 @@ export class PromptRequest {
              */
             this["sessionId"] = "";
         }
-        if (!("prompt" in $$source)) {
+        if (!("content" in $$source)) {
             /**
              * @member
              * @type {string}
              */
-            this["prompt"] = "";
+            this["content"] = "";
         }
         if (/** @type {any} */(false)) {
             /**

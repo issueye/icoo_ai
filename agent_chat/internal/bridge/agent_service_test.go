@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -43,7 +42,6 @@ func TestNewSession_UsesGatewayWhenAvailable(t *testing.T) {
 		baseURL: srv.URL,
 		token:   "token",
 	}
-	svc.devFallback = true
 
 	got, err := svc.NewSession(context.Background(), NewSessionRequest{Title: "new title"})
 	if err != nil {
@@ -54,7 +52,7 @@ func TestNewSession_UsesGatewayWhenAvailable(t *testing.T) {
 	}
 }
 
-func TestNewSession_FallbackInDevWhenGatewayUnavailable(t *testing.T) {
+func TestNewSession_ReturnsErrorWhenGatewayUnavailable(t *testing.T) {
 	t.Parallel()
 
 	svc := NewAgentService()
@@ -62,28 +60,8 @@ func TestNewSession_FallbackInDevWhenGatewayUnavailable(t *testing.T) {
 		client:  &http.Client{Timeout: 100 * time.Millisecond},
 		baseURL: "http://127.0.0.1:1",
 	}
-	svc.devFallback = true
 
-	got, err := svc.NewSession(context.Background(), NewSessionRequest{Title: "dev fallback"})
-	if err != nil {
-		t.Fatalf("NewSession returned error: %v", err)
-	}
-	if !strings.HasPrefix(got.ID, "sess_mock_") {
-		t.Fatalf("expected mock session id, got: %s", got.ID)
-	}
-}
-
-func TestNewSession_NoFallbackInProdWhenGatewayUnavailable(t *testing.T) {
-	t.Parallel()
-
-	svc := NewAgentService()
-	svc.gateway = &gatewayProxy{
-		client:  &http.Client{Timeout: 100 * time.Millisecond},
-		baseURL: "http://127.0.0.1:1",
-	}
-	svc.devFallback = false
-
-	_, err := svc.NewSession(context.Background(), NewSessionRequest{Title: "prod no fallback"})
+	_, err := svc.NewSession(context.Background(), NewSessionRequest{Title: "gateway unavailable"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -111,7 +89,6 @@ func TestNewSession_ReturnsAuthErrorOn401(t *testing.T) {
 		baseURL: srv.URL,
 		token:   "bad-token",
 	}
-	svc.devFallback = true
 
 	_, err := svc.NewSession(context.Background(), NewSessionRequest{Title: "auth fail"})
 	if err == nil {
@@ -126,6 +103,145 @@ func TestNewSession_ReturnsAuthErrorOn401(t *testing.T) {
 	}
 	if bridgeErr.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected status 401, got %d", bridgeErr.StatusCode)
+	}
+}
+
+func TestPrompt_UsesContentFieldAndMapsStructuredResponse(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if r.URL.Path != "/v1/sessions/sess_1/prompt" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if _, exists := body["prompt"]; exists {
+			t.Fatalf("request unexpectedly included prompt field: %#v", body)
+		}
+		if got, ok := body["content"].(string); !ok || got != "hello gateway" {
+			t.Fatalf("content field mismatch: %#v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"run": map[string]any{
+				"id":        "run_1",
+				"sessionId": "sess_1",
+				"agentId":   "agent.main",
+				"status":    "running",
+				"startedAt": "2026-05-09T12:00:00Z",
+			},
+			"messages": []map[string]any{
+				{
+					"id":        "msg_1",
+					"sessionId": "sess_1",
+					"role":      "assistant",
+					"content":   "ok",
+					"createdAt": "2026-05-09T12:00:01Z",
+				},
+			},
+			"approval": map[string]any{
+				"id":        "appr_1",
+				"sessionId": "sess_1",
+				"status":    "pending",
+				"decision":  "pending",
+				"message":   "need approval",
+				"createdAt": "2026-05-09T12:00:02Z",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	svc := NewAgentService()
+	svc.gateway = &gatewayProxy{
+		client:  srv.Client(),
+		baseURL: srv.URL,
+	}
+
+	events, err := svc.Prompt(context.Background(), PromptRequest{
+		SessionID: "sess_1",
+		Content:   "hello gateway",
+	})
+	if err != nil {
+		t.Fatalf("Prompt returned error: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+	if events[0].Kind != BridgeEventKindMessage || events[0].Content != "ok" {
+		t.Fatalf("unexpected first event: %#v", events[0])
+	}
+	if events[1].Kind != BridgeEventKindApproval || events[1].Decision != "pending" {
+		t.Fatalf("unexpected approval event: %#v", events[1])
+	}
+}
+
+func TestListRuns_MapsEndedAtToCompletedAt(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/runs" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"id":"run_1","sessionId":"sess_1","agentId":"agent.main","status":"completed","startedAt":"2026-05-09T12:00:00Z","endedAt":"2026-05-09T12:00:10Z"}
+		]`))
+	}))
+	defer srv.Close()
+
+	svc := NewAgentService()
+	svc.gateway = &gatewayProxy{
+		client:  srv.Client(),
+		baseURL: srv.URL,
+	}
+
+	runs, err := svc.ListRuns(context.Background())
+	if err != nil {
+		t.Fatalf("ListRuns returned error: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+	if runs[0].CompletedAt == nil {
+		t.Fatalf("expected completedAt mapped from endedAt, got %#v", runs[0])
+	}
+	if runs[0].Label != "已完成" {
+		t.Fatalf("expected status label 已完成, got %q", runs[0].Label)
+	}
+}
+
+func TestListSkills_MapsGatewaySkillDTO(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/skills" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"skill_1","name":"security-auditor","description":"review policies"}]`))
+	}))
+	defer srv.Close()
+
+	svc := NewAgentService()
+	svc.gateway = &gatewayProxy{
+		client:  srv.Client(),
+		baseURL: srv.URL,
+	}
+
+	skills, err := svc.ListSkills(context.Background())
+	if err != nil {
+		t.Fatalf("ListSkills returned error: %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(skills))
+	}
+	if skills[0].Name != "security-auditor" || skills[0].Description != "review policies" {
+		t.Fatalf("unexpected skill mapping: %#v", skills[0])
 	}
 }
 
@@ -244,7 +360,6 @@ func TestServiceStartup_ReturnsBootstrapErrorInProdMode(t *testing.T) {
 
 	svc := NewAgentService()
 	svc.gateway = nil
-	svc.devFallback = false
 	svc.bootstrap = &gatewayBootstrapper{
 		discoveryPath: "",
 		waitTimeout:   time.Millisecond,
@@ -275,40 +390,11 @@ func TestServiceStartup_ReturnsBootstrapErrorInProdMode(t *testing.T) {
 	}
 }
 
-func TestServiceStartup_DevModeSwallowsBootstrapError(t *testing.T) {
-	t.Parallel()
-
-	svc := NewAgentService()
-	svc.gateway = nil
-	svc.devFallback = true
-	svc.bootstrap = &gatewayBootstrapper{
-		discoveryPath: "",
-		waitTimeout:   time.Millisecond,
-		pollInterval:  time.Millisecond,
-		now:           time.Now,
-		sleep:         func(time.Duration) {},
-		discover: func(string) (gatewayclient.Endpoint, string, error) {
-			return gatewayclient.Endpoint{}, "", errors.New("not found")
-		},
-		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
-			return nil
-		},
-		startProcess: func(context.Context) error {
-			return errors.New("start failed")
-		},
-	}
-
-	if err := svc.ServiceStartup(context.Background(), application.ServiceOptions{}); err != nil {
-		t.Fatalf("expected nil error in dev fallback, got %v", err)
-	}
-}
-
 func TestServiceStartup_EmitsGatewayFailedStatusOnBootstrapError(t *testing.T) {
 	t.Parallel()
 
 	svc := NewAgentService()
 	svc.gateway = nil
-	svc.devFallback = true
 	var captured []MessageEvent
 	svc.eventSink = func(event MessageEvent) {
 		captured = append(captured, event)
@@ -330,8 +416,8 @@ func TestServiceStartup_EmitsGatewayFailedStatusOnBootstrapError(t *testing.T) {
 		},
 	}
 
-	if err := svc.ServiceStartup(context.Background(), application.ServiceOptions{}); err != nil {
-		t.Fatalf("expected nil error in dev fallback, got %v", err)
+	if err := svc.ServiceStartup(context.Background(), application.ServiceOptions{}); err == nil {
+		t.Fatal("expected startup error, got nil")
 	}
 
 	if len(captured) < 2 {
@@ -401,7 +487,7 @@ func TestParseGatewayPromptResponse_StructuredShape(t *testing.T) {
 		"approval":{"id":"appr_1","sessionId":"sess_1","status":"pending","decision":"pending","message":"need approval","createdAt":"2026-05-09T12:00:01Z"}
 	}`)
 
-	events, err := parseGatewayPromptResponse(raw)
+	events, err := parseGatewayPromptResponse(raw, "sess_1")
 	if err != nil {
 		t.Fatalf("parseGatewayPromptResponse returned error: %v", err)
 	}

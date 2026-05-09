@@ -4,14 +4,14 @@ import { agentBridge } from '@/services/agentBridge'
 export const useConversationsStore = defineStore('conversations', {
   state: () => ({
     items: [],
-    activeSessionId: 'sess_main_20260509_001',
+    activeSessionId: null,
     filter: 'all',
     loading: false,
     error: null,
     workspaceOptions: [
-      { id: 'workspace_current', label: '当前仓库', path: 'E:/code/issueye/icoo_ai' },
-      { id: 'workspace_agent_chat', label: 'agent_chat', path: 'E:/code/issueye/icoo_ai/agent_chat' },
-      { id: 'workspace_agent_server', label: 'agent_server', path: 'E:/code/issueye/icoo_ai/agent_server' },
+      { id: 'workspace_current', label: '当前仓库', path: 'E:/codes/icoo_ai' },
+      { id: 'workspace_agent_chat', label: 'agent_chat', path: 'E:/codes/icoo_ai/agent_chat' },
+      { id: 'workspace_agent_server', label: 'agent_server', path: 'E:/codes/icoo_ai/agent_server' },
     ],
     modeOptions: [
       { id: 'chat', label: '聊天' },

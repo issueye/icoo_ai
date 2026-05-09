@@ -14,8 +14,10 @@ import (
 
 type GatewayService interface {
 	ListAgents(ctx context.Context) ([]AgentProfile, error)
+	ListSkills(ctx context.Context) ([]Skill, error)
 	CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error)
 	ListSessions(ctx context.Context) ([]Session, error)
+	GetSession(ctx context.Context, sessionID string) (Session, error)
 	ListMessages(ctx context.Context, sessionID string) ([]Message, error)
 	Prompt(ctx context.Context, sessionID string, req PromptRequest) (PromptResponse, error)
 	Cancel(ctx context.Context, sessionID string) (Run, error)
@@ -42,6 +44,7 @@ type MockGatewayService struct {
 	now            func() time.Time
 	nextID         int
 	agents         []AgentProfile
+	skills         []Skill
 	store          store.Store
 	connector      connector.AgentConnector
 	approvalBroker *ApprovalBroker
@@ -63,6 +66,7 @@ func NewMockGatewayServiceWithAgentsAndStore(agents []AgentProfile, st store.Sto
 		now:            time.Now,
 		nextID:         1,
 		agents:         agents,
+		skills:         defaultSkills(),
 		store:          st,
 		approvalBroker: NewApprovalBroker(),
 	}
@@ -80,10 +84,14 @@ func defaultAgents() []AgentProfile {
 			ID:          "icoo-ai-acp",
 			Name:        "Icoo AI",
 			Protocol:    "acp",
-			Models:      []string{"mock-gpt"},
-			Description: "Mock gateway agent for local API development.",
+			Models:      []string{"gpt-5.4"},
+			Description: "Default ACP connector profile.",
 		},
 	}
+}
+
+func defaultSkills() []Skill {
+	return []Skill{}
 }
 
 func (s *MockGatewayService) ListAgents(ctx context.Context) ([]AgentProfile, error) {
@@ -96,6 +104,18 @@ func (s *MockGatewayService) ListAgents(ctx context.Context) ([]AgentProfile, er
 	agents := make([]AgentProfile, len(s.agents))
 	copy(agents, s.agents)
 	return agents, nil
+}
+
+func (s *MockGatewayService) ListSkills(ctx context.Context) ([]Skill, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	skills := make([]Skill, len(s.skills))
+	copy(skills, s.skills)
+	return skills, nil
 }
 
 func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error) {
@@ -176,6 +196,20 @@ func (s *MockGatewayService) ListSessions(ctx context.Context) ([]Session, error
 	return sessions, nil
 }
 
+func (s *MockGatewayService) GetSession(ctx context.Context, sessionID string) (Session, error) {
+	if err := ctx.Err(); err != nil {
+		return Session{}, err
+	}
+	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
+	if err != nil {
+		return Session{}, err
+	}
+	if !ok {
+		return Session{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
+	}
+	return fromStoreConversation(conversation), nil
+}
+
 func (s *MockGatewayService) ListMessages(ctx context.Context, sessionID string) ([]Message, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -220,7 +254,7 @@ func (s *MockGatewayService) Prompt(ctx context.Context, sessionID string, req P
 	if s.connector != nil {
 		return s.promptViaConnectorLocked(ctx, session, content)
 	}
-	return s.promptViaMockLocked(ctx, session, content)
+	return PromptResponse{}, NewError("connector_unavailable", "connector is not configured")
 }
 
 func (s *MockGatewayService) promptViaConnectorLocked(ctx context.Context, session Session, content string) (PromptResponse, error) {
@@ -322,74 +356,6 @@ func (s *MockGatewayService) promptViaConnectorLocked(ctx context.Context, sessi
 		Run:      run,
 		Messages: responseMessages,
 		Approval: firstApproval,
-	}, nil
-}
-
-func (s *MockGatewayService) promptViaMockLocked(ctx context.Context, session Session, content string) (PromptResponse, error) {
-	startedAt := s.now()
-	endedAt := startedAt
-	run := Run{
-		ID:        s.idLocked("run"),
-		SessionID: session.ID,
-		AgentID:   session.AgentID,
-		Status:    "completed",
-		StartedAt: startedAt,
-		EndedAt:   &endedAt,
-	}
-	userMessage := Message{
-		ID:        s.idLocked("msg"),
-		SessionID: session.ID,
-		RunID:     run.ID,
-		Role:      "user",
-		Content:   content,
-		CreatedAt: startedAt,
-	}
-	assistantMessage := Message{
-		ID:        s.idLocked("msg"),
-		SessionID: session.ID,
-		RunID:     run.ID,
-		Role:      "assistant",
-		Content:   "Mock response from agent_gateway.",
-		CreatedAt: endedAt,
-	}
-	approval := Approval{
-		ID:                 s.idLocked("appr"),
-		AgentID:            session.AgentID,
-		SessionID:          session.ID,
-		RunID:              run.ID,
-		ConnectorRequestID: s.idLocked("connreq"),
-		Status:             "pending",
-		Action:             "mock_tool",
-		Message:            "Mock approval request",
-		CreatedAt:          startedAt,
-	}
-
-	if err := s.store.UpsertRun(ctx, toStoreRun(run)); err != nil {
-		return PromptResponse{}, err
-	}
-	if err := s.store.AppendMessage(ctx, toStoreMessageEvent(userMessage)); err != nil {
-		return PromptResponse{}, err
-	}
-	if err := s.store.AppendMessage(ctx, toStoreMessageEvent(assistantMessage)); err != nil {
-		return PromptResponse{}, err
-	}
-	if err := s.store.UpsertApproval(ctx, toStoreApproval(approval)); err != nil {
-		return PromptResponse{}, err
-	}
-	if s.approvalBroker != nil {
-		if err := s.approvalBroker.Register(approval); err != nil {
-			return PromptResponse{}, err
-		}
-	}
-	session.UpdatedAt = endedAt
-	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
-		return PromptResponse{}, err
-	}
-
-	return PromptResponse{
-		Run:      run,
-		Messages: []Message{userMessage, assistantMessage},
-		Approval: &approval,
 	}, nil
 }
 

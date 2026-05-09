@@ -20,6 +20,20 @@ func (h *Handler) handleAgents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, agents)
 }
 
+func (h *Handler) handleSkills(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	skills, err := h.service.ListSkills(r.Context())
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, skills)
+}
+
 func (h *Handler) handleSessions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -56,13 +70,20 @@ func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleSessionAction(w http.ResponseWriter, r *http.Request) {
-	sessionID, action, ok := sessionSubpath(r.URL.Path)
+	sessionID, action, ok := sessionPath(r.URL.Path)
 	if !ok {
 		writeError(w, http.StatusNotFound, "not_found", "route not found")
 		return
 	}
 
 	switch action {
+	case "":
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		h.getSession(w, r, sessionID)
 	case "messages":
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
@@ -87,6 +108,15 @@ func (h *Handler) handleSessionAction(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusNotFound, "not_found", "route not found")
 	}
+}
+
+func (h *Handler) getSession(w http.ResponseWriter, r *http.Request, sessionID string) {
+	session, err := h.service.GetSession(r.Context(), sessionID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
 }
 
 func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request, sessionID string) {

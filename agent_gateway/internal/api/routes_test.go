@@ -17,6 +17,49 @@ import (
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
+type promptReadyAPIFake struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (f *promptReadyAPIFake) Initialize(context.Context, connector.InitializeRequest) (connector.InitializeResponse, error) {
+	return connector.InitializeResponse{}, nil
+}
+
+func (f *promptReadyAPIFake) NewSession(context.Context, connector.NewSessionRequest) (connector.NewSessionResponse, error) {
+	return connector.NewSessionResponse{}, nil
+}
+
+func (f *promptReadyAPIFake) Prompt(context.Context, connector.PromptRequest) (connector.PromptResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.n++
+	endedAt := time.Now().UTC()
+	return connector.PromptResponse{
+		RunID:   fmt.Sprintf("run_api_%d", f.n),
+		Output:  "connector assistant output",
+		EndedAt: &endedAt,
+		Approvals: []connector.ApprovalRequest{
+			{
+				RequestID: fmt.Sprintf("approval_req_api_%d", f.n),
+				Action:    "write_file",
+				Message:   "allow write",
+			},
+		},
+	}, nil
+}
+
+func (f *promptReadyAPIFake) Cancel(_ context.Context, req connector.CancelRequest) (connector.CancelResponse, error) {
+	return connector.CancelResponse{RunID: req.RunID, Status: "cancelled"}, nil
+}
+
+func (f *promptReadyAPIFake) Close() error { return nil }
+
+func newPromptReadyRouter(agents []service.AgentProfile) http.Handler {
+	svc := service.NewConnectorGatewayServiceWithAgentsAndStore(agents, store.NewMemoryStore(), &promptReadyAPIFake{})
+	return api.NewRouter(svc)
+}
+
 func TestCreateAndListSessions(t *testing.T) {
 	router := api.NewRouter(service.NewMockGatewayService())
 
@@ -41,8 +84,55 @@ func TestCreateAndListSessions(t *testing.T) {
 	}
 }
 
-func TestPromptCreatesMessagesAndApproval(t *testing.T) {
+func TestGetSessionByID(t *testing.T) {
 	router := api.NewRouter(service.NewMockGatewayService())
+	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
+		"title": "By id",
+	})
+
+	got := doJSON[service.Session](t, router, http.MethodGet, "/v1/sessions/"+session.ID, nil)
+	if got.ID != session.ID {
+		t.Fatalf("expected id %q, got %q", session.ID, got.ID)
+	}
+}
+
+func TestListSkills(t *testing.T) {
+	router := api.NewRouter(service.NewMockGatewayService())
+	skills := doJSON[[]service.Skill](t, router, http.MethodGet, "/v1/skills", nil)
+	if len(skills) != 0 {
+		t.Fatalf("expected no skills, got %#v", skills)
+	}
+}
+
+func TestPromptWithoutConnectorReturnsStructuredError(t *testing.T) {
+	router := api.NewRouter(service.NewMockGatewayService())
+	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
+		"title": "No connector",
+	})
+
+	reqBody, err := json.Marshal(map[string]string{"content": "hello"})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+session.ID+"/prompt", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d (%s)", http.StatusServiceUnavailable, rec.Code, rec.Body.String())
+	}
+	var response api.ErrorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if response.Code != "connector_unavailable" || response.Message == "" {
+		t.Fatalf("expected structured connector_unavailable error, got %#v", response)
+	}
+}
+
+func TestPromptCreatesMessagesAndApproval(t *testing.T) {
+	router := newPromptReadyRouter(nil)
 	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
 		"title": "Prompt test",
 	})
@@ -90,7 +180,7 @@ func TestCancelCreatesCancelledRun(t *testing.T) {
 }
 
 func TestApprovalDecision(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := newPromptReadyRouter(nil)
 	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
 		"title": "Approval test",
 	})
@@ -118,7 +208,7 @@ func TestApprovalDecision(t *testing.T) {
 }
 
 func TestApprovalDecisionAfterCancelReturnsStructuredError(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := newPromptReadyRouter(nil)
 	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
 		"title": "Approval cancel test",
 	})
@@ -172,7 +262,7 @@ func TestMissingSessionReturnsJSONError(t *testing.T) {
 }
 
 func TestConcurrentSessionPromptCancelAndApprovalIsolation(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := newPromptReadyRouter(nil)
 	sessionA := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{"title": "A"})
 	sessionB := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{"title": "B"})
 
@@ -261,10 +351,10 @@ func TestConcurrentSessionPromptCancelAndApprovalIsolation(t *testing.T) {
 }
 
 func TestConcurrentMultiAgentProfileRunEventApprovalCancelIsolation(t *testing.T) {
-	svc := service.NewMockGatewayServiceWithAgentsAndStore([]service.AgentProfile{
+	svc := service.NewConnectorGatewayServiceWithAgentsAndStore([]service.AgentProfile{
 		{ID: "icoo-ai-acp", Name: "ACP", Protocol: "acp"},
 		{ID: "icoo-ai-http", Name: "HTTP", Protocol: "http"},
-	}, store.NewMemoryStore())
+	}, store.NewMemoryStore(), &promptReadyAPIFake{})
 	router := api.NewRouter(svc)
 
 	sessionA := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{

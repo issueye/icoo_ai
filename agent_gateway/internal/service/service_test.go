@@ -125,15 +125,19 @@ func TestMockGatewayServiceWritesThroughStore(t *testing.T) {
 		t.Fatalf("upsertConversation calls = %d, want 1", rec.upsertConversationCalls)
 	}
 
-	resp, err := svc.Prompt(ctx, session.ID, PromptRequest{Content: "hello"})
-	if err != nil {
-		t.Fatalf("prompt: %v", err)
+	_, err = svc.Prompt(ctx, session.ID, PromptRequest{Content: "hello"})
+	if err == nil {
+		t.Fatal("expected prompt to fail without connector")
 	}
-	if resp.Approval == nil {
-		t.Fatal("expected approval")
+	serviceErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("expected *service.Error, got %T", err)
 	}
-	if rec.upsertRunCalls == 0 || rec.appendMessageCalls < 2 || rec.upsertApprovalCalls == 0 {
-		t.Fatalf("store write calls not hit, run=%d msg=%d approval=%d", rec.upsertRunCalls, rec.appendMessageCalls, rec.upsertApprovalCalls)
+	if serviceErr.Code != "connector_unavailable" {
+		t.Fatalf("unexpected error code: %q", serviceErr.Code)
+	}
+	if rec.upsertRunCalls != 0 || rec.appendMessageCalls != 0 || rec.upsertApprovalCalls != 0 {
+		t.Fatalf("unexpected store writes, run=%d msg=%d approval=%d", rec.upsertRunCalls, rec.appendMessageCalls, rec.upsertApprovalCalls)
 	}
 }
 
@@ -204,6 +208,31 @@ func TestMockGatewayServiceReadsThroughStore(t *testing.T) {
 
 	if rec.getConversationCalls == 0 || rec.listMessagesCalls == 0 || rec.listRunsCalls == 0 || rec.listApprovalsCalls == 0 {
 		t.Fatalf("store read calls not hit, getConv=%d listMsg=%d listRun=%d listApproval=%d", rec.getConversationCalls, rec.listMessagesCalls, rec.listRunsCalls, rec.listApprovalsCalls)
+	}
+}
+
+func TestMockGatewayServiceGetSessionAndListSkills(t *testing.T) {
+	ctx := context.Background()
+	svc := NewMockGatewayService()
+
+	session, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "lookup"})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	got, err := svc.GetSession(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.ID != session.ID {
+		t.Fatalf("expected session id %q, got %q", session.ID, got.ID)
+	}
+
+	skills, err := svc.ListSkills(ctx)
+	if err != nil {
+		t.Fatalf("list skills: %v", err)
+	}
+	if len(skills) != 0 {
+		t.Fatalf("expected no skills, got %#v", skills)
 	}
 }
 

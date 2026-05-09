@@ -28,6 +28,7 @@ func NewRouter(gateway service.GatewayService) http.Handler {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/agents", h.handleAgents)
+	mux.HandleFunc("/v1/skills", h.handleSkills)
 	mux.HandleFunc("/v1/sessions", h.handleSessions)
 	mux.HandleFunc("/v1/sessions/", h.handleSessionAction)
 	mux.HandleFunc("/v1/runs", h.handleRuns)
@@ -62,6 +63,8 @@ func statusForServiceCode(code string) int {
 		return http.StatusNotFound
 	case "invalid_prompt", "invalid_decision":
 		return http.StatusBadRequest
+	case "connector_unavailable":
+		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError
 	}
@@ -79,9 +82,12 @@ func decodeJSON(r *http.Request, dst any) error {
 	return nil
 }
 
-func sessionSubpath(path string) (string, string, bool) {
+func sessionPath(path string) (string, string, bool) {
 	rest := strings.TrimPrefix(path, "/v1/sessions/")
 	parts := strings.Split(rest, "/")
+	if len(parts) == 1 && parts[0] != "" {
+		return parts[0], "", true
+	}
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", false
 	}

@@ -18,7 +18,7 @@ const navItems = [
 
 function navigate(item) {
   app.setActiveNav(item.key)
-  if (item.key === 'chats') router.push(`/chats/${conversations.activeSessionId}`)
+  if (item.key === 'chats') router.push(conversations.activeSessionId ? `/chats/${conversations.activeSessionId}` : '/chats')
   else if (item.key === 'skills') router.push('/skills')
   else if (item.key === 'audit') router.push('/audit')
   else if (item.key === 'settings') router.push('/settings')

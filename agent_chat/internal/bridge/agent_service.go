@@ -24,15 +24,10 @@ const (
 
 type AgentService struct {
 	mu               sync.RWMutex
-	now              time.Time
-	conversations    []Conversation
 	messages         []MessageEvent
-	runs             []RunSummary
-	approvals        []ApprovalDecision
 	auditEvents      []AuditEvent
 	gateway          *gatewayProxy
 	bootstrap        *gatewayBootstrapper
-	devFallback      bool
 	lastEventID      string
 	currentSessionID string
 	activeSessions   map[string]struct{}
@@ -43,38 +38,11 @@ type AgentService struct {
 }
 
 func NewAgentService() *AgentService {
-	now := time.Date(2026, 5, 9, 10, 30, 0, 0, time.FixedZone("CST", 8*60*60))
-	completed := now
 	return &AgentService{
-		now: now,
-		conversations: []Conversation{
-			{ID: "sess_main_20260509_001", Type: "main", Title: "session 事件持久化", Subtitle: "记录 tool call / result / approval 摘要", Status: "waiting_approval", UnreadCount: 2, UpdatedAt: now, WorkspaceID: "workspace_current", CWD: "E:/code/issueye/icoo_ai", Mode: "agent", Model: "gpt-5.4"},
-			{ID: "subsess_review_20260509_001", Type: "subagent", Title: "Review Worker", Subtitle: "检查持久化边界与敏感输出策略", Status: "completed", UpdatedAt: now, ParentSessionID: "sess_main_20260509_001", Skill: "security-auditor", WorkspaceID: "workspace_current", CWD: "E:/code/issueye/icoo_ai", Mode: "review", Model: "gpt-5.3-codex"},
-			{ID: "sess_ui_20260509_002", Type: "main", Title: "桌面聊天 UI", Subtitle: "Wails + Vue + Pinia 初版骨架", Status: "running", UpdatedAt: now, WorkspaceID: "workspace_agent_chat", CWD: "E:/code/issueye/icoo_ai/agent_chat", Mode: "chat", Model: "gpt-5.4"},
-		},
-		messages: []MessageEvent{
-			{ID: "msg_1", SessionID: "sess_main_20260509_001", Kind: "message", Role: "user", Content: "为 session 增加最小可用的事件/运行摘要持久化能力。", CreatedAt: now},
-			{ID: "msg_2", SessionID: "sess_main_20260509_001", Kind: "message", Role: "assistant", Content: "我会先记录必要元信息，避免把敏感大输出落盘。", CreatedAt: now},
-			{ID: "tool_1", SessionID: "sess_main_20260509_001", Kind: "tool_call", ToolName: "shell", Status: "completed", DurationMs: 86, Summary: "读取 session store 相关文件", SafeMeta: map[string]any{"command": "rg session", "outputBytes": 18432, "outputHash": "sha256:4b7c...91af", "persistedOutput": false}, CreatedAt: now},
-			{ID: "approval_1", SessionID: "sess_main_20260509_001", Kind: "approval", Status: "pending", Decision: "pending", Summary: "允许写入摘要索引，不允许保存完整 tool result。", CreatedAt: now},
-			{ID: "run_1", SessionID: "sess_main_20260509_001", Kind: "subagent_run", SubSessionID: "subsess_review_20260509_001", ParentSessionID: "sess_main_20260509_001", Task: "安全审查事件持久化方案", Status: "completed", Summary: "未发现敏感大输出落盘路径。", EventCount: 12, CreatedAt: now},
-			{ID: "msg_sub_1", SessionID: "subsess_review_20260509_001", Kind: "message", Role: "assistant", Content: "subagent 使用独立会话 ID：subsess_review_20260509_001。", CreatedAt: now},
-			{ID: "msg_ui_1", SessionID: "sess_ui_20260509_002", Kind: "message", Role: "assistant", Content: "正在生成三栏桌面聊天布局。", CreatedAt: now},
-		},
-		runs: []RunSummary{
-			{ID: "run_main_1", SessionID: "sess_main_20260509_001", Status: "waiting_approval", Label: "等待审批", StartedAt: now},
-			{ID: "run_sub_1", SessionID: "subsess_review_20260509_001", ParentSessionID: "sess_main_20260509_001", Status: "completed", Label: "安全审查完成", StartedAt: now, CompletedAt: &completed},
-		},
-		approvals: []ApprovalDecision{
-			{ID: "approval_1", SessionID: "sess_main_20260509_001", Decision: "pending", Actor: "user", Summary: "允许保存摘要元信息", CreatedAt: now},
-		},
-		auditEvents: []AuditEvent{
-			{ID: "audit_1", SessionID: "sess_main_20260509_001", Type: "tool_result_summary", Level: "info", Summary: "只保存 outputBytes/outputHash/persistedOutput=false。", CreatedAt: now},
-			{ID: "audit_2", SessionID: "sess_main_20260509_001", Type: "approval_requested", Level: "notice", Summary: "等待用户审批写入运行摘要。", CreatedAt: now},
-		},
+		messages:       make([]MessageEvent, 0, 32),
+		auditEvents:    make([]AuditEvent, 0, 16),
 		gateway:        loadGatewayProxy(),
 		bootstrap:      newGatewayBootstrapper(),
-		devFallback:    shouldEnableDevFallback(),
 		activeSessions: make(map[string]struct{}),
 	}
 }
@@ -93,14 +61,15 @@ func (s *AgentService) ServiceStartup(ctx context.Context, _ application.Service
 		s.emitGatewayStatus(GatewayStatusFailed, "网关启动失败", map[string]any{
 			"error": err.Error(),
 		})
-		if s.devFallback {
-			return nil
-		}
 		return err
 	}
 	if s.gateway == nil {
 		s.emitGatewayStatus(GatewayStatusFailed, "网关未配置", nil)
-		return nil
+		return &BridgeError{
+			Code:      ErrorCodeGatewayUnavailable,
+			Message:   "gateway is not configured",
+			Retryable: false,
+		}
 	}
 	s.emitGatewayStatus(GatewayStatusReady, "网关连接已就绪", nil)
 	go s.streamGatewayEvents(ctx)
@@ -126,7 +95,7 @@ func (s *AgentService) ensureGatewayRunning(ctx context.Context) error {
 		return &BridgeError{
 			Code:      ErrorCodeGatewayBootstrap,
 			Message:   err.Error(),
-			Retryable: s.devFallback,
+			Retryable: false,
 		}
 	}
 	s.gateway = proxy
@@ -144,244 +113,112 @@ func (s *AgentService) pingGateway(ctx context.Context, proxy *gatewayProxy) err
 }
 
 func (s *AgentService) NewSession(ctx context.Context, req NewSessionRequest) (Conversation, error) {
-	if s.gateway != nil {
-		var out Conversation
-		err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions", req, &out)
-		if err == nil {
-			s.setCurrentStreamSessionID(out.ID)
-			return out, nil
-		}
-		if !s.shouldFallback(err) {
-			return Conversation{}, err
-		}
+	var out gatewaySessionDTO
+	err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions", mapCreateSessionRequest(req), &out)
+	if err != nil {
+		return Conversation{}, err
 	}
-	title := strings.TrimSpace(req.Title)
-	if title == "" {
-		title = "新的 Agent 会话"
-	}
-	sessionID := fmt.Sprintf("sess_mock_%d", len(s.conversations)+1)
-	conversation := Conversation{
-		ID:             sessionID,
-		Type:           "main",
-		Title:          title,
-		Subtitle:       "已创建 mock 会话，等待输入",
-		Status:         "idle",
-		UpdatedAt:      s.now,
-		WorkspaceID:    fallbackString(req.WorkspaceID, "workspace_current"),
-		CWD:            fallbackString(req.Cwd, "E:/code/issueye/icoo_ai"),
-		StartupCommand: fallbackString(req.StartupCommand, "icoo-ai"),
-		Mode:           fallbackString(req.Mode, "agent"),
-		Model:          fallbackString(req.Model, "gpt-5.4"),
-	}
-	s.mu.Lock()
-	s.conversations = append([]Conversation{conversation}, s.conversations...)
-	s.mu.Unlock()
+	conversation := mapGatewaySessionToConversation(out)
 	s.setCurrentStreamSessionID(conversation.ID)
 	return conversation, nil
 }
 
 func (s *AgentService) LoadSession(ctx context.Context, sessionID string) (Conversation, error) {
-	if s.gateway != nil {
-		var out Conversation
-		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID), nil, &out)
-		if err == nil {
-			s.setCurrentStreamSessionID(out.ID)
-			return out, nil
-		}
-		if !s.shouldFallback(err) {
-			return Conversation{}, err
-		}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return Conversation{}, &BridgeError{Code: ErrorCodeInvalidArgument, Message: "sessionId is required", Retryable: false}
 	}
-	for _, conversation := range s.conversations {
-		if conversation.ID == sessionID {
-			s.setCurrentStreamSessionID(sessionID)
-			return conversation, nil
-		}
+	var out gatewaySessionDTO
+	if err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID), nil, &out); err != nil {
+		return Conversation{}, err
 	}
-	return Conversation{}, fmt.Errorf("session %q not found", sessionID)
+	conversation := mapGatewaySessionToConversation(out)
+	s.setCurrentStreamSessionID(sessionID)
+	return conversation, nil
 }
 
 func (s *AgentService) ListConversations(ctx context.Context) ([]Conversation, error) {
-	if s.gateway != nil {
-		var out []Conversation
-		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions", nil, &out)
-		if err == nil {
-			return out, nil
-		}
-		if !s.shouldFallback(err) {
-			return nil, err
-		}
+	var out []gatewaySessionDTO
+	if err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions", nil, &out); err != nil {
+		return nil, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return append([]Conversation(nil), s.conversations...), nil
+	return mapGatewaySessionsToConversations(out), nil
 }
 
 func (s *AgentService) Prompt(ctx context.Context, req PromptRequest) ([]MessageEvent, error) {
-	if s.gateway != nil {
-		var raw json.RawMessage
-		err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(req.SessionID)+"/prompt", req, &raw)
-		if err == nil {
-			out, mapErr := parseGatewayPromptResponse(raw)
-			if mapErr != nil {
-				return nil, &BridgeError{Code: ErrorCodeGatewayRequest, Message: "decode gateway prompt response failed", Retryable: false}
-			}
-			out = normalizeMessageEvents(out, req.SessionID)
-			s.setCurrentStreamSessionID(req.SessionID)
-			return out, nil
-		}
-		if !s.shouldFallback(err) {
-			return nil, err
-		}
+	req.SessionID = strings.TrimSpace(req.SessionID)
+	if req.SessionID == "" {
+		return nil, &BridgeError{Code: ErrorCodeInvalidArgument, Message: "sessionId is required", Retryable: false}
 	}
-	prompt := strings.TrimSpace(req.Prompt)
-	if prompt == "" {
-		return nil, &BridgeError{Code: ErrorCodeInvalidArgument, Message: "prompt is required", Retryable: false}
+	req.Content = strings.TrimSpace(req.Content)
+	if req.Content == "" {
+		return nil, &BridgeError{Code: ErrorCodeInvalidArgument, Message: "content is required", Retryable: false}
 	}
-	createdAt := s.now.Add(time.Duration(len(s.messages)) * time.Second)
-	userMessage := MessageEvent{
-		ID:        fmt.Sprintf("msg_user_%d", len(s.messages)+1),
-		SessionID: req.SessionID,
-		Kind:      "message",
-		Role:      "user",
-		Content:   prompt,
-		CreatedAt: createdAt,
+	var raw json.RawMessage
+	if err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(req.SessionID)+"/prompt", mapPromptRequest(req), &raw); err != nil {
+		return nil, err
 	}
-	assistantMessage := MessageEvent{
-		ID:        fmt.Sprintf("msg_assistant_%d", len(s.messages)+2),
-		SessionID: req.SessionID,
-		Kind:      "message",
-		Role:      "assistant",
-		Status:    "done",
-		Content:   "mock bridge 已收到输入。真实 Runtime 接入后这里会由 agent:event 流式更新。",
-		CreatedAt: createdAt.Add(time.Second),
+	out, mapErr := parseGatewayPromptResponse(raw, req.SessionID)
+	if mapErr != nil {
+		return nil, &BridgeError{Code: ErrorCodeGatewayRequest, Message: "decode gateway prompt response failed", Retryable: false}
 	}
-	s.mu.Lock()
-	s.messages = append(s.messages, userMessage, assistantMessage)
-	s.mu.Unlock()
-	s.touchConversation(req.SessionID, "mock bridge 已生成响应", "idle")
+	out = normalizeMessageEvents(out, req.SessionID)
 	s.setCurrentStreamSessionID(req.SessionID)
-	return []MessageEvent{userMessage, assistantMessage}, nil
+	return out, nil
 }
 
 func (s *AgentService) Cancel(ctx context.Context, sessionID string) (RunSummary, error) {
-	if s.gateway != nil {
-		var out RunSummary
-		err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/cancel", nil, &out)
-		if err == nil {
-			s.setCurrentStreamSessionID(sessionID)
-			return out, nil
-		}
-		if !s.shouldFallback(err) {
-			return RunSummary{}, err
-		}
+	var out gatewayRunDTO
+	if err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/cancel", nil, &out); err != nil {
+		return RunSummary{}, err
 	}
-	s.touchConversation(sessionID, "运行已取消", "cancelled")
 	s.setCurrentStreamSessionID(sessionID)
-	run := RunSummary{ID: fmt.Sprintf("run_cancel_%d", len(s.runs)+1), SessionID: sessionID, Status: "cancelled", Label: "运行已取消", StartedAt: s.now, CompletedAt: &s.now}
-	s.runs = append(s.runs, run)
-	return run, nil
+	return mapGatewayRunToSummary(out), nil
 }
 
 func (s *AgentService) ListMessages(ctx context.Context, sessionID string) ([]MessageEvent, error) {
-	if s.gateway != nil {
-		var out []MessageEvent
-		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID)+"/messages", nil, &out)
-		if err == nil {
-			out = normalizeMessageEvents(out, sessionID)
-			s.setCurrentStreamSessionID(sessionID)
-			return out, nil
-		}
-		if !s.shouldFallback(err) {
-			return nil, err
-		}
+	var out []gatewayMessageDTO
+	if err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID)+"/messages", nil, &out); err != nil {
+		return nil, err
 	}
-	filtered := make([]MessageEvent, 0, len(s.messages))
-	s.mu.RLock()
-	for _, item := range s.messages {
-		if item.SessionID == sessionID {
-			filtered = append(filtered, item)
-		}
+	filtered := make([]MessageEvent, 0, len(out))
+	for _, item := range out {
+		filtered = append(filtered, mapGatewayMessageToEvent(item, sessionID))
 	}
-	s.mu.RUnlock()
 	s.setCurrentStreamSessionID(sessionID)
 	return filtered, nil
 }
 
 func (s *AgentService) ListRuns(ctx context.Context) ([]RunSummary, error) {
-	if s.gateway != nil {
-		var out []RunSummary
-		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/runs", nil, &out)
-		if err == nil {
-			return out, nil
-		}
-		if !s.shouldFallback(err) {
-			return nil, err
-		}
+	var out []gatewayRunDTO
+	if err := s.gatewayJSON(ctx, http.MethodGet, "/v1/runs", nil, &out); err != nil {
+		return nil, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return append([]RunSummary(nil), s.runs...), nil
+	return mapGatewayRunsToSummaries(out), nil
 }
 
 func (s *AgentService) ListApprovals(ctx context.Context) ([]ApprovalDecision, error) {
-	if s.gateway != nil {
-		var out []ApprovalDecision
-		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/approvals", nil, &out)
-		if err == nil {
-			return out, nil
-		}
-		if !s.shouldFallback(err) {
-			return nil, err
-		}
+	var out []gatewayApprovalDTO
+	if err := s.gatewayJSON(ctx, http.MethodGet, "/v1/approvals", nil, &out); err != nil {
+		return nil, err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return append([]ApprovalDecision(nil), s.approvals...), nil
+	return mapGatewayApprovalsToDecisions(out), nil
 }
 
 func (s *AgentService) DecideApproval(ctx context.Context, req ApprovalDecisionRequest) (ApprovalDecision, error) {
-	if s.gateway != nil {
-		var out ApprovalDecision
-		err := s.gatewayJSON(ctx, http.MethodPost, "/v1/approvals/"+url.PathEscape(req.ID)+"/decision", req, &out)
-		if err == nil {
-			return out, nil
-		}
-		if !s.shouldFallback(err) {
-			return ApprovalDecision{}, err
-		}
+	var out gatewayApprovalDTO
+	if err := s.gatewayJSON(ctx, http.MethodPost, "/v1/approvals/"+url.PathEscape(req.ID)+"/decision", mapApprovalDecisionRequest(req), &out); err != nil {
+		return ApprovalDecision{}, err
 	}
-	decision := ApprovalDecision{ID: req.ID, SessionID: req.SessionID, Decision: req.Decision, Actor: "user", Summary: "用户已处理审批请求", CreatedAt: s.now}
-	s.mu.Lock()
-	for i := range s.approvals {
-		if s.approvals[i].ID == req.ID {
-			s.approvals[i] = decision
-		}
-	}
-	for i := range s.messages {
-		if s.messages[i].ID == req.ID {
-			s.messages[i].Decision = req.Decision
-			s.messages[i].Status = "decided"
-		}
-	}
-	s.auditEvents = append(s.auditEvents, AuditEvent{ID: fmt.Sprintf("audit_%d", len(s.auditEvents)+1), SessionID: req.SessionID, Type: "approval_decision", Level: "notice", Summary: "用户决策：" + req.Decision, CreatedAt: s.now})
-	s.mu.Unlock()
-	s.touchConversation(req.SessionID, "审批已处理："+req.Decision, "idle")
-	return decision, nil
+	return mapGatewayApprovalToDecision(out), nil
 }
 
 func (s *AgentService) ListSkills(ctx context.Context) ([]SkillInfo, error) {
-	if s.gateway != nil {
-		var out []SkillInfo
-		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/skills", nil, &out)
-		if err == nil {
-			return out, nil
-		}
-		if !s.shouldFallback(err) {
-			return nil, err
-		}
+	var out []gatewaySkillDTO
+	if err := s.gatewayJSON(ctx, http.MethodGet, "/v1/skills", nil, &out); err != nil {
+		return nil, err
 	}
-	return []SkillInfo{{ID: "security-auditor", Name: "security-auditor", Description: "审查敏感输出与权限边界。"}}, nil
+	return mapGatewaySkillsToInfos(out), nil
 }
 
 func (s *AgentService) ListAuditEvents(ctx context.Context) ([]AuditEvent, error) {
@@ -403,19 +240,6 @@ func (s *AgentService) GetGatewayStatus(ctx context.Context) (GatewayStatus, err
 		Summary:   s.gatewaySummary,
 		UpdatedAt: s.gatewayUpdatedAt,
 	}, nil
-}
-
-func (s *AgentService) touchConversation(sessionID string, subtitle string, status string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i := range s.conversations {
-		if s.conversations[i].ID == sessionID {
-			s.conversations[i].Subtitle = subtitle
-			s.conversations[i].Status = status
-			s.conversations[i].UpdatedAt = s.now
-			return
-		}
-	}
 }
 
 func (s *AgentService) streamGatewayEvents(ctx context.Context) {
@@ -571,6 +395,20 @@ func (s *AgentService) forwardGatewayEvent(in gatewayclient.StreamEnvelope) erro
 	out := s.mapEnvelopeToMessageEvent(envelope)
 	s.mu.Lock()
 	s.messages = append(s.messages, out)
+	if out.Kind == BridgeEventKindAudit {
+		audit := AuditEvent{
+			ID:        out.ID,
+			SessionID: out.SessionID,
+			Type:      strings.TrimSpace(envelope.Type),
+			Level:     "info",
+			Summary:   out.Summary,
+			CreatedAt: out.CreatedAt,
+		}
+		if audit.Type == "" {
+			audit.Type = "audit"
+		}
+		s.auditEvents = append(s.auditEvents, audit)
+	}
 	s.mu.Unlock()
 	s.setLastStreamEventID(envelope.ID)
 	if s.eventSink != nil {
@@ -664,50 +502,251 @@ func (s *AgentService) mapGatewayStreamError(err error) *BridgeError {
 	return &BridgeError{Code: ErrorCodeGatewayUnavailable, Message: err.Error(), Retryable: true}
 }
 
-func fallbackString(value string, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
+type gatewaySessionDTO struct {
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	CWD            string    `json:"cwd,omitempty"`
+	StartupCommand string    `json:"startupCommand,omitempty"`
+	AgentID        string    `json:"agentId"`
+	Model          string    `json:"model,omitempty"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+type gatewayCreateSessionRequest struct {
+	Title          string `json:"title"`
+	CWD            string `json:"cwd,omitempty"`
+	StartupCommand string `json:"startupCommand,omitempty"`
+	Model          string `json:"model,omitempty"`
+}
+
+type gatewayPromptRequest struct {
+	Content string `json:"content"`
+}
+
+type gatewayMessageDTO struct {
+	ID        string    `json:"id"`
+	SessionID string    `json:"sessionId"`
+	RunID     string    `json:"runId,omitempty"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type gatewayRunDTO struct {
+	ID        string     `json:"id"`
+	SessionID string     `json:"sessionId"`
+	AgentID   string     `json:"agentId"`
+	Status    string     `json:"status"`
+	StartedAt time.Time  `json:"startedAt"`
+	EndedAt   *time.Time `json:"endedAt,omitempty"`
+}
+
+type gatewayApprovalDTO struct {
+	ID        string     `json:"id"`
+	AgentID   string     `json:"agentId"`
+	SessionID string     `json:"sessionId"`
+	RunID     string     `json:"runId"`
+	Status    string     `json:"status"`
+	Action    string     `json:"action"`
+	Message   string     `json:"message"`
+	Decision  string     `json:"decision,omitempty"`
+	DecidedAt *time.Time `json:"decidedAt,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+}
+
+type gatewayApprovalDecisionRequest struct {
+	Decision string `json:"decision"`
+}
+
+type gatewaySkillDTO struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 }
 
 type gatewayPromptResponse struct {
-	Run      json.RawMessage `json:"run"`
-	Messages []MessageEvent  `json:"messages"`
-	Approval *struct {
-		ID        string    `json:"id"`
-		SessionID string    `json:"sessionId"`
-		Status    string    `json:"status"`
-		Decision  string    `json:"decision"`
-		Message   string    `json:"message"`
-		CreatedAt time.Time `json:"createdAt"`
-	} `json:"approval,omitempty"`
+	Run      gatewayRunDTO       `json:"run"`
+	Messages []gatewayMessageDTO `json:"messages"`
+	Approval *gatewayApprovalDTO `json:"approval,omitempty"`
 }
 
-func parseGatewayPromptResponse(raw json.RawMessage) ([]MessageEvent, error) {
-	var events []MessageEvent
-	if err := json.Unmarshal(raw, &events); err == nil {
-		return events, nil
+func mapCreateSessionRequest(in NewSessionRequest) gatewayCreateSessionRequest {
+	return gatewayCreateSessionRequest{
+		Title:          strings.TrimSpace(in.Title),
+		CWD:            strings.TrimSpace(in.Cwd),
+		StartupCommand: strings.TrimSpace(in.StartupCommand),
+		Model:          strings.TrimSpace(in.Model),
 	}
+}
+
+func mapPromptRequest(in PromptRequest) gatewayPromptRequest {
+	return gatewayPromptRequest{
+		Content: strings.TrimSpace(in.Content),
+	}
+}
+
+func mapApprovalDecisionRequest(in ApprovalDecisionRequest) gatewayApprovalDecisionRequest {
+	return gatewayApprovalDecisionRequest{
+		Decision: strings.TrimSpace(in.Decision),
+	}
+}
+
+func mapGatewaySessionToConversation(in gatewaySessionDTO) Conversation {
+	updatedAt := in.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = in.CreatedAt
+	}
+	conversationType := "main"
+	if strings.HasPrefix(in.ID, "subsess_") {
+		conversationType = "subagent"
+	}
+	subtitle := strings.TrimSpace(in.Status)
+	if subtitle == "" {
+		subtitle = "unknown"
+	}
+	return Conversation{
+		ID:             in.ID,
+		Type:           conversationType,
+		Title:          in.Title,
+		Subtitle:       subtitle,
+		Status:         in.Status,
+		UnreadCount:    0,
+		UpdatedAt:      updatedAt,
+		CWD:            in.CWD,
+		StartupCommand: in.StartupCommand,
+		Mode:           in.AgentID,
+		Model:          in.Model,
+	}
+}
+
+func mapGatewaySessionsToConversations(in []gatewaySessionDTO) []Conversation {
+	out := make([]Conversation, 0, len(in))
+	for _, item := range in {
+		out = append(out, mapGatewaySessionToConversation(item))
+	}
+	return out
+}
+
+func runStatusLabel(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "running":
+		return "运行中"
+	case "completed":
+		return "已完成"
+	case "failed":
+		return "已失败"
+	case "cancelled":
+		return "已取消"
+	case "waiting_approval":
+		return "等待审批"
+	case "queued":
+		return "排队中"
+	default:
+		if strings.TrimSpace(status) == "" {
+			return "未知状态"
+		}
+		return status
+	}
+}
+
+func mapGatewayRunToSummary(in gatewayRunDTO) RunSummary {
+	return RunSummary{
+		ID:          in.ID,
+		SessionID:   in.SessionID,
+		Status:      in.Status,
+		Label:       runStatusLabel(in.Status),
+		StartedAt:   in.StartedAt,
+		CompletedAt: in.EndedAt,
+	}
+}
+
+func mapGatewayRunsToSummaries(in []gatewayRunDTO) []RunSummary {
+	out := make([]RunSummary, 0, len(in))
+	for _, item := range in {
+		out = append(out, mapGatewayRunToSummary(item))
+	}
+	return out
+}
+
+func mapGatewayApprovalToDecision(in gatewayApprovalDTO) ApprovalDecision {
+	decision := strings.TrimSpace(in.Decision)
+	if decision == "" {
+		decision = strings.TrimSpace(in.Status)
+	}
+	summary := strings.TrimSpace(in.Message)
+	if summary == "" {
+		summary = strings.TrimSpace(in.Action)
+	}
+	return ApprovalDecision{
+		ID:        in.ID,
+		SessionID: in.SessionID,
+		Decision:  decision,
+		Actor:     "gateway",
+		Summary:   summary,
+		CreatedAt: in.CreatedAt,
+	}
+}
+
+func mapGatewayApprovalsToDecisions(in []gatewayApprovalDTO) []ApprovalDecision {
+	out := make([]ApprovalDecision, 0, len(in))
+	for _, item := range in {
+		out = append(out, mapGatewayApprovalToDecision(item))
+	}
+	return out
+}
+
+func mapGatewaySkillsToInfos(in []gatewaySkillDTO) []SkillInfo {
+	out := make([]SkillInfo, 0, len(in))
+	for _, item := range in {
+		out = append(out, SkillInfo{
+			ID:          item.ID,
+			Name:        item.Name,
+			Description: item.Description,
+		})
+	}
+	return out
+}
+
+func mapGatewayMessageToEvent(in gatewayMessageDTO, fallbackSessionID string) MessageEvent {
+	sessionID := strings.TrimSpace(in.SessionID)
+	if sessionID == "" {
+		sessionID = strings.TrimSpace(fallbackSessionID)
+	}
+	return MessageEvent{
+		ID:        in.ID,
+		SessionID: sessionID,
+		Kind:      BridgeEventKindMessage,
+		Role:      in.Role,
+		Content:   in.Content,
+		CreatedAt: in.CreatedAt,
+	}
+}
+
+func parseGatewayPromptResponse(raw json.RawMessage, fallbackSessionID string) ([]MessageEvent, error) {
 	var structured gatewayPromptResponse
 	if err := json.Unmarshal(raw, &structured); err != nil {
 		return nil, err
 	}
-	out := make([]MessageEvent, 0, len(structured.Messages)+2)
-	out = append(out, structured.Messages...)
+	out := make([]MessageEvent, 0, len(structured.Messages)+1)
+	for _, message := range structured.Messages {
+		out = append(out, mapGatewayMessageToEvent(message, fallbackSessionID))
+	}
 	if structured.Approval != nil {
-		status := structured.Approval.Status
-		if strings.TrimSpace(status) == "" {
-			status = structured.Approval.Decision
+		approval := mapGatewayApprovalToDecision(*structured.Approval)
+		status := strings.TrimSpace(structured.Approval.Status)
+		if status == "" {
+			status = approval.Decision
 		}
 		out = append(out, MessageEvent{
-			ID:        structured.Approval.ID,
-			SessionID: structured.Approval.SessionID,
+			ID:        approval.ID,
+			SessionID: approval.SessionID,
 			Kind:      BridgeEventKindApproval,
 			Status:    status,
-			Decision:  structured.Approval.Decision,
-			Summary:   structured.Approval.Message,
-			CreatedAt: structured.Approval.CreatedAt,
+			Decision:  approval.Decision,
+			Summary:   approval.Summary,
+			CreatedAt: approval.CreatedAt,
 		})
 	}
 	return out, nil
@@ -812,21 +851,4 @@ func (s *AgentService) gatewayJSON(ctx context.Context, method, rawPath string, 
 		return &BridgeError{Code: ErrorCodeGatewayRequest, Message: "decode gateway response failed", Retryable: false}
 	}
 	return nil
-}
-
-func (s *AgentService) shouldFallback(err error) bool {
-	if !s.devFallback {
-		return false
-	}
-	bridgeErr, ok := err.(*BridgeError)
-	if !ok {
-		return false
-	}
-	if bridgeErr.Code == ErrorCodeGatewayUnavailable {
-		return true
-	}
-	if bridgeErr.Code == ErrorCodeGatewayRequest && bridgeErr.StatusCode == http.StatusNotFound {
-		return true
-	}
-	return false
 }

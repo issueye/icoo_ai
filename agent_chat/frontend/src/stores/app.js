@@ -4,7 +4,7 @@ import { agentBridge } from '@/services/agentBridge'
 export const useAppStore = defineStore('app', {
   state: () => ({
     activeNav: 'chats',
-    bridgeStatus: 'mock',
+    bridgeStatus: 'connecting',
     sidebarFilter: 'all',
     gatewayStatus: 'gateway_connecting',
     gatewaySummary: '等待网关连接',

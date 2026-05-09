@@ -148,7 +148,7 @@ func (s *Server) newGatewayService() (service.GatewayService, error) {
 			ID:          "icoo-ai-acp",
 			Name:        "Icoo AI",
 			Protocol:    "acp",
-			Models:      []string{"mock-gpt"},
+			Models:      []string{"gpt-5.4"},
 			Description: "Default ACP connector profile.",
 		},
 	}, memStore, conn), nil

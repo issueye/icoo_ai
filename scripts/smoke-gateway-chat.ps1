@@ -10,13 +10,17 @@ $GatewayDir = Join-Path $RepoRoot "agent_gateway"
 $GatewayExe = Join-Path $GatewayDir "dist\agent-gateway.exe"
 $TempDir = Join-Path $RepoRoot ".tmp\smoke-gateway"
 $DataDir = Join-Path $TempDir "data"
-$LogPath = Join-Path $TempDir "gateway.log"
+$StdoutLogPath = Join-Path $TempDir "gateway.stdout.log"
+$StderrLogPath = Join-Path $TempDir "gateway.stderr.log"
 
 New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
-if (Test-Path $LogPath) {
-    Remove-Item -LiteralPath $LogPath -Force
+if (Test-Path $StdoutLogPath) {
+    Remove-Item -LiteralPath $StdoutLogPath -Force
+}
+if (Test-Path $StderrLogPath) {
+    Remove-Item -LiteralPath $StderrLogPath -Force
 }
 
 function Read-EndpointInfo {
@@ -80,13 +84,13 @@ $proc = $null
 try {
     if ($UseGoRun) {
         $args = @("run", "./cmd/agent-gateway", "-data-dir", $DataDir)
-        $proc = Start-Process -FilePath "go" -ArgumentList $args -WorkingDirectory $GatewayDir -PassThru -WindowStyle Hidden -RedirectStandardError $LogPath -RedirectStandardOutput $LogPath
+        $proc = Start-Process -FilePath "go" -ArgumentList $args -WorkingDirectory $GatewayDir -PassThru -WindowStyle Hidden -RedirectStandardError $StderrLogPath -RedirectStandardOutput $StdoutLogPath
     } else {
         if (-not (Test-Path $GatewayExe)) {
             throw "gateway binary not found: $GatewayExe. Run scripts/build.ps1 -Target gateway first, or pass -UseGoRun."
         }
         $args = @("-data-dir", $DataDir)
-        $proc = Start-Process -FilePath $GatewayExe -ArgumentList $args -WorkingDirectory $GatewayDir -PassThru -WindowStyle Hidden -RedirectStandardError $LogPath -RedirectStandardOutput $LogPath
+        $proc = Start-Process -FilePath $GatewayExe -ArgumentList $args -WorkingDirectory $GatewayDir -PassThru -WindowStyle Hidden -RedirectStandardError $StderrLogPath -RedirectStandardOutput $StdoutLogPath
     }
 
     $info = Wait-EndpointInfo -Dir $DataDir -TimeoutSeconds $TimeoutSeconds
@@ -134,4 +138,3 @@ finally {
         Stop-Process -Id $proc.Id -Force
     }
 }
-
