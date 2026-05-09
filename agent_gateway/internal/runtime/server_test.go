@@ -12,6 +12,7 @@ import (
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/api"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/config"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
 )
 
 func TestServerStartWritesEndpointAndServesHealth(t *testing.T) {
@@ -116,4 +117,181 @@ func TestServerStartReturnsStructuredErrorWhenACPConnectorFails(t *testing.T) {
 	if structured.Code != "connector_start_failed" {
 		t.Fatalf("error code = %q, want connector_start_failed", structured.Code)
 	}
+}
+
+func TestServerProjectsPublishedEventsToStore(t *testing.T) {
+	cfg := config.Default()
+	server, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+	server.eventBus = events.NewBus(64)
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			t.Fatalf("Shutdown() error = %v", err)
+		}
+	})
+
+	now := time.Now().UTC()
+	server.eventBus.Publish(events.Envelope{
+		ID:        "evt_run_1",
+		Type:      "run.updated",
+		AgentID:   "icoo-ai-acp",
+		SessionID: "sess_proj_1",
+		RunID:     "run_proj_1",
+		Payload:   map[string]any{"status": "in_progress"},
+		CreatedAt: now,
+	})
+	server.eventBus.Publish(events.Envelope{
+		ID:        "evt_msg_1",
+		Type:      "message.created",
+		AgentID:   "icoo-ai-acp",
+		SessionID: "sess_proj_1",
+		RunID:     "run_proj_1",
+		Payload:   map[string]any{"role": "assistant", "content": "hello from acp"},
+		CreatedAt: now,
+	})
+
+	server.eventBus.Publish(events.Envelope{
+		ID:        "evt_appr_1",
+		Type:      "approval.requested",
+		AgentID:   "icoo-ai-acp",
+		SessionID: "sess_proj_1",
+		RunID:     "run_proj_1",
+		Payload: map[string]any{
+			"id":        "approval_proj_1",
+			"requestId": "connreq_proj_1",
+			"action":    "write_file",
+			"message":   "need write approval",
+		},
+		CreatedAt: now,
+	})
+
+	waitFor(t, 2*time.Second, func() bool {
+		runs, err := server.store.ListRuns(context.Background(), "sess_proj_1")
+		if err != nil || len(runs) == 0 {
+			return false
+		}
+		messages, err := server.store.ListMessages(context.Background(), "sess_proj_1")
+		if err != nil || len(messages) == 0 {
+			return false
+		}
+		approvals, err := server.store.ListApprovals(context.Background())
+		if err != nil || len(approvals) == 0 {
+			return false
+		}
+		return true
+	})
+
+	runs, err := server.store.ListRuns(context.Background(), "sess_proj_1")
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v", err)
+	}
+	if runs[0].RunID != "run_proj_1" || runs[0].Status != "in_progress" {
+		t.Fatalf("projected run mismatch: %#v", runs[0])
+	}
+
+	messages, err := server.store.ListMessages(context.Background(), "sess_proj_1")
+	if err != nil {
+		t.Fatalf("ListMessages() error = %v", err)
+	}
+	var foundMessage bool
+	for _, message := range messages {
+		if message.ID == "evt_msg_1" {
+			foundMessage = true
+			if message.Summary == "" {
+				t.Fatalf("projected message summary should not be empty: %#v", message)
+			}
+		}
+	}
+	if !foundMessage {
+		t.Fatalf("evt_msg_1 not found in projected messages: %#v", messages)
+	}
+
+	approvals, err := server.store.ListApprovals(context.Background())
+	if err != nil {
+		t.Fatalf("ListApprovals() error = %v", err)
+	}
+	var found bool
+	for _, approval := range approvals {
+		if approval.ID == "approval_proj_1" {
+			found = true
+			if approval.ConnectorRequestID != "connreq_proj_1" || approval.Status != "pending" {
+				t.Fatalf("projected approval mismatch: %#v", approval)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("approval_proj_1 not found in approvals: %#v", approvals)
+	}
+}
+
+func TestServerShutdownStopsEventProjectionConsumption(t *testing.T) {
+	cfg := config.Default()
+	server, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+	server.eventBus = events.NewBus(64)
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	server.eventBus.Publish(events.Envelope{
+		ID:        "evt_before_shutdown",
+		Type:      "run.updated",
+		AgentID:   "icoo-ai-acp",
+		SessionID: "sess_shutdown_1",
+		RunID:     "run_before_shutdown",
+		Payload:   map[string]any{"status": "running"},
+		CreatedAt: time.Now().UTC(),
+	})
+	waitFor(t, 2*time.Second, func() bool {
+		runs, err := server.store.ListRuns(context.Background(), "sess_shutdown_1")
+		return err == nil && len(runs) == 1
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+
+	server.eventBus.Publish(events.Envelope{
+		ID:        "evt_after_shutdown",
+		Type:      "run.updated",
+		AgentID:   "icoo-ai-acp",
+		SessionID: "sess_shutdown_1",
+		RunID:     "run_after_shutdown",
+		Payload:   map[string]any{"status": "running"},
+		CreatedAt: time.Now().UTC(),
+	})
+
+	time.Sleep(150 * time.Millisecond)
+	runs, err := server.store.ListRuns(context.Background(), "sess_shutdown_1")
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v", err)
+	}
+	if len(runs) != 1 || runs[0].RunID != "run_before_shutdown" {
+		t.Fatalf("expected no projection after shutdown, got runs=%#v", runs)
+	}
+}
+
+func waitFor(t *testing.T, timeout time.Duration, predicate func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if predicate() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("condition not met before timeout")
 }

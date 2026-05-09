@@ -260,6 +260,75 @@ func TestConnectorBackedServiceUsesConnectorSessionAndPrompt(t *testing.T) {
 	}
 }
 
+func TestConnectorBackedServicePromptHistoryQueryConsistency(t *testing.T) {
+	ctx := context.Background()
+	rec := newRecordingStore()
+	endedAt := time.Date(2026, 5, 9, 15, 30, 0, 0, time.UTC)
+	fake := &fakeConnector{
+		newSessionResp: connector.NewSessionResponse{SessionID: "sess_conn_history_1"},
+		promptResp: connector.PromptResponse{
+			RunID:   "run_conn_history_1",
+			Output:  "history output",
+			EndedAt: &endedAt,
+			Approvals: []connector.ApprovalRequest{
+				{RequestID: "approval_req_history_1", Action: "execute", Message: "approve execution"},
+			},
+		},
+	}
+	svc := NewConnectorGatewayServiceWithAgentsAndStore(defaultAgents(), rec, fake)
+
+	session, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "history consistency"})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	resp, err := svc.Prompt(ctx, session.ID, PromptRequest{Content: "connector history"})
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if resp.Approval == nil {
+		t.Fatal("expected approval")
+	}
+
+	messages, err := svc.ListMessages(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(messages) != len(resp.Messages) {
+		t.Fatalf("messages count mismatch, list=%d prompt=%d", len(messages), len(resp.Messages))
+	}
+	for idx := range resp.Messages {
+		if messages[idx].ID != resp.Messages[idx].ID || messages[idx].RunID != resp.Run.ID || messages[idx].SessionID != session.ID {
+			t.Fatalf("message[%d] mismatch, list=%#v prompt=%#v", idx, messages[idx], resp.Messages[idx])
+		}
+	}
+
+	runs, err := svc.ListRuns(ctx)
+	if err != nil {
+		t.Fatalf("list runs: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+	if runs[0].ID != resp.Run.ID || runs[0].SessionID != session.ID || runs[0].AgentID != session.AgentID {
+		t.Fatalf("run mismatch, listed=%#v prompt=%#v session=%#v", runs[0], resp.Run, session)
+	}
+
+	approvals, err := svc.ListApprovals(ctx)
+	if err != nil {
+		t.Fatalf("list approvals: %v", err)
+	}
+	if len(approvals) != 1 {
+		t.Fatalf("expected 1 approval, got %d", len(approvals))
+	}
+	if approvals[0].ID != resp.Approval.ID || approvals[0].RunID != resp.Run.ID || approvals[0].SessionID != session.ID {
+		t.Fatalf("approval mismatch, listed=%#v prompt=%#v", approvals[0], resp.Approval)
+	}
+
+	if rec.listMessagesCalls == 0 || rec.listRunsCalls == 0 || rec.listApprovalsCalls == 0 {
+		t.Fatalf("expected list calls to hit store, listMsg=%d listRun=%d listApproval=%d", rec.listMessagesCalls, rec.listRunsCalls, rec.listApprovalsCalls)
+	}
+}
+
 func TestConnectorBackedServiceMapsConnectorPromptError(t *testing.T) {
 	ctx := context.Background()
 	rec := newRecordingStore()

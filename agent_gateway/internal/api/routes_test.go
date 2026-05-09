@@ -2,14 +2,17 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/api"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
@@ -356,6 +359,114 @@ func TestConcurrentMultiAgentProfileRunEventApprovalCancelIsolation(t *testing.T
 	}
 	if got := byID[promptB.Approval.ID]; got.AgentID != sessionB.AgentID || got.Status != "approved" || got.Decision != "approved" {
 		t.Fatalf("expected session B approval approved in its profile, got %#v", got)
+	}
+}
+
+type connectorBackedAPIFake struct {
+	newSessionResp connector.NewSessionResponse
+	newSessionErr  error
+
+	promptResp connector.PromptResponse
+	promptErr  error
+
+	cancelResp connector.CancelResponse
+	cancelErr  error
+
+	newSessionCalls int
+	promptCalls     int
+	cancelCalls     int
+}
+
+func (f *connectorBackedAPIFake) Initialize(context.Context, connector.InitializeRequest) (connector.InitializeResponse, error) {
+	return connector.InitializeResponse{}, nil
+}
+
+func (f *connectorBackedAPIFake) NewSession(context.Context, connector.NewSessionRequest) (connector.NewSessionResponse, error) {
+	f.newSessionCalls++
+	if f.newSessionErr != nil {
+		return connector.NewSessionResponse{}, f.newSessionErr
+	}
+	return f.newSessionResp, nil
+}
+
+func (f *connectorBackedAPIFake) Prompt(context.Context, connector.PromptRequest) (connector.PromptResponse, error) {
+	f.promptCalls++
+	if f.promptErr != nil {
+		return connector.PromptResponse{}, f.promptErr
+	}
+	return f.promptResp, nil
+}
+
+func (f *connectorBackedAPIFake) Cancel(context.Context, connector.CancelRequest) (connector.CancelResponse, error) {
+	f.cancelCalls++
+	if f.cancelErr != nil {
+		return connector.CancelResponse{}, f.cancelErr
+	}
+	return f.cancelResp, nil
+}
+
+func (f *connectorBackedAPIFake) Close() error { return nil }
+
+func TestConnectorBackedPromptHistoryAPIConsistency(t *testing.T) {
+	endedAt := time.Date(2026, 5, 9, 16, 0, 0, 0, time.UTC)
+	fake := &connectorBackedAPIFake{
+		newSessionResp: connector.NewSessionResponse{SessionID: "sess_api_conn_1"},
+		promptResp: connector.PromptResponse{
+			RunID:   "run_api_conn_1",
+			Output:  "connector assistant output",
+			EndedAt: &endedAt,
+			Approvals: []connector.ApprovalRequest{
+				{RequestID: "approval_req_api_1", Action: "write_file", Message: "allow write"},
+			},
+		},
+	}
+	svc := service.NewConnectorGatewayServiceWithAgentsAndStore(nil, store.NewMemoryStore(), fake)
+	router := api.NewRouter(svc)
+
+	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
+		"title":   "connector api consistency",
+		"agentId": "icoo-ai-acp",
+	})
+	prompt := doJSON[service.PromptResponse](t, router, http.MethodPost, "/v1/sessions/"+session.ID+"/prompt", map[string]string{
+		"content": "hello connector-backed api",
+	})
+	if fake.newSessionCalls != 1 || fake.promptCalls != 1 {
+		t.Fatalf("expected connector calls newSession=1 prompt=1, got newSession=%d prompt=%d", fake.newSessionCalls, fake.promptCalls)
+	}
+	if prompt.Run.ID != "run_api_conn_1" || prompt.Run.SessionID != session.ID {
+		t.Fatalf("unexpected prompt run: %#v", prompt.Run)
+	}
+	if len(prompt.Messages) != 2 {
+		t.Fatalf("expected 2 prompt messages, got %d", len(prompt.Messages))
+	}
+	if prompt.Approval == nil || prompt.Approval.ConnectorRequestID != "approval_req_api_1" {
+		t.Fatalf("unexpected prompt approval: %#v", prompt.Approval)
+	}
+
+	messages := doJSON[[]service.Message](t, router, http.MethodGet, "/v1/sessions/"+session.ID+"/messages", nil)
+	if len(messages) != len(prompt.Messages) {
+		t.Fatalf("messages count mismatch, list=%d prompt=%d", len(messages), len(prompt.Messages))
+	}
+	for idx := range prompt.Messages {
+		if messages[idx].ID != prompt.Messages[idx].ID || messages[idx].RunID != prompt.Run.ID || messages[idx].SessionID != session.ID {
+			t.Fatalf("message[%d] mismatch, list=%#v prompt=%#v", idx, messages[idx], prompt.Messages[idx])
+		}
+	}
+
+	runs := doJSON[[]service.Run](t, router, http.MethodGet, "/v1/runs", nil)
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+	if runs[0].ID != prompt.Run.ID || runs[0].SessionID != session.ID || runs[0].AgentID != session.AgentID {
+		t.Fatalf("run list mismatch: got %#v prompt run %#v session %#v", runs[0], prompt.Run, session)
+	}
+
+	approvals := doJSON[[]service.Approval](t, router, http.MethodGet, "/v1/approvals", nil)
+	if len(approvals) != 1 {
+		t.Fatalf("expected 1 approval, got %d", len(approvals))
+	}
+	if approvals[0].ID != prompt.Approval.ID || approvals[0].RunID != prompt.Run.ID || approvals[0].SessionID != session.ID {
+		t.Fatalf("approval list mismatch: got %#v prompt approval %#v", approvals[0], prompt.Approval)
 	}
 }
 

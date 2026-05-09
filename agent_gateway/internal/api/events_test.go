@@ -13,7 +13,9 @@ import (
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/api"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/projection"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
 func TestEventStreamReceivesEnvelope(t *testing.T) {
@@ -254,4 +256,104 @@ func TestEventStreamFiltersByAgentID(t *testing.T) {
 		t.Fatalf("read stream: %v", err)
 	}
 	t.Fatal("stream closed before receiving filtered event")
+}
+
+func TestRunAndMessageEventsProjectedToHistoryAPI(t *testing.T) {
+	memStore := store.NewMemoryStore()
+	router := api.NewRouter(service.NewMockGatewayServiceWithStore(memStore))
+	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
+		"title": "projection-history",
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	sub, _ := events.DefaultBus().Subscribe(ctx, "")
+	defer sub.Close()
+
+	runEvent := events.Envelope{
+		ID:        "evt_projection_run",
+		Type:      "run.updated",
+		AgentID:   session.AgentID,
+		SessionID: session.ID,
+		RunID:     "run_projection_1",
+		Payload: map[string]any{
+			"status": "completed",
+		},
+		CreatedAt: time.Date(2026, 5, 9, 16, 20, 0, 0, time.UTC),
+	}
+	messageEvent := events.Envelope{
+		ID:        "evt_projection_message",
+		Type:      "message.created",
+		AgentID:   session.AgentID,
+		SessionID: session.ID,
+		RunID:     "run_projection_1",
+		Payload: map[string]any{
+			"role":    "assistant",
+			"content": "projected message content",
+		},
+		CreatedAt: time.Date(2026, 5, 9, 16, 20, 1, 0, time.UTC),
+	}
+
+	projected := make(chan error, 1)
+	go func() {
+		targets := map[string]struct{}{
+			runEvent.ID:     {},
+			messageEvent.ID: {},
+		}
+		seen := make(map[string]struct{}, len(targets))
+		for {
+			select {
+			case <-ctx.Done():
+				projected <- ctx.Err()
+				return
+			case envelope, ok := <-sub.Events():
+				if !ok {
+					projected <- context.Canceled
+					return
+				}
+				if _, wanted := targets[envelope.ID]; !wanted {
+					continue
+				}
+				if _, err := projection.Apply(context.Background(), memStore, envelope); err != nil {
+					projected <- err
+					return
+				}
+				seen[envelope.ID] = struct{}{}
+				if len(seen) == len(targets) {
+					projected <- nil
+					return
+				}
+			}
+		}
+	}()
+
+	events.DefaultBus().Publish(runEvent)
+	events.DefaultBus().Publish(messageEvent)
+
+	if err := <-projected; err != nil {
+		t.Fatalf("event projection failed: %v", err)
+	}
+
+	messages := doJSON[[]service.Message](t, router, http.MethodGet, "/v1/sessions/"+session.ID+"/messages", nil)
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 projected history messages, got %d", len(messages))
+	}
+	byID := make(map[string]service.Message, len(messages))
+	for _, message := range messages {
+		byID[message.ID] = message
+	}
+	if msg := byID[runEvent.ID]; msg.ID == "" || msg.RunID != runEvent.RunID || msg.SessionID != session.ID {
+		t.Fatalf("expected projected run event message, got %#v", msg)
+	}
+	if msg := byID[messageEvent.ID]; msg.ID == "" || msg.Role != "assistant" || msg.RunID != messageEvent.RunID {
+		t.Fatalf("expected projected assistant message event, got %#v", msg)
+	}
+
+	runs := doJSON[[]service.Run](t, router, http.MethodGet, "/v1/runs", nil)
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 projected run, got %d", len(runs))
+	}
+	if runs[0].ID != runEvent.RunID || runs[0].SessionID != session.ID || runs[0].Status != "completed" {
+		t.Fatalf("unexpected projected run: %#v", runs[0])
+	}
 }

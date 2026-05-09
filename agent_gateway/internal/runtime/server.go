@@ -12,6 +12,7 @@ import (
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/config"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connectors/acp"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/security"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
@@ -25,6 +26,9 @@ type Server struct {
 	http      *http.Server
 	listener  net.Listener
 	acpConn   *acp.Connector
+	store     store.Store
+	eventBus  *events.Bus
+	projector *eventProjector
 }
 
 func NewServer(cfg config.Config) (*Server, error) {
@@ -42,6 +46,7 @@ func NewServer(cfg config.Config) (*Server, error) {
 		cfg:       cfg,
 		startedAt: time.Now(),
 		token:     token,
+		eventBus:  events.DefaultBus(),
 	}, nil
 }
 
@@ -85,6 +90,9 @@ func (s *Server) Start() error {
 		return err
 	}
 	s.endpoint = endpoint
+	if s.store != nil {
+		s.projector = startEventProjector(s.eventBus, s.store)
+	}
 
 	go func() {
 		if err := s.http.Serve(listener); err != nil && err != http.ErrServerClosed {
@@ -96,6 +104,9 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.projector != nil {
+		s.projector.Stop()
+	}
 	if s.acpConn != nil {
 		_ = s.acpConn.Close()
 	}
@@ -106,10 +117,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 func (s *Server) newGatewayService() (service.GatewayService, error) {
-	if !s.cfg.ACP.Enabled {
-		return service.NewMockGatewayService(), nil
-	}
 	memStore := store.NewMemoryStore()
+	s.store = memStore
+	if !s.cfg.ACP.Enabled {
+		return service.NewMockGatewayServiceWithStore(memStore), nil
+	}
 	conn, err := acp.NewDefaultConnector(acp.DefaultConnectorOptions{
 		Command: s.cfg.ACP.Command,
 		Args:    s.cfg.ACP.Args,
