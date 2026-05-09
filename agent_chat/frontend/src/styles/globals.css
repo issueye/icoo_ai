@@ -697,6 +697,160 @@
     color: var(--qq-text);
   }
 
+  .qq-ued-message-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    max-width: min(82%, 760px);
+  }
+
+  .qq-ued-message-row.is-user {
+    margin-left: auto;
+    flex-direction: row-reverse;
+  }
+
+  .qq-ued-message-avatar {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 700;
+  }
+
+  .qq-ued-message-avatar.is-assistant {
+    background: rgba(19, 174, 228, 0.14);
+    color: #047aa6;
+  }
+
+  .qq-ued-message-avatar.is-user {
+    background: rgba(66, 98, 116, 0.16);
+    color: #355668;
+  }
+
+  .qq-ued-message-body {
+    min-width: 0;
+    border: 1px solid var(--qq-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 1px 2px rgba(8, 32, 51, 0.04);
+  }
+
+  .qq-ued-message-row.is-user .qq-ued-message-body {
+    border-color: rgba(19, 174, 228, 0.25);
+    background: rgba(199, 239, 255, 0.86);
+  }
+
+  .qq-ued-message-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .qq-ued-message-role {
+    color: var(--qq-text-soft);
+    font-size: 12px;
+    line-height: 17px;
+    font-weight: 700;
+  }
+
+  .qq-ued-message-time {
+    color: var(--qq-text-muted);
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .qq-ued-message-content {
+    color: var(--qq-text);
+    font-size: 14px;
+    line-height: 22px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .qq-ued-reminder {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    border: 1px solid var(--qq-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.74);
+    padding: 10px 12px;
+  }
+
+  .qq-ued-reminder.is-info {
+    border-color: rgba(83, 151, 181, 0.28);
+    background: rgba(237, 248, 255, 0.85);
+  }
+
+  .qq-ued-reminder.is-notice {
+    border-color: rgba(245, 166, 35, 0.26);
+    background: rgba(255, 249, 236, 0.9);
+  }
+
+  .qq-ued-reminder.is-danger {
+    border-color: rgba(239, 75, 95, 0.28);
+    background: rgba(255, 241, 243, 0.92);
+  }
+
+  .qq-ued-reminder-icon {
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    flex-shrink: 0;
+    color: var(--qq-text-soft);
+  }
+
+  .qq-ued-reminder.is-notice .qq-ued-reminder-icon {
+    color: #a26a13;
+  }
+
+  .qq-ued-reminder.is-danger .qq-ued-reminder-icon {
+    color: #c0394f;
+  }
+
+  .qq-ued-reminder-body {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .qq-ued-reminder-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .qq-ued-reminder-title {
+    color: var(--qq-text);
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 700;
+  }
+
+  .qq-ued-reminder-tag {
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.66);
+    color: var(--qq-text-soft);
+    padding: 2px 8px;
+    font-size: 10px;
+    line-height: 14px;
+    font-weight: 600;
+  }
+
+  .qq-ued-reminder-summary {
+    margin-top: 3px;
+    color: var(--qq-text-soft);
+    font-size: 13px;
+    line-height: 19px;
+    word-break: break-word;
+  }
+
   .qq-event-card {
     border: 1px solid var(--qq-border);
     border-radius: 8px;
