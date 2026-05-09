@@ -1,6 +1,6 @@
-# icoo-ai
+﻿# icoo-ai
 
-`icoo-ai` 是一个使用 Go 开发的本地 AI 编程 Agent 工具，目标是提供类似 Claude Code 的工作流能力，同时保持 Agent、协议、LLM、工具和权限系统之间的解耦。
+`icoo-ai` 是一个使用 Go 开发的本地 AI 编程 Agent 工具，目标是提供类似 Claude Code / Codex CLI 的工作流能力，同时保持 Agent、协议、LLM、工具和权限系统之间的解耦。
 
 ## 当前状态
 
@@ -20,8 +20,16 @@
 - Subagent 工具：`subagent_run`。
 - `skill_execute` 通过 subagent 执行。
 - MCP 工具接入，使用 `github.com/mark3labs/mcp-go`。
-- Hooks、权限策略、会话存储、团队审计 JSONL 日志。
+- Hooks、权限策略、会话存储、JSONL 审计日志。
 - 权限申请确认流程：执行一次、总是执行、拒绝。
+
+## 快速开始
+
+1. 设置任意一个 API Key 环境变量：`OPENAI_API_KEY`、`ICOO_AI_OPENAI_API_KEY` 或 `ICOO_AI_API_KEY`。
+2. 如需项目级配置，将 `configs/config.example.toml` 复制为 `.icoo-ai.toml`。
+3. 运行 `go run ./cmd/icoo-ai doctor` 检查配置是否可用。
+4. 运行 `go run ./cmd/icoo-ai run "解释这个工作区"` 执行一次本地任务。
+5. 运行 `go run ./cmd/icoo-ai serve` 启动 ACP stdio 服务。
 
 ## 配置
 
@@ -68,14 +76,6 @@ provider = "duckduckgo"
 # https_proxy = "http://127.0.0.1:7890"
 # no_proxy = "localhost,127.0.0.1,.local"
 
-# 可选：只给 LLM 配置代理。
-# [network.llm]
-# https_proxy = "http://127.0.0.1:7890"
-
-# 可选：只给 DuckDuckGo 配置代理。
-# [network.duckduckgo]
-# http_proxy = "http://127.0.0.1:7890"
-
 [retry]
 max_attempts = 3
 initial_delay_millis = 500
@@ -102,30 +102,7 @@ command = "mcp-server-filesystem"
 args = ["."]
 ```
 
-审计日志使用 Go `slog` JSON 输出，默认写入用户目录下的 `.icoo-ai/audit/audit.jsonl`。当日志超过 `max_size_mb` 后会自动轮转，最多保留 `max_backups` 个历史文件。
-
-OpenAI Responses 请求会按 `[retry]` 配置进行重试。默认只重试网络错误、`429` 和 `5xx` 响应，不会重试 `400`、`401`、`403` 等配置或认证错误。
-
-网络代理可以通过 `[network]` 配置，也可以使用标准环境变量。显式配置 `[network]` 后会优先使用配置文件中的代理设置：
-
-```toml
-[network]
-http_proxy = "http://127.0.0.1:7890"
-https_proxy = "http://127.0.0.1:7890"
-no_proxy = "localhost,127.0.0.1,.local"
-```
-
-也可以只配置其中一个网络调用方向：
-
-```toml
-[network.llm]
-https_proxy = "http://127.0.0.1:7890"
-
-[network.duckduckgo]
-http_proxy = "http://127.0.0.1:7891"
-```
-
-对应环境变量为 `ICOO_AI_LLM_HTTP_PROXY`、`ICOO_AI_LLM_HTTPS_PROXY`、`ICOO_AI_LLM_NO_PROXY`，以及 `ICOO_AI_DUCKDUCKGO_HTTP_PROXY`、`ICOO_AI_DUCKDUCKGO_HTTPS_PROXY`、`ICOO_AI_DUCKDUCKGO_NO_PROXY`。
+## API Key
 
 需要设置以下任意一个环境变量：
 
@@ -142,6 +119,74 @@ api_key = "sk-..."
 ```
 
 优先级为：`OPENAI_API_KEY`、`ICOO_AI_OPENAI_API_KEY`、`ICOO_AI_API_KEY`、配置文件 `api_key`。出于安全考虑，命令输出和审计日志不会直接打印密钥。
+
+## 网络代理
+
+网络代理可以通过 `[network]` 配置，也可以使用标准环境变量。显式配置 `[network]` 后，会优先使用配置文件中的代理设置：
+
+```toml
+[network]
+http_proxy = "http://127.0.0.1:7890"
+https_proxy = "http://127.0.0.1:7890"
+no_proxy = "localhost,127.0.0.1,.local"
+```
+
+也可以只给某类网络调用配置代理：
+
+```toml
+[network.llm]
+https_proxy = "http://127.0.0.1:7890"
+
+[network.duckduckgo]
+http_proxy = "http://127.0.0.1:7891"
+```
+
+对应环境变量为：`ICOO_AI_LLM_HTTP_PROXY`、`ICOO_AI_LLM_HTTPS_PROXY`、`ICOO_AI_LLM_NO_PROXY`，以及 `ICOO_AI_DUCKDUCKGO_HTTP_PROXY`、`ICOO_AI_DUCKDUCKGO_HTTPS_PROXY`、`ICOO_AI_DUCKDUCKGO_NO_PROXY`。
+
+## Hooks 运行时
+
+Hooks 可以通过 `app.BuildOptions.Hooks` 注入，并贯穿 Runtime、ReAct Loop、Subagent、Shell 工具和文件工具。
+
+当前支持的运行时事件包括：
+
+- `before_run` / `after_run` / `on_error`
+- `before_tool_call` / `after_tool_call`
+- `before_file_write` / `after_file_write`
+- `before_shell_command` / `after_shell_command`
+
+Hook 可以继续执行、修改事件数据、阻断执行或请求审批。`run_shell` 或 `write_file` 被 hook 阻断时，底层命令或文件写入不会执行。开启审计日志后，hook 调度会以 `hook_use` 事件写入审计日志。
+
+## Skills 使用
+
+Skill 使用 Codex 风格目录结构，每个 skill 目录包含一个 `SKILL.md` 文件。系统会从内置、用户、项目和自定义 skill 路径中发现技能。
+
+可用的 skill 工具包括：
+
+- `skill_list`：列出已发现的技能。
+- `skill_get`：加载单个技能及其资源索引。
+- `skill_add`：在项目、用户或自定义 scope 中创建可写技能。
+- `skill_delete`：删除可写技能，必要时走权限审批。
+- `skill_execute`：将任务和技能说明交给 subagent 执行。
+
+CLI 支持显式执行技能：
+
+```powershell
+go run ./cmd/icoo-ai run "/skill go-review review internal/agent"
+```
+
+## MCP
+
+MCP 配置位于 `[mcp]` 和 `[mcp.servers.<name>]`。启用后，MCP server 暴露的工具会映射为 `mcp__<server>__<tool>` 形式的本地工具名。
+
+MCP tool call 使用有界超时，并会重试临时 `net.Error` 错误。MCP 审计事件会记录 `retry_attempts`，便于诊断外部服务不稳定问题。
+
+## 稳定性说明
+
+- OpenAI Responses 请求会按 `[retry]` 配置重试。
+- `web_fetch` 和 DuckDuckGo `web_search` 会重试临时网络错误、`429` 和 `5xx`。
+- `web_fetch` 和 `web_search` 不会重试 `400`、`401`、`403` 等配置或认证错误。
+- Session 文件只持久化有限的运行摘要，用于追踪 tool、approval 和 run completion 等关键事件，不保存完整的大型工具输出。
+- 审计日志使用 Go `slog` JSON 输出，默认写入用户目录下的 `.icoo-ai/audit/audit.jsonl`，超过 `max_size_mb` 后会自动轮转。
 
 ## 常用命令
 
@@ -200,48 +245,3 @@ go test ./... -count=1
 
 - [需求分析](docs/requirements-analysis.md)
 - [多 Agent 开发计划](docs/development-plan.md)
-
-## Quick Start
-
-1. Set an API key with one of `OPENAI_API_KEY`, `ICOO_AI_OPENAI_API_KEY`, or `ICOO_AI_API_KEY`.
-2. Copy `configs/config.example.toml` to `.icoo-ai.toml` when project-local configuration is needed.
-3. Run `go run ./cmd/icoo-ai doctor` to verify configuration.
-4. Run `go run ./cmd/icoo-ai run "explain this workspace"` for a one-shot local run.
-5. Run `go run ./cmd/icoo-ai serve` to start the ACP stdio server.
-
-## Hooks Runtime
-
-Hooks can be injected through `app.BuildOptions.Hooks` and flow into the runtime, ReAct loop, subagents, shell, and file tools.
-
-Supported runtime events include:
-
-- `before_tool_call` / `after_tool_call`
-- `before_file_write` / `after_file_write`
-- `before_shell_command` / `after_shell_command`
-
-A hook can continue, modify event data, block execution, or request approval. Blocking a `run_shell` or `write_file` hook prevents the underlying command or file write from running. Hook dispatches are written to audit logs as `hook_use` events when audit logging is enabled.
-
-## Skills Usage
-
-Skills are Codex-style directories containing a `SKILL.md` file. Discovery uses built-in, user, project, and configured custom skill paths.
-
-Available skill tools:
-
-- `skill_list`: list discovered skills.
-- `skill_get`: load one skill and its indexed resources.
-- `skill_add`: create a writable project/user/custom skill.
-- `skill_delete`: delete a writable skill with policy approval when required.
-- `skill_execute`: delegate a task to a subagent with the selected skill instructions.
-
-The CLI also supports explicit skill execution:
-
-```powershell
-go run ./cmd/icoo-ai run "/skill go-review review internal/agent"
-```
-
-## Stability Notes
-
-- OpenAI Responses requests retry according to `[retry]`.
-- `web_fetch` and DuckDuckGo `web_search` retry transient network failures, `429`, and `5xx`; they do not retry `400`, `401`, or `403`.
-- MCP tool calls use a bounded timeout and retry transient `net.Error` failures. MCP audit events include `retry_attempts`.
-- Session files persist bounded run summaries for tool, approval, and completion events without storing full large tool output.
