@@ -4,6 +4,12 @@ import { RefreshCcw, RotateCcw, Save, Server } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 
 const app = useAppStore()
+defineProps({
+  section: {
+    type: String,
+    default: 'gateway',
+  },
+})
 const gatewayPath = ref('')
 const savedTip = ref('')
 
@@ -55,24 +61,10 @@ function resetToDefault() {
         <h2 class="qq-chat-title">配置</h2>
         <p class="qq-sidebar-subtitle">网关服务路径与连接参数</p>
       </div>
-      <div class="qq-settings-status-card">
-        <div class="qq-settings-status-icon"><Server class="h-4 w-4" /></div>
-        <div class="min-w-0">
-          <div class="qq-settings-status-title">网关服务状态</div>
-          <div class="qq-settings-status-row">
-            <span class="qq-footer-status" :class="statusClass">
-              <span class="qq-footer-dot" />
-              <span>{{ statusLabel }}</span>
-            </span>
-            <span class="qq-settings-status-summary">{{ app.gatewaySummary || '等待状态更新' }}</span>
-          </div>
-        </div>
-      </div>
     </header>
 
     <div class="qq-settings-body">
       <div class="qq-settings-card">
-        <div class="qq-settings-card-title">网关路径</div>
         <label class="qq-settings-label" for="gatewayBinaryPath">网关可执行文件路径</label>
         <input
           id="gatewayBinaryPath"

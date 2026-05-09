@@ -821,5 +821,11 @@ func (s *AgentService) shouldFallback(err error) bool {
 	if !ok {
 		return false
 	}
-	return bridgeErr.Code == ErrorCodeGatewayUnavailable
+	if bridgeErr.Code == ErrorCodeGatewayUnavailable {
+		return true
+	}
+	if bridgeErr.Code == ErrorCodeGatewayRequest && bridgeErr.StatusCode == http.StatusNotFound {
+		return true
+	}
+	return false
 }

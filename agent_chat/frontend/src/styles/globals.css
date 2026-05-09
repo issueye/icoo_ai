@@ -30,7 +30,7 @@
     --nav-rail-width: 64px;
     --conversation-sidebar-width: 288px;
     --global-header-height: 40px;
-    --chat-header-height: 104px;
+    --chat-header-height: 64px;
     --composer-height: 168px;
     --chat-content-max-width: 1180px;
     --message-max-width: 680px;
@@ -314,10 +314,54 @@
     padding: 14px 12px;
   }
 
-  .qq-settings-sidebar-placeholder {
+  .qq-settings-sidebar {
     width: var(--conversation-sidebar-width);
     border-right: 1px solid var(--qq-border);
     background: var(--qq-sidebar);
+    padding: 14px 12px;
+  }
+
+  .qq-settings-sidebar-head {
+    margin-bottom: 10px;
+  }
+
+  .qq-settings-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .qq-settings-nav-item {
+    width: 100%;
+    border-radius: 8px;
+    text-align: left;
+    padding: 10px;
+    color: var(--qq-text);
+    transition: background-color 140ms ease, color 140ms ease;
+    background: rgba(255, 255, 255, 0.36);
+  }
+
+  .qq-settings-nav-item:hover {
+    background: rgba(255, 255, 255, 0.52);
+  }
+
+  .qq-settings-nav-item.is-active {
+    background: rgba(255, 255, 255, 0.8);
+    box-shadow: var(--qq-shadow-soft);
+  }
+
+  .qq-settings-nav-title {
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 700;
+    color: var(--qq-text);
+  }
+
+  .qq-settings-nav-subtitle {
+    margin-top: 3px;
+    font-size: 12px;
+    line-height: 17px;
+    color: var(--qq-text-muted);
   }
 
   .qq-sidebar-title {
@@ -400,6 +444,24 @@
     opacity: 0.56;
   }
 
+  .qq-secondary-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border-radius: 6px;
+    border: 1px solid rgba(83, 151, 181, 0.18);
+    background: rgba(255, 255, 255, 0.62);
+    color: var(--qq-text-soft);
+    transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+  }
+
+  .qq-secondary-action:hover {
+    background: rgba(255, 255, 255, 0.86);
+    color: var(--qq-text);
+    border-color: rgba(19, 174, 228, 0.28);
+  }
+
   .qq-conversation-item {
     width: 100%;
     border-radius: 8px;
@@ -474,7 +536,7 @@
     border-bottom: 1px solid var(--qq-border);
     background: rgba(247, 252, 255, 0.72);
     gap: 14px;
-    padding: 12px 20px;
+    padding: 4px 6px;
   }
 
   .qq-chat-title {
@@ -562,7 +624,7 @@
   .qq-context-menu {
     position: absolute;
     z-index: 30;
-    top: calc(100% + 6px);
+    bottom: calc(100% + 6px);
     left: 0;
     width: max(100%, 180px);
     max-height: 210px;
@@ -675,7 +737,7 @@
     min-height: var(--composer-height);
     border-top: 1px solid var(--qq-border);
     background: rgba(247, 252, 255, 0.78);
-    padding: 12px clamp(24px, 4vw, 72px);
+    padding: 12px;
   }
 
   .qq-composer-inner {
@@ -721,7 +783,7 @@
 
   .qq-settings-header {
     height: auto;
-    min-height: 92px;
+    min-height: 64px;
     align-items: center;
   }
 

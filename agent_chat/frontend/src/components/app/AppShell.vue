@@ -1,11 +1,12 @@
 <script setup>
-import { onBeforeUnmount, onMounted, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppGlobalHeader from './AppGlobalHeader.vue'
 import AppNavRail from './AppNavRail.vue'
 import AppFooter from './AppFooter.vue'
 import ConversationSidebar from '@/components/conversation/ConversationSidebar.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
+import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
 import SettingsWorkspace from '@/components/settings/SettingsWorkspace.vue'
 import { useApprovalsStore } from '@/stores/approvals'
 import { useAppStore } from '@/stores/app'
@@ -26,6 +27,7 @@ const skills = useSkillsStore()
 const audit = useAuditStore()
 let statusTimer = null
 const isSettingsRoute = () => route.name === 'settings'
+const activeSettingsSection = ref('gateway')
 
 onMounted(async () => {
   await app.refreshGatewayStatus()
@@ -82,8 +84,8 @@ watch(() => conversations.activeSessionId, async (sessionId) => {
     <div class="qq-shell">
       <AppNavRail />
       <template v-if="route.name === 'settings'">
-        <div class="qq-settings-sidebar-placeholder" />
-        <SettingsWorkspace />
+        <SettingsSidebar v-model="activeSettingsSection" />
+        <SettingsWorkspace :section="activeSettingsSection" />
       </template>
       <template v-else>
         <ConversationSidebar />

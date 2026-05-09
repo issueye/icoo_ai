@@ -18,29 +18,6 @@ const conversations = useConversationsStore()
         {{ conversations.activeSessionId }}
         <span v-if="conversations.activeConversation?.parentSessionId">父会话 {{ conversations.activeConversation.parentSessionId }}</span>
       </p>
-      <div class="qq-context-bar">
-        <ContextDropdown
-          label="工作区"
-          :icon="FolderGit2"
-          :model-value="conversations.activeConversation?.workspaceId ?? conversations.activeWorkspace.id"
-          :options="conversations.workspaceOptions"
-          @update:model-value="conversations.updateActiveContext({ workspaceId: $event })"
-        />
-        <ContextDropdown
-          label="模式"
-          :icon="Boxes"
-          :model-value="conversations.activeConversation?.mode ?? conversations.activeMode.id"
-          :options="conversations.modeOptions"
-          @update:model-value="conversations.updateActiveContext({ mode: $event })"
-        />
-        <ContextDropdown
-          label="模型"
-          :icon="BrainCircuit"
-          :model-value="conversations.activeConversation?.model ?? conversations.activeModel.id"
-          :options="conversations.modelOptions"
-          @update:model-value="conversations.updateActiveContext({ model: $event })"
-        />
-      </div>
     </div>
     <div class="flex gap-2">
       <button class="qq-icon-button" aria-label="搜索消息"><Search class="h-5 w-5" /></button>

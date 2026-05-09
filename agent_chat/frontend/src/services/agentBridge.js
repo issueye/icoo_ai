@@ -1,5 +1,4 @@
 import { mockApprovals, mockAuditEvents, mockConversations, mockMessages, mockRuns, mockSkills } from './mockData'
-import { AgentService as generatedAgentService } from '@/bindings/github.com/icoo-ai/icoo-ai/agent_chat/internal/bridge'
 
 const mockState = {
   conversations: structuredClone(mockConversations),
@@ -13,7 +12,7 @@ const mockState = {
 function getWailsService() {
   const hasHostRuntime = Boolean(globalThis?.chrome?.webview || globalThis?.webkit?.messageHandlers || globalThis?.go || globalThis?.wails)
   if (!hasHostRuntime) return null
-  return globalThis?.go?.bridge?.AgentService ?? globalThis?.wails?.AgentService ?? generatedAgentService ?? null
+  return globalThis?.go?.bridge?.AgentService ?? globalThis?.wails?.AgentService ?? null
 }
 
 async function callOrMock(method, mockValue, ...args) {
