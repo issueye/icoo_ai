@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -15,14 +17,18 @@ import (
 )
 
 type MCPToolOptions struct {
-	Config       config.MCPConfig
-	Servers      []mcp.ServerDefinition
-	Factory      mcp.ClientFactory
-	SchemaMapper mcp.SchemaMapper
-	Policy       policy.Policy
-	AuditLogger  audit.Logger
-	Now          func() time.Time
+	Config        config.MCPConfig
+	Servers       []mcp.ServerDefinition
+	Factory       mcp.ClientFactory
+	SchemaMapper  mcp.SchemaMapper
+	Policy        policy.Policy
+	AuditLogger   audit.Logger
+	Timeout       time.Duration
+	RetryAttempts int
+	Now           func() time.Time
 }
+
+const defaultMCPToolTimeout = 30 * time.Second
 
 func NewMCPTools(ctx context.Context, opts MCPToolOptions) ([]Tool, error) {
 	servers := opts.Servers
@@ -48,6 +54,14 @@ func NewMCPTools(ctx context.Context, opts MCPToolOptions) ([]Tool, error) {
 	now := opts.Now
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
+	}
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = defaultMCPToolTimeout
+	}
+	retryAttempts := opts.RetryAttempts
+	if retryAttempts <= 0 {
+		retryAttempts = defaultExternalRetryAttempts
 	}
 
 	out := make([]Tool, 0)
@@ -80,13 +94,15 @@ func NewMCPTools(ctx context.Context, opts MCPToolOptions) ([]Tool, error) {
 			}
 			def.InputSchema = schema
 			out = append(out, mcpTool{
-				name:        toolName,
-				server:      server,
-				definition:  def,
-				client:      client,
-				policy:      p,
-				auditLogger: opts.AuditLogger,
-				now:         now,
+				name:          toolName,
+				server:        server,
+				definition:    def,
+				client:        client,
+				policy:        p,
+				auditLogger:   opts.AuditLogger,
+				timeout:       timeout,
+				retryAttempts: retryAttempts,
+				now:           now,
 			})
 			seen[toolName] = server.Name
 		}
@@ -99,13 +115,15 @@ func MCPToolName(serverName, toolName string) string {
 }
 
 type mcpTool struct {
-	name        string
-	server      mcp.ServerDefinition
-	definition  mcp.ToolDefinition
-	client      mcp.ToolClient
-	policy      policy.Policy
-	auditLogger audit.Logger
-	now         func() time.Time
+	name          string
+	server        mcp.ServerDefinition
+	definition    mcp.ToolDefinition
+	client        mcp.ToolClient
+	policy        policy.Policy
+	auditLogger   audit.Logger
+	timeout       time.Duration
+	retryAttempts int
+	now           func() time.Time
 }
 
 func (t mcpTool) Name() string { return t.name }
@@ -142,16 +160,25 @@ func (t mcpTool) Execute(ctx context.Context, input json.RawMessage) (ToolResult
 	}
 	decision := t.policy.EvaluateMCP(req)
 	if decision.Action == policy.DecisionBlock {
-		_ = t.logMCP(ctx, startedAt, false, decision.Reason, decision)
+		_ = t.logMCP(ctx, startedAt, false, decision.Reason, 0, decision)
 		return toolError("policy_blocked", decision.Reason, decision.Details), nil
 	}
 
-	result, err := t.client.CallTool(ctx, mcp.ToolCall{Name: t.definition.Name, Arguments: args})
+	callCtx, cancel := context.WithTimeout(ctx, t.timeout)
+	defer cancel()
+	result, attempts, err := t.callWithRetry(callCtx, mcp.ToolCall{Name: t.definition.Name, Arguments: args})
 	if err != nil {
-		_ = t.logMCP(ctx, startedAt, false, err.Error(), decision)
-		return toolError("mcp_call_failed", err.Error(), map[string]any{
-			"server": t.server.Name,
-			"name":   t.definition.Name,
+		code := "mcp_call_failed"
+		message := err.Error()
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+			code = "mcp_timeout"
+			message = fmt.Sprintf("mcp tool %s/%s timed out", t.server.Name, t.definition.Name)
+		}
+		_ = t.logMCP(ctx, startedAt, false, message, attempts, decision)
+		return toolError(code, message, map[string]any{
+			"server":         t.server.Name,
+			"name":           t.definition.Name,
+			"retry_attempts": attempts,
 		}), nil
 	}
 
@@ -159,19 +186,50 @@ func (t mcpTool) Execute(ctx context.Context, input json.RawMessage) (ToolResult
 	if !toolResult.OK && toolResult.Error == "" {
 		toolResult.Error = "mcp tool returned an error"
 	}
-	_ = t.logMCP(ctx, startedAt, toolResult.OK, toolResult.Error, decision)
+	if toolResult.Data == nil {
+		toolResult.Data = map[string]any{}
+	}
+	toolResult.Data["retry_attempts"] = attempts
+	_ = t.logMCP(ctx, startedAt, toolResult.OK, toolResult.Error, attempts, decision)
 	return toolResult, nil
 }
 
-func (t mcpTool) logMCP(ctx context.Context, at time.Time, ok bool, errText string, decision policy.Decision) error {
+func (t mcpTool) callWithRetry(ctx context.Context, call mcp.ToolCall) (mcp.CallResult, int, error) {
+	var lastErr error
+	for attempt := 1; attempt <= t.retryAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return mcp.CallResult{}, attempt - 1, err
+		}
+		result, err := t.client.CallTool(ctx, call)
+		if err == nil || !isRetriableMCPError(err) || attempt == t.retryAttempts {
+			return result, attempt, err
+		}
+		lastErr = err
+		if err := sleepRetry(ctx, attempt); err != nil {
+			return mcp.CallResult{}, attempt, err
+		}
+	}
+	return mcp.CallResult{}, t.retryAttempts, lastErr
+}
+
+func isRetriableMCPError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary())
+}
+
+func (t mcpTool) logMCP(ctx context.Context, at time.Time, ok bool, errText string, attempts int, decision policy.Decision) error {
 	if t.auditLogger == nil {
 		return nil
 	}
 	data := map[string]any{
-		"server": t.server.Name,
-		"name":   t.definition.Name,
-		"kind":   "tool",
-		"ok":     ok,
+		"server":         t.server.Name,
+		"name":           t.definition.Name,
+		"kind":           "tool",
+		"ok":             ok,
+		"retry_attempts": attempts,
 	}
 	if errText != "" {
 		data["error"] = errText

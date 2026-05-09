@@ -200,3 +200,48 @@ go test ./... -count=1
 
 - [需求分析](docs/requirements-analysis.md)
 - [多 Agent 开发计划](docs/development-plan.md)
+
+## Quick Start
+
+1. Set an API key with one of `OPENAI_API_KEY`, `ICOO_AI_OPENAI_API_KEY`, or `ICOO_AI_API_KEY`.
+2. Copy `configs/config.example.toml` to `.icoo-ai.toml` when project-local configuration is needed.
+3. Run `go run ./cmd/icoo-ai doctor` to verify configuration.
+4. Run `go run ./cmd/icoo-ai run "explain this workspace"` for a one-shot local run.
+5. Run `go run ./cmd/icoo-ai serve` to start the ACP stdio server.
+
+## Hooks Runtime
+
+Hooks can be injected through `app.BuildOptions.Hooks` and flow into the runtime, ReAct loop, subagents, shell, and file tools.
+
+Supported runtime events include:
+
+- `before_tool_call` / `after_tool_call`
+- `before_file_write` / `after_file_write`
+- `before_shell_command` / `after_shell_command`
+
+A hook can continue, modify event data, block execution, or request approval. Blocking a `run_shell` or `write_file` hook prevents the underlying command or file write from running. Hook dispatches are written to audit logs as `hook_use` events when audit logging is enabled.
+
+## Skills Usage
+
+Skills are Codex-style directories containing a `SKILL.md` file. Discovery uses built-in, user, project, and configured custom skill paths.
+
+Available skill tools:
+
+- `skill_list`: list discovered skills.
+- `skill_get`: load one skill and its indexed resources.
+- `skill_add`: create a writable project/user/custom skill.
+- `skill_delete`: delete a writable skill with policy approval when required.
+- `skill_execute`: delegate a task to a subagent with the selected skill instructions.
+
+The CLI also supports explicit skill execution:
+
+```powershell
+go run ./cmd/icoo-ai run "/skill go-review review internal/agent"
+```
+
+## Stability Notes
+
+- OpenAI Responses requests retry according to `[retry]`.
+- `web_fetch` and DuckDuckGo `web_search` retry transient network failures, `429`, and `5xx`; they do not retry `400`, `401`, or `403`.
+- MCP tool calls use a bounded timeout and retry transient `net.Error` failures. MCP audit events include `retry_attempts`.
+- Session files persist bounded run summaries for tool, approval, and completion events without storing full large tool output.

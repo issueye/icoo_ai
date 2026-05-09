@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/icoo-ai/icoo-ai/internal/audit"
 	"github.com/icoo-ai/icoo-ai/internal/config"
@@ -150,6 +152,53 @@ func TestNewMCPToolsReportsConflictsAndInvalidSchema(t *testing.T) {
 	}
 }
 
+func TestMCPToolRetriesTransientClientErrors(t *testing.T) {
+	client := &fakeMCPClient{
+		tools: []mcp.ToolDefinition{{Name: "flaky"}},
+		errs:  []error{errTemporaryMCP{}, nil},
+		result: mcp.CallResult{
+			Content: "ok",
+		},
+	}
+	toolset, err := NewMCPTools(context.Background(), MCPToolOptions{
+		Servers: []mcp.ServerDefinition{{Name: "srv", Enabled: true}},
+		Factory: fakeMCPFactory{"srv": client},
+		Policy:  allowPolicy{},
+	})
+	if err != nil {
+		t.Fatalf("NewMCPTools() error = %v", err)
+	}
+
+	result := runTool(t, toolset[0], map[string]any{})
+	if !result.OK || result.Content != "ok" {
+		t.Fatalf("result = %+v", result)
+	}
+	if client.calls != 2 || result.Data["retry_attempts"] != 2 {
+		t.Fatalf("calls=%d data=%+v", client.calls, result.Data)
+	}
+}
+
+func TestMCPToolTimeoutReturnsClearError(t *testing.T) {
+	client := &fakeMCPClient{
+		tools: []mcp.ToolDefinition{{Name: "slow"}},
+		delay: 50 * time.Millisecond,
+	}
+	toolset, err := NewMCPTools(context.Background(), MCPToolOptions{
+		Servers: []mcp.ServerDefinition{{Name: "srv", Enabled: true}},
+		Factory: fakeMCPFactory{"srv": client},
+		Policy:  allowPolicy{},
+		Timeout: 5 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("NewMCPTools() error = %v", err)
+	}
+
+	result := runTool(t, toolset[0], map[string]any{})
+	if result.OK || result.Data["code"] != "mcp_timeout" || !strings.Contains(result.Error, "timed out") {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
 type fakeMCPFactory map[string]*fakeMCPClient
 
 func (f fakeMCPFactory) NewClient(_ context.Context, def mcp.ServerDefinition) (mcp.Client, error) {
@@ -166,6 +215,8 @@ type fakeMCPClient struct {
 	tools  []mcp.ToolDefinition
 	result mcp.CallResult
 	err    error
+	errs   []error
+	delay  time.Duration
 	calls  int
 	last   mcp.ToolCall
 }
@@ -181,13 +232,33 @@ func (c *fakeMCPClient) CallTool(ctx context.Context, call mcp.ToolCall) (mcp.Ca
 	if err := ctx.Err(); err != nil {
 		return mcp.CallResult{}, err
 	}
+	if c.delay > 0 {
+		select {
+		case <-ctx.Done():
+			return mcp.CallResult{}, ctx.Err()
+		case <-time.After(c.delay):
+		}
+	}
 	c.calls++
 	c.last = call
+	if len(c.errs) > 0 {
+		err := c.errs[0]
+		c.errs = c.errs[1:]
+		if err != nil {
+			return mcp.CallResult{}, err
+		}
+	}
 	if c.err != nil {
 		return mcp.CallResult{}, c.err
 	}
 	return c.result, nil
 }
+
+type errTemporaryMCP struct{}
+
+func (errTemporaryMCP) Error() string   { return "temporary mcp failure" }
+func (errTemporaryMCP) Timeout() bool   { return false }
+func (errTemporaryMCP) Temporary() bool { return true }
 
 func (c *fakeMCPClient) ListResources(ctx context.Context) ([]mcp.ResourceDefinition, error) {
 	if err := ctx.Err(); err != nil {
