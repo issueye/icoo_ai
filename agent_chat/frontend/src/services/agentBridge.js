@@ -61,6 +61,7 @@ export const agentBridge = {
       avatar: 'agent',
       workspaceId: payload.workspaceId ?? 'workspace_current',
       cwd: payload.cwd ?? 'E:/code/issueye/icoo_ai',
+      startupCommand: payload.startupCommand ?? 'icoo-ai',
       mode: payload.mode ?? 'agent',
       model: payload.model ?? 'gpt-5.4',
     }

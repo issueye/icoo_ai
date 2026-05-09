@@ -64,7 +64,13 @@ export const useConversationsStore = defineStore('conversations', {
       }
     },
     async createConversation(payload = {}) {
-      const conversation = await agentBridge.newSession(payload)
+      const normalizedCwd = typeof payload.cwd === 'string' ? payload.cwd.trim() : ''
+      const workspaceId = payload.workspaceId ?? (normalizedCwd ? this.ensureWorkspaceOption(normalizedCwd) : undefined)
+      const conversation = await agentBridge.newSession({
+        ...payload,
+        cwd: normalizedCwd || payload.cwd,
+        workspaceId,
+      })
       this.upsertConversation(conversation, true)
       this.activeSessionId = conversation.id
       return conversation
@@ -95,6 +101,16 @@ export const useConversationsStore = defineStore('conversations', {
       }
       if (prepend) this.items.unshift(conversation)
       else this.items.push(conversation)
+    },
+    ensureWorkspaceOption(path) {
+      const normalized = String(path || '').trim()
+      if (!normalized) return this.activeWorkspace?.id ?? this.workspaceOptions[0]?.id
+      const existing = this.workspaceOptions.find((item) => item.path.toLowerCase() === normalized.toLowerCase())
+      if (existing) return existing.id
+      const fallbackLabel = normalized.replace(/\\/g, '/').split('/').filter(Boolean).pop() || '自定义工作区'
+      const id = `workspace_custom_${Date.now()}`
+      this.workspaceOptions.push({ id, label: fallbackLabel, path: normalized })
+      return id
     },
   },
 })

@@ -294,6 +294,13 @@ export class Conversation {
              * @member
              * @type {string | undefined}
              */
+            this["startupCommand"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
             this["mode"] = undefined;
         }
         if (/** @type {any} */(false)) {
@@ -523,6 +530,13 @@ export class NewSessionRequest {
              * @type {string | undefined}
              */
             this["workspaceId"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["startupCommand"] = undefined;
         }
         if (/** @type {any} */(false)) {
             /**

@@ -118,12 +118,21 @@ func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessio
 	if title == "" {
 		title = "New Agent Session"
 	}
+	startupCommand := strings.TrimSpace(req.StartupCommand)
 	sessionID := s.idLocked("sess")
 	if s.connector != nil {
+		metadata := map[string]any{}
+		if startupCommand != "" {
+			metadata["startupCommand"] = startupCommand
+		}
+		if len(metadata) == 0 {
+			metadata = nil
+		}
 		connResp, err := s.connector.NewSession(ctx, connector.NewSessionRequest{
-			AgentID: agentID,
-			Model:   req.Model,
-			CWD:     req.CWD,
+			AgentID:  agentID,
+			Model:    req.Model,
+			CWD:      req.CWD,
+			Metadata: metadata,
 		})
 		if err != nil {
 			return Session{}, NewError("connector_request_failed", fmt.Sprintf("connector newSession failed: %v", err))
@@ -133,14 +142,15 @@ func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessio
 		}
 	}
 	session := Session{
-		ID:        sessionID,
-		Title:     title,
-		CWD:       req.CWD,
-		AgentID:   agentID,
-		Model:     req.Model,
-		Status:    "active",
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:             sessionID,
+		Title:          title,
+		CWD:            req.CWD,
+		StartupCommand: startupCommand,
+		AgentID:        agentID,
+		Model:          req.Model,
+		Status:         "active",
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
 		return Session{}, err
@@ -603,6 +613,13 @@ func (s *MockGatewayService) idLocked(prefix string) string {
 }
 
 func toStoreConversation(session Session) store.Conversation {
+	safeMeta := store.SafeMeta{}
+	if strings.TrimSpace(session.StartupCommand) != "" {
+		safeMeta["startupCommand"] = strings.TrimSpace(session.StartupCommand)
+	}
+	if len(safeMeta) == 0 {
+		safeMeta = nil
+	}
 	return store.Conversation{
 		ID:        session.ID,
 		AgentID:   session.AgentID,
@@ -611,21 +628,24 @@ func toStoreConversation(session Session) store.Conversation {
 		Status:    session.Status,
 		Model:     session.Model,
 		CWD:       session.CWD,
+		SafeMeta:  safeMeta,
 		CreatedAt: session.CreatedAt,
 		UpdatedAt: session.UpdatedAt,
 	}
 }
 
 func fromStoreConversation(conversation store.Conversation) Session {
+	startupCommand, _ := conversation.SafeMeta["startupCommand"].(string)
 	return Session{
-		ID:        conversation.SessionID,
-		Title:     conversation.Title,
-		CWD:       conversation.CWD,
-		AgentID:   conversation.AgentID,
-		Model:     conversation.Model,
-		Status:    conversation.Status,
-		CreatedAt: conversation.CreatedAt,
-		UpdatedAt: conversation.UpdatedAt,
+		ID:             conversation.SessionID,
+		Title:          conversation.Title,
+		CWD:            conversation.CWD,
+		StartupCommand: strings.TrimSpace(startupCommand),
+		AgentID:        conversation.AgentID,
+		Model:          conversation.Model,
+		Status:         conversation.Status,
+		CreatedAt:      conversation.CreatedAt,
+		UpdatedAt:      conversation.UpdatedAt,
 	}
 }
 

@@ -161,16 +161,17 @@ func (s *AgentService) NewSession(ctx context.Context, req NewSessionRequest) (C
 	}
 	sessionID := fmt.Sprintf("sess_mock_%d", len(s.conversations)+1)
 	conversation := Conversation{
-		ID:          sessionID,
-		Type:        "main",
-		Title:       title,
-		Subtitle:    "已创建 mock 会话，等待输入",
-		Status:      "idle",
-		UpdatedAt:   s.now,
-		WorkspaceID: fallbackString(req.WorkspaceID, "workspace_current"),
-		CWD:         fallbackString(req.Cwd, "E:/code/issueye/icoo_ai"),
-		Mode:        fallbackString(req.Mode, "agent"),
-		Model:       fallbackString(req.Model, "gpt-5.4"),
+		ID:             sessionID,
+		Type:           "main",
+		Title:          title,
+		Subtitle:       "已创建 mock 会话，等待输入",
+		Status:         "idle",
+		UpdatedAt:      s.now,
+		WorkspaceID:    fallbackString(req.WorkspaceID, "workspace_current"),
+		CWD:            fallbackString(req.Cwd, "E:/code/issueye/icoo_ai"),
+		StartupCommand: fallbackString(req.StartupCommand, "icoo-ai"),
+		Mode:           fallbackString(req.Mode, "agent"),
+		Model:          fallbackString(req.Model, "gpt-5.4"),
 	}
 	s.mu.Lock()
 	s.conversations = append([]Conversation{conversation}, s.conversations...)

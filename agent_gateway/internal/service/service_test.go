@@ -13,6 +13,7 @@ import (
 type fakeConnector struct {
 	newSessionResp connector.NewSessionResponse
 	newSessionErr  error
+	lastNewSession connector.NewSessionRequest
 
 	promptResp connector.PromptResponse
 	promptErr  error
@@ -28,8 +29,9 @@ type fakeConnector struct {
 func (f *fakeConnector) Initialize(context.Context, connector.InitializeRequest) (connector.InitializeResponse, error) {
 	return connector.InitializeResponse{}, nil
 }
-func (f *fakeConnector) NewSession(context.Context, connector.NewSessionRequest) (connector.NewSessionResponse, error) {
+func (f *fakeConnector) NewSession(_ context.Context, req connector.NewSessionRequest) (connector.NewSessionResponse, error) {
 	f.newSessionCalls++
+	f.lastNewSession = req
 	if f.newSessionErr != nil {
 		return connector.NewSessionResponse{}, f.newSessionErr
 	}
@@ -223,7 +225,11 @@ func TestConnectorBackedServiceUsesConnectorSessionAndPrompt(t *testing.T) {
 	}
 
 	svc := NewConnectorGatewayServiceWithAgentsAndStore(defaultAgents(), rec, fake)
-	session, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "connector session"})
+	session, err := svc.CreateSession(ctx, CreateSessionRequest{
+		Title:          "connector session",
+		CWD:            "E:/code/issueye/icoo_ai",
+		StartupCommand: "icoo-ai --profile dev",
+	})
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -246,6 +252,12 @@ func TestConnectorBackedServiceUsesConnectorSessionAndPrompt(t *testing.T) {
 	}
 	if fake.newSessionCalls != 1 || fake.promptCalls != 1 {
 		t.Fatalf("connector calls newSession=%d prompt=%d", fake.newSessionCalls, fake.promptCalls)
+	}
+	if fake.lastNewSession.CWD != "E:/code/issueye/icoo_ai" {
+		t.Fatalf("connector newSession cwd = %q", fake.lastNewSession.CWD)
+	}
+	if got, _ := fake.lastNewSession.Metadata["startupCommand"].(string); got != "icoo-ai --profile dev" {
+		t.Fatalf("connector newSession metadata.startupCommand = %q", got)
 	}
 
 	cancelled, err := svc.Cancel(ctx, session.ID)

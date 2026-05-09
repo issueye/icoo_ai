@@ -887,6 +887,67 @@
     font-size: 12px;
     line-height: 17px;
   }
+
+  .qq-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    display: grid;
+    place-items: center;
+    background: rgba(8, 32, 51, 0.24);
+    padding: 16px;
+  }
+
+  .qq-modal {
+    width: min(520px, 100%);
+    border: 1px solid var(--qq-border-strong);
+    border-radius: 8px;
+    background: rgba(248, 253, 255, 0.98);
+    box-shadow: var(--qq-shadow-float);
+    overflow: hidden;
+  }
+
+  .qq-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--qq-border);
+  }
+
+  .qq-modal-title {
+    color: var(--qq-text);
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 700;
+  }
+
+  .qq-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .qq-modal-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .qq-modal-label {
+    color: var(--qq-text-soft);
+    font-size: 12px;
+    line-height: 17px;
+    font-weight: 600;
+  }
+
+  .qq-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 0 12px 12px;
+  }
 }
 
 @layer utilities {
