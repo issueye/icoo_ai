@@ -11,10 +11,14 @@ defineProps({
   },
 })
 const gatewayPath = ref('')
+const gatewayHost = ref('127.0.0.1')
+const gatewayPort = ref(17889)
 
 onMounted(async () => {
   await app.loadAppSettings()
   gatewayPath.value = app.gatewayBinaryPath || ''
+  gatewayHost.value = app.gatewayHost || '127.0.0.1'
+  gatewayPort.value = Number(app.gatewayPort || 17889)
 })
 
 const disabled = computed(() => app.settingsSaving)
@@ -40,7 +44,12 @@ const statusClass = computed(() => {
 
 async function saveSettings() {
   try {
-    await app.saveAppSettings({ gatewayBinaryPath: gatewayPath.value.trim() })
+    const normalizedPort = Number(gatewayPort.value)
+    await app.saveAppSettings({
+      gatewayBinaryPath: gatewayPath.value.trim(),
+      gatewayHost: gatewayHost.value.trim() || '127.0.0.1',
+      gatewayPort: Number.isFinite(normalizedPort) ? normalizedPort : 17889,
+    })
     await app.refreshGatewayStatus()
     app.pushToast({ type: 'success', message: '配置保存成功' })
   } catch {
@@ -59,6 +68,8 @@ async function refreshGatewayStatus() {
 
 function resetToDefault() {
   gatewayPath.value = './runtime/gateway/agent-gateway.exe'
+  gatewayHost.value = '127.0.0.1'
+  gatewayPort.value = 17889
   app.pushToast({ type: 'info', message: '已恢复默认路径，请保存配置' })
 }
 </script>
@@ -81,6 +92,24 @@ function resetToDefault() {
           type="text"
           class="qq-settings-input"
           placeholder="例如：E:/codes/icoo_ai/agent_gateway/runtime/gateway/agent-gateway.exe"
+        />
+        <label class="qq-settings-label" for="gatewayHost">网关 Host</label>
+        <input
+          id="gatewayHost"
+          v-model="gatewayHost"
+          type="text"
+          class="qq-settings-input"
+          placeholder="127.0.0.1"
+        />
+        <label class="qq-settings-label" for="gatewayPort">网关 Port</label>
+        <input
+          id="gatewayPort"
+          v-model.number="gatewayPort"
+          type="number"
+          min="1"
+          max="65535"
+          class="qq-settings-input"
+          placeholder="17889"
         />
         <div class="qq-settings-actions">
           <button class="qq-icon-button" :disabled="disabled" aria-label="恢复默认路径" @click="resetToDefault">

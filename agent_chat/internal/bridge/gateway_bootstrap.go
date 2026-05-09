@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/icoo-ai/icoo-ai/agent_chat/internal/gatewayclient"
@@ -23,16 +23,16 @@ const (
 )
 
 type gatewayBootstrapper struct {
-	discoveryPath string
-	devMode       bool
-	waitTimeout   time.Duration
-	pollInterval  time.Duration
-	now           func() time.Time
-	sleep         func(time.Duration)
-	discover      func(path string) (gatewayclient.Endpoint, string, error)
-	healthCheck   func(ctx context.Context, endpoint gatewayclient.Endpoint, token string) error
-	startProcess  func(ctx context.Context) (*os.Process, error)
-	stopProcess   func(process *os.Process) error
+	discoveryPath    string
+	devMode          bool
+	waitTimeout      time.Duration
+	pollInterval     time.Duration
+	now              func() time.Time
+	sleep            func(time.Duration)
+	discover         func(path string) (gatewayclient.Endpoint, string, error)
+	healthCheck      func(ctx context.Context, endpoint gatewayclient.Endpoint, token string) error
+	startProcess     func(ctx context.Context) (*os.Process, error)
+	stopProcess      func(process *os.Process) error
 	stopProcessByPID func(pid int) error
 
 	processMu      sync.Mutex
@@ -223,9 +223,15 @@ func defaultStopGatewayProcessByPID(pid int) error {
 }
 
 func resolveGatewayCommand(devMode bool) (gatewayCommandSpec, error) {
-	if settings, err := loadAppSettings(); err == nil && strings.TrimSpace(settings.GatewayBinaryPath) != "" {
+	settings, settingsErr := loadAppSettings()
+	if settingsErr != nil {
+		settings = normalizeAppSettings(AppSettings{})
+	}
+	launchArgs := gatewayLaunchArgsFromSettings(settings)
+
+	if strings.TrimSpace(settings.GatewayBinaryPath) != "" {
 		bin := strings.TrimSpace(settings.GatewayBinaryPath)
-		return gatewayCommandSpec{command: bin}, nil
+		return gatewayCommandSpec{command: bin, args: launchArgs}, nil
 	}
 
 	names := []string{"agent-gateway"}
@@ -237,7 +243,7 @@ func resolveGatewayCommand(devMode bool) (gatewayCommandSpec, error) {
 		if exe, err := os.Executable(); err == nil {
 			candidate := filepath.Join(filepath.Dir(exe), name)
 			if fileExists(candidate) {
-				return gatewayCommandSpec{command: candidate}, nil
+				return gatewayCommandSpec{command: candidate, args: launchArgs}, nil
 			}
 		}
 	}
@@ -250,7 +256,7 @@ func resolveGatewayCommand(devMode bool) (gatewayCommandSpec, error) {
 		}
 		for _, candidate := range candidates {
 			if fileExists(candidate) {
-				return gatewayCommandSpec{command: candidate}, nil
+				return gatewayCommandSpec{command: candidate, args: launchArgs}, nil
 			}
 		}
 	}
@@ -268,9 +274,17 @@ func resolveGatewayCommand(devMode bool) (gatewayCommandSpec, error) {
 	}
 	return gatewayCommandSpec{
 		command: "go",
-		args:    []string{"run", "./agent_gateway/cmd/agent-gateway"},
+		args:    append([]string{"run", "./agent_gateway/cmd/agent-gateway"}, launchArgs...),
 		dir:     repoRoot,
 	}, nil
+}
+
+func gatewayLaunchArgsFromSettings(settings AppSettings) []string {
+	settings = normalizeAppSettings(settings)
+	return []string{
+		"-host", settings.GatewayHost,
+		"-port", fmt.Sprintf("%d", settings.GatewayPort),
+	}
 }
 
 func resolveRepoRoot() (string, error) {

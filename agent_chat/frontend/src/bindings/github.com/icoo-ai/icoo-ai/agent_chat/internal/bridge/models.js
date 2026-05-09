@@ -23,6 +23,20 @@ export class AppSettings {
              */
             this["gatewayBinaryPath"] = undefined;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["gatewayHost"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["gatewayPort"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }

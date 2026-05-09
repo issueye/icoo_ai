@@ -124,3 +124,18 @@ func TestGatewayBootstrapperEnsureRunning_TimesOutWhenGatewayNeverReady(t *testi
 		t.Fatal("expected timeout error, got nil")
 	}
 }
+
+func TestGatewayLaunchArgsFromSettings(t *testing.T) {
+	t.Parallel()
+
+	args := gatewayLaunchArgsFromSettings(AppSettings{
+		GatewayHost: "127.0.0.1",
+		GatewayPort: 18888,
+	})
+	if len(args) != 4 {
+		t.Fatalf("expected 4 args, got %d: %#v", len(args), args)
+	}
+	if args[0] != "-host" || args[1] != "127.0.0.1" || args[2] != "-port" || args[3] != "18888" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+}

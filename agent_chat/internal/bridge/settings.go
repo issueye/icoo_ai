@@ -11,7 +11,14 @@ import (
 
 type AppSettings struct {
 	GatewayBinaryPath string `json:"gatewayBinaryPath,omitempty"`
+	GatewayHost       string `json:"gatewayHost,omitempty"`
+	GatewayPort       int    `json:"gatewayPort,omitempty"`
 }
+
+const (
+	defaultGatewayHost = "127.0.0.1"
+	defaultGatewayPort = 17889
+)
 
 func settingsFilePath() (string, error) {
 	wd, err := os.Getwd()
@@ -30,9 +37,7 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 	if err != nil {
 		return AppSettings{}, err
 	}
-	settings := AppSettings{
-		GatewayBinaryPath: strings.TrimSpace(in.GatewayBinaryPath),
-	}
+	settings := normalizeAppSettings(in)
 	if err := writeSettingsFile(path, settings); err != nil {
 		return AppSettings{}, err
 	}
@@ -47,7 +52,7 @@ func loadAppSettings() (AppSettings, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			settings := AppSettings{}
+			settings := normalizeAppSettings(AppSettings{})
 			if writeErr := writeSettingsFile(path, settings); writeErr != nil {
 				return AppSettings{}, writeErr
 			}
@@ -59,7 +64,7 @@ func loadAppSettings() (AppSettings, error) {
 	if err != nil {
 		return AppSettings{}, fmt.Errorf("decode app settings: %w", err)
 	}
-	return settings, nil
+	return normalizeAppSettings(settings), nil
 }
 
 func decodeSettingsTOML(data []byte) (AppSettings, error) {
@@ -83,14 +88,26 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 		}
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
-		if key != "gateway_binary_path" {
-			continue
+		switch key {
+		case "gateway_binary_path":
+			unquoted, err := strconv.Unquote(value)
+			if err != nil {
+				return AppSettings{}, err
+			}
+			settings.GatewayBinaryPath = strings.TrimSpace(unquoted)
+		case "gateway_host":
+			unquoted, err := strconv.Unquote(value)
+			if err != nil {
+				return AppSettings{}, err
+			}
+			settings.GatewayHost = strings.TrimSpace(unquoted)
+		case "gateway_port":
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return AppSettings{}, err
+			}
+			settings.GatewayPort = parsed
 		}
-		unquoted, err := strconv.Unquote(value)
-		if err != nil {
-			return AppSettings{}, err
-		}
-		settings.GatewayBinaryPath = strings.TrimSpace(unquoted)
 	}
 	if err := scanner.Err(); err != nil {
 		return AppSettings{}, err
@@ -99,7 +116,14 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 }
 
 func encodeSettingsTOML(settings AppSettings) []byte {
-	return []byte(fmt.Sprintf("gateway_binary_path = %s", strconv.Quote(settings.GatewayBinaryPath)))
+	return []byte(
+		fmt.Sprintf(
+			"gateway_binary_path = %s\ngateway_host = %s\ngateway_port = %d",
+			strconv.Quote(settings.GatewayBinaryPath),
+			strconv.Quote(settings.GatewayHost),
+			settings.GatewayPort,
+		),
+	)
 }
 
 func writeSettingsFile(path string, settings AppSettings) error {
@@ -111,4 +135,19 @@ func writeSettingsFile(path string, settings AppSettings) error {
 		return fmt.Errorf("write app settings: %w", err)
 	}
 	return nil
+}
+
+func normalizeAppSettings(in AppSettings) AppSettings {
+	settings := AppSettings{
+		GatewayBinaryPath: strings.TrimSpace(in.GatewayBinaryPath),
+		GatewayHost:       strings.TrimSpace(in.GatewayHost),
+		GatewayPort:       in.GatewayPort,
+	}
+	if settings.GatewayHost == "" {
+		settings.GatewayHost = defaultGatewayHost
+	}
+	if settings.GatewayPort <= 0 || settings.GatewayPort > 65535 {
+		settings.GatewayPort = defaultGatewayPort
+	}
+	return settings
 }

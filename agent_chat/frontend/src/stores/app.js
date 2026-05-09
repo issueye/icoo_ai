@@ -10,6 +10,8 @@ export const useAppStore = defineStore('app', {
     gatewaySummary: '等待网关连接',
     gatewayUpdatedAt: null,
     gatewayBinaryPath: '',
+    gatewayHost: '127.0.0.1',
+    gatewayPort: 17889,
     settingsSaving: false,
     settingsError: null,
     toasts: [],
@@ -35,6 +37,9 @@ export const useAppStore = defineStore('app', {
       try {
         const settings = await agentBridge.getAppSettings()
         this.gatewayBinaryPath = settings?.gatewayBinaryPath || ''
+        this.gatewayHost = settings?.gatewayHost || '127.0.0.1'
+        const loadedPort = Number(settings?.gatewayPort)
+        this.gatewayPort = Number.isFinite(loadedPort) && loadedPort > 0 ? loadedPort : 17889
       } catch (error) {
         this.settingsError = error?.message || '加载配置失败'
       }
@@ -45,8 +50,13 @@ export const useAppStore = defineStore('app', {
       try {
         const saved = await agentBridge.updateAppSettings({
           gatewayBinaryPath: payload.gatewayBinaryPath ?? this.gatewayBinaryPath ?? '',
+          gatewayHost: payload.gatewayHost ?? this.gatewayHost ?? '127.0.0.1',
+          gatewayPort: payload.gatewayPort ?? this.gatewayPort ?? 17889,
         })
         this.gatewayBinaryPath = saved?.gatewayBinaryPath || ''
+        this.gatewayHost = saved?.gatewayHost || '127.0.0.1'
+        const savedPort = Number(saved?.gatewayPort)
+        this.gatewayPort = Number.isFinite(savedPort) && savedPort > 0 ? savedPort : 17889
         return saved
       } catch (error) {
         this.settingsError = error?.message || '保存配置失败'
