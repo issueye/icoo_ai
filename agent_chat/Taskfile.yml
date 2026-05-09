@@ -15,7 +15,7 @@ tasks:
     cmds:
       - npm install
       - wails3 generate bindings -d src/bindings -clean=true
-      - npm run build
+      - npm run build:frontend
       - go build -tags production -trimpath -buildvcs=false -ldflags="-w -s" -o {{.BIN_DIR}}/{{.APP_NAME}}.exe .
 
   windows:package:

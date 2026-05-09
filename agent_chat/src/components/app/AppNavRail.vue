@@ -25,19 +25,19 @@ function navigate(item) {
 </script>
 
 <template>
-  <aside class="flex w-[64px] flex-col items-center border-r border-white/60 bg-[#d8eafa] py-4">
-    <div class="mb-6 grid h-10 w-10 place-items-center rounded-2xl bg-blue-500 text-sm font-bold text-white shadow-panel">AI</div>
+  <aside class="qq-nav-rail">
+    <div class="qq-brand-mark">AI</div>
     <nav class="flex flex-1 flex-col gap-2" aria-label="主导航">
-      <button v-for="item in navItems" :key="item.key" class="relative grid h-11 w-11 place-items-center rounded-2xl transition" :class="app.activeNav === item.key ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:bg-white/70'" :aria-label="item.label" @click="navigate(item)">
+      <button v-for="item in navItems" :key="item.key" class="qq-nav-button" :class="{ 'is-active': app.activeNav === item.key }" :aria-label="item.label" @click="navigate(item)">
         <component :is="item.icon" class="h-5 w-5" />
-        <span v-if="item.badge && (item.key !== 'audit' || approvals.pendingCount)" class="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500" />
+        <span v-if="item.badge && (item.key !== 'audit' || approvals.pendingCount)" class="qq-dot" />
       </button>
     </nav>
-    <button class="relative grid h-11 w-11 place-items-center rounded-2xl text-slate-500 hover:bg-white/70" aria-label="待办审批">
+    <button class="qq-nav-button" aria-label="待办审批">
       <CheckSquare class="h-5 w-5" />
-      <span v-if="approvals.pendingCount" class="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500" />
+      <span v-if="approvals.pendingCount" class="qq-dot" />
     </button>
-    <button class="mt-2 grid h-11 w-11 place-items-center rounded-2xl text-slate-500 hover:bg-white/70" aria-label="设置">
+    <button class="qq-nav-button mt-2" aria-label="设置">
       <Settings class="h-5 w-5" />
     </button>
   </aside>

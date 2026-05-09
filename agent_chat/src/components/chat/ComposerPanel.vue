@@ -35,17 +35,17 @@ function handleKeydown(event) {
 </script>
 
 <template>
-  <footer class="border-t border-white/70 bg-[#f8fbff] p-5">
-    <div class="mx-auto max-w-4xl rounded-3xl bg-white p-3 shadow-panel">
-      <textarea v-model="draft" class="h-20 w-full resize-none rounded-2xl bg-slate-50 p-3 text-sm outline-none focus:ring-2 focus:ring-blue-200" placeholder="输入消息，或使用 /skill 启动 subagent..." @keydown="handleKeydown" />
-      <div class="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500">
+  <footer class="qq-composer">
+    <div class="qq-composer-inner">
+      <textarea v-model="draft" class="qq-textarea" placeholder="输入消息，或使用 /skill 启动 subagent..." @keydown="handleKeydown" />
+      <div class="mt-3 flex items-center justify-between gap-3 text-xs text-[color:var(--qq-text-muted)]">
         <span>Enter 发送 · Shift+Enter 换行 · 工具大输出仅保存摘要</span>
         <div class="flex items-center gap-2">
-          <button class="inline-flex items-center gap-1 rounded-2xl bg-white px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50" aria-label="停止运行" @click="cancelRun">
+          <button class="qq-icon-button px-3 text-sm font-medium" aria-label="停止运行" @click="cancelRun">
             <Square class="h-4 w-4" />
             停止
           </button>
-          <button class="inline-flex items-center gap-1 rounded-2xl bg-blue-500 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50" :disabled="sending || !draft.trim()" aria-label="发送消息" @click="sendPrompt">
+          <button class="qq-primary-action h-8 px-4 text-sm" :disabled="sending || !draft.trim()" aria-label="发送消息" @click="sendPrompt">
             <Send class="h-4 w-4" />
             {{ sending ? '发送中' : '发送' }}
           </button>

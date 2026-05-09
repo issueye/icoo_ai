@@ -7,9 +7,9 @@ defineEmits(['select'])
 </script>
 
 <template>
-  <button class="w-full rounded-2xl p-3 text-left transition" :class="active ? 'bg-blue-500 text-white shadow-panel' : 'bg-white text-slate-700 hover:bg-blue-50'" @click="$emit('select')">
+  <button class="qq-conversation-item" :class="{ 'is-active': active }" @click="$emit('select')">
     <div class="flex items-start gap-3">
-      <div class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl" :class="conversation.id.startsWith('subsess_') ? 'bg-violet-100 text-violet-600' : active ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-600'">
+      <div class="qq-avatar" :class="{ 'is-subagent': conversation.id.startsWith('subsess_') }">
         <GitBranch v-if="conversation.id.startsWith('subsess_')" class="h-5 w-5" />
         <MessageCircle v-else class="h-5 w-5" />
       </div>
@@ -20,7 +20,7 @@ defineEmits(['select'])
         </div>
         <p class="mt-1 truncate text-xs opacity-75">{{ conversation.subtitle }}</p>
         <div class="mt-2 flex items-center gap-2 text-[10px] font-medium">
-          <span class="rounded-full px-2 py-0.5" :class="conversation.id.startsWith('subsess_') ? 'bg-violet-100 text-violet-700' : active ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-700'">{{ conversation.id.startsWith('subsess_') ? 'subsess_' : 'sess_' }}</span>
+          <span class="qq-session-pill" :class="{ 'is-subagent': conversation.id.startsWith('subsess_') }">{{ conversation.id.startsWith('subsess_') ? 'subsess_' : 'sess_' }}</span>
           <span class="opacity-70">{{ conversation.status }}</span>
         </div>
       </div>

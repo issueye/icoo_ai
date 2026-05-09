@@ -43,7 +43,8 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
       boxShadow: {
-        panel: '0 18px 48px rgba(30, 64, 175, 0.12)',
+        panel: 'var(--qq-shadow-soft)',
+        float: 'var(--qq-shadow-float)',
       },
     },
   },

@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "wails3 build",
+    "build:frontend": "vite build",
+    "build:script": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build.ps1",
     "preview": "vite preview",
     "wails:dev": "wails3 dev",
     "wails:build": "wails3 build"

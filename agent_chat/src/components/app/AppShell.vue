@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import AppGlobalHeader from './AppGlobalHeader.vue'
 import AppNavRail from './AppNavRail.vue'
 import ConversationSidebar from '@/components/conversation/ConversationSidebar.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
@@ -50,9 +51,12 @@ watch(() => conversations.activeSessionId, async (sessionId) => {
 </script>
 
 <template>
-  <main class="flex h-screen overflow-hidden bg-[#eaf3fb] text-slate-900">
-    <AppNavRail />
-    <ConversationSidebar />
-    <ChatWorkspace />
+  <main class="qq-window-shell">
+    <AppGlobalHeader />
+    <div class="qq-shell">
+      <AppNavRail />
+      <ConversationSidebar />
+      <ChatWorkspace />
+    </div>
   </main>
 </template>

@@ -37,6 +37,7 @@ func main() {
 		Height:           820,
 		MinWidth:         960,
 		MinHeight:        640,
+		Frameless:        true,
 		BackgroundColour: application.NewRGB(234, 243, 251),
 		URL:              "/",
 	})
