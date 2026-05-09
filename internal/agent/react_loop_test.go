@@ -167,3 +167,70 @@ func TestReactLoopBlocksToolCallWhenHookBlocks(t *testing.T) {
 		t.Fatalf("completed error = %q", completed.Error)
 	}
 }
+
+func TestReactLoopRunsBeforeAndAfterRunHooks(t *testing.T) {
+	provider := newMockProvider([][]llm.CompletionEvent{{
+		{Type: llm.CompletionEventMessageDelta, Delta: "ok"},
+		{Type: llm.CompletionEventCompleted},
+	}})
+	loop, err := NewReactLoop(ReactLoopOptions{Provider: provider})
+	if err != nil {
+		t.Fatalf("NewReactLoop() error = %v", err)
+	}
+	var seen []hooks.EventType
+	dispatcher := hooks.NewDispatcher(hooks.TypedHook{
+		HookName: "run-observer",
+		Events:   []hooks.EventType{hooks.EventBeforeRun, hooks.EventAfterRun},
+		Func: func(ctx context.Context, event hooks.Event) (hooks.Result, error) {
+			seen = append(seen, event.Type)
+			return hooks.Continue(), nil
+		},
+	})
+
+	events, err := loop.Run(context.Background(), RunRequest{SessionID: "s1", Options: RunOptions{Hooks: dispatcher}})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	got, err := collectEvents(context.Background(), events)
+	if err != nil {
+		t.Fatalf("CollectEvents() error = %v", err)
+	}
+	if got[len(got)-1].Type != EventRunCompleted {
+		t.Fatalf("last event = %s", got[len(got)-1].Type)
+	}
+	if len(seen) != 2 || seen[0] != hooks.EventBeforeRun || seen[1] != hooks.EventAfterRun {
+		t.Fatalf("seen hooks = %+v", seen)
+	}
+}
+
+func TestReactLoopRunsOnErrorHookForProviderFailure(t *testing.T) {
+	provider := newMockProvider(nil)
+	loop, err := NewReactLoop(ReactLoopOptions{Provider: provider})
+	if err != nil {
+		t.Fatalf("NewReactLoop() error = %v", err)
+	}
+	var onError hooks.Event
+	dispatcher := hooks.NewDispatcher(hooks.TypedHook{
+		HookName: "error-observer",
+		Events:   []hooks.EventType{hooks.EventOnError},
+		Func: func(ctx context.Context, event hooks.Event) (hooks.Result, error) {
+			onError = event
+			return hooks.Continue(), nil
+		},
+	})
+
+	events, err := loop.Run(context.Background(), RunRequest{SessionID: "s1", Options: RunOptions{Hooks: dispatcher}})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	got, err := collectEvents(context.Background(), events)
+	if err != nil {
+		t.Fatalf("CollectEvents() error = %v", err)
+	}
+	if got[len(got)-1].Type != EventRunFailed {
+		t.Fatalf("last event = %s", got[len(got)-1].Type)
+	}
+	if onError.Type != hooks.EventOnError || onError.Error == "" {
+		t.Fatalf("onError = %+v", onError)
+	}
+}

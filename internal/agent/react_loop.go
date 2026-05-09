@@ -59,6 +59,10 @@ func (l *ReactLoop) Run(ctx context.Context, req RunRequest) (<-chan Event, erro
 }
 
 func (l *ReactLoop) run(ctx context.Context, req RunRequest, out chan<- Event) {
+	if result, blocked := l.beforeRun(ctx, req); blocked {
+		emit(ctx, out, Event{Type: EventRunFailed, SessionID: req.SessionID, Error: result.Error})
+		return
+	}
 	emit(ctx, out, Event{Type: EventRunStarted, SessionID: req.SessionID})
 
 	messages := append([]llm.Message(nil), req.Messages...)
@@ -70,7 +74,7 @@ func (l *ReactLoop) run(ctx context.Context, req RunRequest, out chan<- Event) {
 			Tools:    toolDefs,
 		})
 		if err != nil {
-			emit(ctx, out, Event{Type: EventRunFailed, SessionID: req.SessionID, Error: err.Error()})
+			l.failRun(ctx, req, out, err.Error())
 			return
 		}
 
@@ -78,6 +82,7 @@ func (l *ReactLoop) run(ctx context.Context, req RunRequest, out chan<- Event) {
 		var toolCalls []tools.ToolCall
 		for event := range stream {
 			if ctx.Err() != nil {
+				l.onRunError(ctx, req, ctx.Err().Error())
 				emit(ctx, out, Event{Type: EventRunCancelled, SessionID: req.SessionID, Error: ctx.Err().Error()})
 				return
 			}
@@ -90,12 +95,13 @@ func (l *ReactLoop) run(ctx context.Context, req RunRequest, out chan<- Event) {
 					toolCalls = append(toolCalls, *event.ToolCall)
 				}
 			case llm.CompletionEventFailed:
-				emit(ctx, out, Event{Type: EventRunFailed, SessionID: req.SessionID, Error: event.Error})
+				l.failRun(ctx, req, out, event.Error)
 				return
 			}
 		}
 
 		if len(toolCalls) == 0 {
+			l.afterRun(ctx, req, true, "")
 			emit(ctx, out, Event{Type: EventRunCompleted, SessionID: req.SessionID})
 			return
 		}
@@ -118,7 +124,73 @@ func (l *ReactLoop) run(ctx context.Context, req RunRequest, out chan<- Event) {
 		}
 	}
 
-	emit(ctx, out, Event{Type: EventRunFailed, SessionID: req.SessionID, Error: "maximum tool rounds exceeded"})
+	l.failRun(ctx, req, out, "maximum tool rounds exceeded")
+}
+
+func (l *ReactLoop) beforeRun(ctx context.Context, req RunRequest) (tools.ToolResult, bool) {
+	if req.Options.Hooks == nil {
+		return tools.ToolResult{}, false
+	}
+	dispatch, err := req.Options.Hooks.Dispatch(ctx, hooks.Event{
+		Type:      hooks.EventBeforeRun,
+		SessionID: req.SessionID,
+		Name:      l.Name(),
+		CWD:       req.CWD,
+		Data: map[string]any{
+			"message_count": len(req.Messages),
+			"tool_count":    len(l.tools),
+			"model":         req.Options.Model,
+		},
+	})
+	if err != nil {
+		return tools.ToolResult{OK: false, Error: err.Error(), Data: map[string]any{"code": "hook_failed"}}, true
+	}
+	logHookDispatch(ctx, req.Options.AuditLogger, req.SessionID, dispatch)
+	if dispatch.Action == hooks.ActionBlock || dispatch.Action == hooks.ActionRequestApproval {
+		return hookBlockedResult("hook_blocked", dispatch), true
+	}
+	return tools.ToolResult{}, false
+}
+
+func (l *ReactLoop) afterRun(ctx context.Context, req RunRequest, ok bool, errText string) {
+	if req.Options.Hooks == nil {
+		return
+	}
+	dispatch, err := req.Options.Hooks.Dispatch(ctx, hooks.Event{
+		Type:      hooks.EventAfterRun,
+		SessionID: req.SessionID,
+		Name:      l.Name(),
+		CWD:       req.CWD,
+		Error:     errText,
+		Data: map[string]any{
+			"ok": ok,
+		},
+	})
+	if err == nil {
+		logHookDispatch(ctx, req.Options.AuditLogger, req.SessionID, dispatch)
+	}
+}
+
+func (l *ReactLoop) onRunError(ctx context.Context, req RunRequest, errText string) {
+	if req.Options.Hooks == nil {
+		return
+	}
+	dispatch, err := req.Options.Hooks.Dispatch(ctx, hooks.Event{
+		Type:      hooks.EventOnError,
+		SessionID: req.SessionID,
+		Name:      l.Name(),
+		CWD:       req.CWD,
+		Error:     errText,
+	})
+	if err == nil {
+		logHookDispatch(ctx, req.Options.AuditLogger, req.SessionID, dispatch)
+	}
+}
+
+func (l *ReactLoop) failRun(ctx context.Context, req RunRequest, out chan<- Event, errText string) {
+	l.onRunError(ctx, req, errText)
+	l.afterRun(ctx, req, false, errText)
+	emit(ctx, out, Event{Type: EventRunFailed, SessionID: req.SessionID, Error: errText})
 }
 
 func (l *ReactLoop) executeTool(ctx context.Context, req RunRequest, call tools.ToolCall, out chan<- Event) (tools.ToolResult, bool) {
