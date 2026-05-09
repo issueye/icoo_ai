@@ -37,3 +37,12 @@ func TestConfigValidateRejectsInvalidPort(t *testing.T) {
 		t.Fatal("Validate() error = nil, want invalid port error")
 	}
 }
+
+func TestConfigValidateRequiresACPCommandWhenEnabled(t *testing.T) {
+	cfg := Default()
+	cfg.ACP.Enabled = true
+	cfg.ACP.Command = ""
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want acp command error")
+	}
+}

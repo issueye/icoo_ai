@@ -11,6 +11,7 @@ import (
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/api"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/config"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 )
 
 func TestServerStartWritesEndpointAndServesHealth(t *testing.T) {
@@ -92,5 +93,27 @@ func TestServerStartWritesEndpointAndServesHealth(t *testing.T) {
 	defer agentsResp.Body.Close()
 	if agentsResp.StatusCode != http.StatusOK {
 		t.Fatalf("agents status = %d, want 200", agentsResp.StatusCode)
+	}
+}
+
+func TestServerStartReturnsStructuredErrorWhenACPConnectorFails(t *testing.T) {
+	cfg := config.Default()
+	cfg.ACP.Enabled = true
+	cfg.ACP.Command = "definitely-not-a-real-command-12345"
+
+	server, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+	err = server.Start()
+	if err == nil {
+		t.Fatal("Start() error = nil, want structured connector error")
+	}
+	structured, ok := err.(*connector.Error)
+	if !ok {
+		t.Fatalf("expected *connector.Error, got %T", err)
+	}
+	if structured.Code != "connector_start_failed" {
+		t.Fatalf("error code = %q, want connector_start_failed", structured.Code)
 	}
 }

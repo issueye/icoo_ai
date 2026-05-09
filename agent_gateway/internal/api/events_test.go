@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"strings"
 	"testing"
 	"time"
@@ -77,4 +78,88 @@ func TestEventStreamReceivesEnvelope(t *testing.T) {
 		t.Fatalf("read stream: %v", err)
 	}
 	t.Fatal("stream closed before receiving event")
+}
+
+func TestEventStreamConcurrentSubscribersKeepSessionIdentity(t *testing.T) {
+	router := api.NewRouter(service.NewMockGatewayService())
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	type result struct {
+		name string
+		evt  events.Envelope
+		err  error
+	}
+	targetID := "evt_test_stream_concurrent_1"
+	readOne := func(name string) result {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/v1/events/stream", nil)
+		if err != nil {
+			return result{name: name, err: err}
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return result{name: name, err: err}
+		}
+		defer resp.Body.Close()
+
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			var got events.Envelope
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &got); err != nil {
+				return result{name: name, err: err}
+			}
+			if got.ID == targetID {
+				return result{name: name, evt: got}
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return result{name: name, err: err}
+		}
+		return result{name: name, err: context.DeadlineExceeded}
+	}
+
+	results := make(chan result, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		results <- readOne("sub-a")
+	}()
+	go func() {
+		defer wg.Done()
+		results <- readOne("sub-b")
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	want := events.Envelope{
+		ID:        targetID,
+		Type:      "message.created",
+		AgentID:   "icoo-ai-acp",
+		SessionID: "sess_concurrent_1",
+		RunID:     "run_concurrent_1",
+		Payload: map[string]any{
+			"content": "hello",
+		},
+		CreatedAt: time.Now().UTC(),
+	}
+	events.DefaultBus().Publish(want)
+
+	wg.Wait()
+	close(results)
+
+	for res := range results {
+		if res.err != nil {
+			t.Fatalf("%s read stream: %v", res.name, res.err)
+		}
+		if res.evt.ID != want.ID || res.evt.SessionID != want.SessionID || res.evt.RunID != want.RunID {
+			t.Fatalf("%s unexpected event identity: got %#v want %#v", res.name, res.evt, want)
+		}
+	}
 }

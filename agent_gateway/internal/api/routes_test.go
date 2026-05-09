@@ -3,8 +3,10 @@ package api_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/api"
@@ -165,6 +167,95 @@ func TestMissingSessionReturnsJSONError(t *testing.T) {
 	}
 }
 
+func TestConcurrentSessionPromptCancelAndApprovalIsolation(t *testing.T) {
+	router := api.NewRouter(service.NewMockGatewayService())
+	sessionA := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{"title": "A"})
+	sessionB := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{"title": "B"})
+
+	var (
+		promptA service.PromptResponse
+		promptB service.PromptResponse
+		errA    error
+		errB    error
+	)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		promptA, errA = doJSONNoFail[service.PromptResponse](router, http.MethodPost, "/v1/sessions/"+sessionA.ID+"/prompt", map[string]string{"content": "hello from A"})
+	}()
+	go func() {
+		defer wg.Done()
+		promptB, errB = doJSONNoFail[service.PromptResponse](router, http.MethodPost, "/v1/sessions/"+sessionB.ID+"/prompt", map[string]string{"content": "hello from B"})
+	}()
+	wg.Wait()
+	if errA != nil {
+		t.Fatalf("prompt A failed: %v", errA)
+	}
+	if errB != nil {
+		t.Fatalf("prompt B failed: %v", errB)
+	}
+
+	if promptA.Approval == nil || promptB.Approval == nil {
+		t.Fatal("expected approvals for both sessions")
+	}
+
+	var (
+		cancelRun service.Run
+		approved  service.Approval
+		cancelErr error
+		decideErr error
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		cancelRun, cancelErr = doJSONNoFail[service.Run](router, http.MethodPost, "/v1/sessions/"+sessionA.ID+"/cancel", nil)
+	}()
+	go func() {
+		defer wg.Done()
+		approved, decideErr = doJSONNoFail[service.Approval](router, http.MethodPost, "/v1/approvals/"+promptB.Approval.ID+"/decision", map[string]string{"decision": "approved"})
+	}()
+	wg.Wait()
+	if cancelErr != nil {
+		t.Fatalf("cancel A failed: %v", cancelErr)
+	}
+	if decideErr != nil {
+		t.Fatalf("decide B failed: %v", decideErr)
+	}
+
+	if cancelRun.SessionID != sessionA.ID || cancelRun.Status != "cancelled" {
+		t.Fatalf("expected cancel run for session A, got %#v", cancelRun)
+	}
+	if approved.SessionID != sessionB.ID || approved.Status != "approved" {
+		t.Fatalf("expected approved decision for session B, got %#v", approved)
+	}
+
+	approvals := doJSON[[]service.Approval](t, router, http.MethodGet, "/v1/approvals", nil)
+	byID := make(map[string]service.Approval, len(approvals))
+	for _, approval := range approvals {
+		byID[approval.ID] = approval
+	}
+	if got := byID[promptA.Approval.ID]; got.SessionID != sessionA.ID || got.Status != "expired" || got.Decision != "rejected" {
+		t.Fatalf("expected session A approval expired/rejected, got %#v", got)
+	}
+	if got := byID[promptB.Approval.ID]; got.SessionID != sessionB.ID || got.Status != "approved" || got.Decision != "approved" {
+		t.Fatalf("expected session B approval approved, got %#v", got)
+	}
+
+	messagesA := doJSON[[]service.Message](t, router, http.MethodGet, "/v1/sessions/"+sessionA.ID+"/messages", nil)
+	messagesB := doJSON[[]service.Message](t, router, http.MethodGet, "/v1/sessions/"+sessionB.ID+"/messages", nil)
+	for _, msg := range messagesA {
+		if msg.SessionID != sessionA.ID {
+			t.Fatalf("session A message crossed sessions: %#v", msg)
+		}
+	}
+	for _, msg := range messagesB {
+		if msg.SessionID != sessionB.ID {
+			t.Fatalf("session B message crossed sessions: %#v", msg)
+		}
+	}
+}
+
 func doJSON[T any](t *testing.T, handler http.Handler, method, path string, body any) T {
 	t.Helper()
 
@@ -195,4 +286,34 @@ func doJSON[T any](t *testing.T, handler http.Handler, method, path string, body
 		t.Fatalf("decode response: %v", err)
 	}
 	return response
+}
+
+func doJSONNoFail[T any](handler http.Handler, method, path string, body any) (T, error) {
+	var zero T
+	var reader *bytes.Reader
+	if body == nil {
+		reader = bytes.NewReader(nil)
+	} else {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return zero, fmt.Errorf("marshal request: %w", err)
+		}
+		reader = bytes.NewReader(data)
+	}
+
+	req := httptest.NewRequest(method, path, reader)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code < 200 || rec.Code >= 300 {
+		return zero, fmt.Errorf("%s %s returned %d: %s", method, path, rec.Code, rec.Body.String())
+	}
+
+	var response T
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		return zero, fmt.Errorf("decode response: %w", err)
+	}
+	return response, nil
 }

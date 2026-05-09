@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
@@ -211,5 +212,162 @@ func TestApprovalBrokerExpirePendingBySessionCleansIndexes(t *testing.T) {
 	}
 	if serviceErr.Code != "invalid_decision" {
 		t.Fatalf("expected invalid_decision, got %q (%s)", serviceErr.Code, serviceErr.Message)
+	}
+}
+
+func TestApprovalBrokerConcurrentSessionIsolation(t *testing.T) {
+	svc := NewMockGatewayService()
+	ctx := context.Background()
+
+	sessionA, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "A"})
+	if err != nil {
+		t.Fatalf("create session A: %v", err)
+	}
+	sessionB, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "B"})
+	if err != nil {
+		t.Fatalf("create session B: %v", err)
+	}
+
+	var (
+		promptA PromptResponse
+		promptB PromptResponse
+		errA    error
+		errB    error
+	)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		promptA, errA = svc.Prompt(ctx, sessionA.ID, PromptRequest{Content: "need approval a"})
+	}()
+	go func() {
+		defer wg.Done()
+		promptB, errB = svc.Prompt(ctx, sessionB.ID, PromptRequest{Content: "need approval b"})
+	}()
+	wg.Wait()
+
+	if errA != nil {
+		t.Fatalf("prompt A: %v", errA)
+	}
+	if errB != nil {
+		t.Fatalf("prompt B: %v", errB)
+	}
+	if promptA.Approval == nil || promptB.Approval == nil {
+		t.Fatal("expected approvals in both sessions")
+	}
+
+	var (
+		cancelErr error
+		decideErr error
+		approved  Approval
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, cancelErr = svc.Cancel(ctx, sessionA.ID)
+	}()
+	go func() {
+		defer wg.Done()
+		approved, decideErr = svc.DecideApproval(ctx, promptB.Approval.ID, ApprovalDecisionRequest{Decision: "approved"})
+	}()
+	wg.Wait()
+
+	if cancelErr != nil {
+		t.Fatalf("cancel A: %v", cancelErr)
+	}
+	if decideErr != nil {
+		t.Fatalf("decide B: %v", decideErr)
+	}
+	if approved.SessionID != sessionB.ID || approved.Status != "approved" {
+		t.Fatalf("expected approved decision on session B, got %#v", approved)
+	}
+
+	approvals, err := svc.ListApprovals(ctx)
+	if err != nil {
+		t.Fatalf("list approvals: %v", err)
+	}
+	byID := make(map[string]Approval, len(approvals))
+	for _, approval := range approvals {
+		byID[approval.ID] = approval
+	}
+
+	expiredA := byID[promptA.Approval.ID]
+	if expiredA.SessionID != sessionA.ID || expiredA.Status != "expired" || expiredA.Decision != "rejected" || expiredA.DecidedAt == nil {
+		t.Fatalf("expected session A approval expired/rejected/decidedAt set, got %#v", expiredA)
+	}
+	approvedB := byID[promptB.Approval.ID]
+	if approvedB.SessionID != sessionB.ID || approvedB.Status != "approved" || approvedB.Decision != "approved" || approvedB.DecidedAt == nil {
+		t.Fatalf("expected session B approval approved/decidedAt set, got %#v", approvedB)
+	}
+}
+
+func TestApprovalBrokerConcurrentSessionIsolationRepeated(t *testing.T) {
+	const rounds = 20
+	for i := 0; i < rounds; i++ {
+		svc := NewMockGatewayService()
+		ctx := context.Background()
+
+		sessionA, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "A"})
+		if err != nil {
+			t.Fatalf("round %d create session A: %v", i, err)
+		}
+		sessionB, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "B"})
+		if err != nil {
+			t.Fatalf("round %d create session B: %v", i, err)
+		}
+
+		var (
+			promptA PromptResponse
+			promptB PromptResponse
+			errA    error
+			errB    error
+		)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			promptA, errA = svc.Prompt(ctx, sessionA.ID, PromptRequest{Content: "need approval a"})
+		}()
+		go func() {
+			defer wg.Done()
+			promptB, errB = svc.Prompt(ctx, sessionB.ID, PromptRequest{Content: "need approval b"})
+		}()
+		wg.Wait()
+		if errA != nil || errB != nil {
+			t.Fatalf("round %d prompt errors: A=%v B=%v", i, errA, errB)
+		}
+		if promptA.Approval == nil || promptB.Approval == nil {
+			t.Fatalf("round %d expected approvals in both sessions", i)
+		}
+
+		var cancelErr, decideErr error
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, cancelErr = svc.Cancel(ctx, sessionA.ID)
+		}()
+		go func() {
+			defer wg.Done()
+			_, decideErr = svc.DecideApproval(ctx, promptB.Approval.ID, ApprovalDecisionRequest{Decision: "approved"})
+		}()
+		wg.Wait()
+		if cancelErr != nil || decideErr != nil {
+			t.Fatalf("round %d cancel/decide errors: cancel=%v decide=%v", i, cancelErr, decideErr)
+		}
+
+		approvals, err := svc.ListApprovals(ctx)
+		if err != nil {
+			t.Fatalf("round %d list approvals: %v", i, err)
+		}
+		byID := make(map[string]Approval, len(approvals))
+		for _, approval := range approvals {
+			byID[approval.ID] = approval
+		}
+		if got := byID[promptA.Approval.ID]; got.SessionID != sessionA.ID || got.Status != "expired" || got.Decision != "rejected" {
+			t.Fatalf("round %d expected A expired/rejected, got %#v", i, got)
+		}
+		if got := byID[promptB.Approval.ID]; got.SessionID != sessionB.ID || got.Status != "approved" || got.Decision != "approved" {
+			t.Fatalf("round %d expected B approved, got %#v", i, got)
+		}
 	}
 }

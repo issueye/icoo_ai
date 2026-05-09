@@ -42,9 +42,9 @@
 | P2a：三 worker 并行批次 | 已完成 | Worker B/API-Service、Worker C/Store、Worker F/gatewayclient 已完成并由主线程集成。 |
 | P2b：bridge 接入 gateway | 已完成 | `agent_chat/internal/bridge` 已优先走 gatewayclient，保留开发 fallback，生产返回结构化错误。 |
 | P3：事件流与审批闭环 | 已完成 | SSE event bus、ApprovalBroker、bridge event subscription 已完成并有测试覆盖。 |
-| P4：ACP connector | 进行中 | 已完成 `AgentConnector` 抽象、ACP 异步 session update 映射、真实进程 smoke test 接线；待默认 profile 集成与生产级观测。 |
+| P4：ACP connector | 已完成 | 已完成 `AgentConnector` 抽象、ACP 异步 session update 映射、真实进程 smoke test 接线、默认 profile 接线与 stderr 观测收口。 |
 | P5：持久化与恢复 | 进行中 | json/jsonl 落盘与重启读取（含 approvals）已完成，service 已统一走 Store；待事件补拉完善。 |
-| P6：多 Agent 并发 | 未开始 | 需要多 connector profile、事件/审批/取消隔离验证。 |
+| P6：多 Agent 并发 | 进行中 | 已完成多 session 并发隔离测试（prompt/cancel/approval 与事件身份字段）；待多 connector profile 维度验证。 |
 
 已通过验证：
 
@@ -303,7 +303,7 @@ agent_chat/internal/bridge/types.go
 - 已完成：prompt 可通过 ACP 异步 update 发布 user/assistant/tool/approval 等事件 envelope。
 - 已完成：审批卡片决策可回到 gateway，且跨 session 不串线，cancel 后 pending 可过期/拒绝。
 
-### P4：接入 `icoo-ai` ACP connector（进行中）
+### P4：接入 `icoo-ai` ACP connector（已完成）
 
 范围：
 
@@ -315,7 +315,8 @@ agent_chat/internal/bridge/types.go
 - 已完成：ACP stdio process 最小骨架与 fake-process 协议映射测试。
 - 已完成：ACP 异步 session update -> GatewayEvent envelope 映射。
 - 已完成：真实 `icoo-ai serve` smoke test 接线（默认跳过，显式开关启用）。
-- 未开始：`icoo-ai-acp` 默认 profile 集成。
+- 已完成：`icoo-ai-acp` 默认 profile 与 runtime 最小接线（可配置启用，启动失败返回结构化错误）。
+- 已完成：ACP stderr sink 注入与 `connector_process_exited` 等关键错误码收口。
 
 验收：
 
@@ -364,9 +365,9 @@ agent_chat/internal/bridge/types.go
 
 | Worker | 任务 | 写入范围 | 验收 |
 |---|---|---|---|
-| E4 | ACP 默认 profile 与 runtime 接线 | `agent_gateway/internal/runtime/**`、`agent_gateway/internal/service/**`、`agent_gateway/internal/connectors/acp/**` | gateway 启动后可按配置创建默认 `icoo-ai-acp` connector。 |
-| E5 | ACP 观测与错误收口 | `agent_gateway/internal/connectors/acp/**`、`agent_gateway/internal/service/**` | stderr 接入 audit/logger，结构化错误码覆盖关键失败路径。 |
-| P6a | 多 session 并发隔离测试 | `agent_gateway/internal/api/**`、`agent_gateway/internal/service/**`、`agent_chat/internal/bridge/**` 测试文件 | 两个 session 并发 prompt/cancel/approval 不串线，事件和审批隔离可复现。 |
+| P6b | 多 connector profile 并发隔离验证 | `agent_gateway/internal/service/**`、`agent_gateway/internal/api/**` 测试文件 | 不同 agent/profile 下 run/event/approval/cancel 隔离。 |
+| O1 | ACP 生产观测增强 | `agent_gateway/internal/connectors/acp/**`、`agent_gateway/internal/store/**` | stderr sink 接 audit 持久化并具备采样/截断策略。 |
+| O2 | 事件订阅过滤策略 | `agent_gateway/internal/api/events.go`、`agent_chat/internal/bridge/**` | 支持按 session/agent 过滤订阅，减少全量广播噪声。 |
 
 主线程集成点：
 

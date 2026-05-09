@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"sync"
 	"testing"
@@ -234,6 +235,74 @@ func TestProtocolErrorToStructuredError(t *testing.T) {
 		t.Fatalf("expected *connector.Error, got %T", err)
 	}
 	if structured.Code != "connector_protocol_error" {
+		t.Fatalf("unexpected error code: %q", structured.Code)
+	}
+}
+
+func TestNewDefaultConnectorRequiresCommand(t *testing.T) {
+	_, err := NewDefaultConnector(DefaultConnectorOptions{})
+	if err == nil {
+		t.Fatal("expected structured error")
+	}
+	structured, ok := err.(*connector.Error)
+	if !ok {
+		t.Fatalf("expected *connector.Error, got %T", err)
+	}
+	if structured.Code != "invalid_connector_config" {
+		t.Fatalf("unexpected error code: %q", structured.Code)
+	}
+}
+
+type exitProcess struct {
+	stdoutR *io.PipeReader
+	stdoutW *io.PipeWriter
+}
+
+func newExitProcess() *exitProcess {
+	stdoutR, stdoutW := io.Pipe()
+	return &exitProcess{
+		stdoutR: stdoutR,
+		stdoutW: stdoutW,
+	}
+}
+
+func (e *exitProcess) Start() error {
+	_ = e.stdoutW.Close()
+	return nil
+}
+
+func (e *exitProcess) Stdin() io.WriteCloser { return nopWriteCloser{Writer: io.Discard} }
+func (e *exitProcess) Stdout() io.ReadCloser { return e.stdoutR }
+func (e *exitProcess) Wait() error           { return errors.New("exit status 2") }
+func (e *exitProcess) Kill() error {
+	_ = e.stdoutR.Close()
+	return nil
+}
+
+type nopWriteCloser struct {
+	io.Writer
+}
+
+func (nopWriteCloser) Close() error { return nil }
+
+func TestProcessExitMapsToStructuredError(t *testing.T) {
+	c, err := New(Options{Process: newExitProcess()})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = c.Initialize(ctx, connector.InitializeRequest{ClientName: "gateway", ClientVersion: "1.0.0"})
+	if err == nil {
+		t.Fatal("expected process exit error")
+	}
+	structured, ok := err.(*connector.Error)
+	if !ok {
+		t.Fatalf("expected *connector.Error, got %T", err)
+	}
+	if structured.Code != connector.ErrCodeProcessExited {
 		t.Fatalf("unexpected error code: %q", structured.Code)
 	}
 }

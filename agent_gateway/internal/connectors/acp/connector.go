@@ -4,9 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -46,7 +46,7 @@ type DefaultConnectorOptions struct {
 func NewDefaultConnector(opts DefaultConnectorOptions) (*Connector, error) {
 	command := strings.TrimSpace(opts.Command)
 	if command == "" {
-		return nil, connector.NewError("invalid_connector_config", "default acp connector requires command")
+		return nil, connector.NewError(connector.ErrCodeInvalidConnectorConfig, "default acp connector requires command")
 	}
 	return New(Options{
 		Command: command,
@@ -161,7 +161,7 @@ func (c *Connector) call(ctx context.Context, method string, params map[string]a
 
 func (c *Connector) write(ctx context.Context, req rpcRequest) error {
 	if err := ctx.Err(); err != nil {
-		return connector.WrapError("connector_request_cancelled", "acp request cancelled", err)
+		return connector.WrapError(connector.ErrCodeRequestCancelled, "acp request cancelled", err)
 	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
