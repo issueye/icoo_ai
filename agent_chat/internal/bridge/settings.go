@@ -13,11 +13,15 @@ type AppSettings struct {
 	GatewayBinaryPath string `json:"gatewayBinaryPath,omitempty"`
 	GatewayHost       string `json:"gatewayHost,omitempty"`
 	GatewayPort       int    `json:"gatewayPort,omitempty"`
+	LogLevel          string `json:"logLevel,omitempty"`
+	LogFormat         string `json:"logFormat,omitempty"`
 }
 
 const (
 	defaultGatewayHost = "127.0.0.1"
 	defaultGatewayPort = 17889
+	defaultLogLevel    = "info"
+	defaultLogFormat   = "text"
 )
 
 func settingsFilePath() (string, error) {
@@ -35,18 +39,28 @@ func (s *AgentService) GetAppSettings() (AppSettings, error) {
 func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 	path, err := settingsFilePath()
 	if err != nil {
+		logger.Error("resolve settings file path failed", "error", err)
 		return AppSettings{}, err
 	}
 	settings := normalizeAppSettings(in)
 	if err := writeSettingsFile(path, settings); err != nil {
+		logger.Error("write settings file failed", "path", path, "error", err)
 		return AppSettings{}, err
 	}
+	logger.Info("settings updated",
+		"path", path,
+		"gatewayHost", settings.GatewayHost,
+		"gatewayPort", settings.GatewayPort,
+		"logLevel", settings.LogLevel,
+		"logFormat", settings.LogFormat,
+	)
 	return settings, nil
 }
 
 func loadAppSettings() (AppSettings, error) {
 	path, err := settingsFilePath()
 	if err != nil {
+		logger.Error("resolve settings file path failed", "error", err)
 		return AppSettings{}, err
 	}
 	data, err := os.ReadFile(path)
@@ -54,17 +68,29 @@ func loadAppSettings() (AppSettings, error) {
 		if os.IsNotExist(err) {
 			settings := normalizeAppSettings(AppSettings{})
 			if writeErr := writeSettingsFile(path, settings); writeErr != nil {
+				logger.Error("initialize settings file failed", "path", path, "error", writeErr)
 				return AppSettings{}, writeErr
 			}
+			logger.Info("initialized settings file with defaults", "path", path)
 			return settings, nil
 		}
+		logger.Error("read settings file failed", "path", path, "error", err)
 		return AppSettings{}, fmt.Errorf("read app settings: %w", err)
 	}
 	settings, err := decodeSettingsTOML(data)
 	if err != nil {
+		logger.Error("decode settings file failed", "path", path, "error", err)
 		return AppSettings{}, fmt.Errorf("decode app settings: %w", err)
 	}
-	return normalizeAppSettings(settings), nil
+	normalized := normalizeAppSettings(settings)
+	logger.Debug("settings loaded",
+		"path", path,
+		"gatewayHost", normalized.GatewayHost,
+		"gatewayPort", normalized.GatewayPort,
+		"logLevel", normalized.LogLevel,
+		"logFormat", normalized.LogFormat,
+	)
+	return normalized, nil
 }
 
 func decodeSettingsTOML(data []byte) (AppSettings, error) {
@@ -107,6 +133,18 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 				return AppSettings{}, err
 			}
 			settings.GatewayPort = parsed
+		case "log_level":
+			unquoted, err := strconv.Unquote(value)
+			if err != nil {
+				return AppSettings{}, err
+			}
+			settings.LogLevel = strings.TrimSpace(unquoted)
+		case "log_format":
+			unquoted, err := strconv.Unquote(value)
+			if err != nil {
+				return AppSettings{}, err
+			}
+			settings.LogFormat = strings.TrimSpace(unquoted)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -116,7 +154,7 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 }
 
 func encodeSettingsTOML(settings AppSettings) []byte {
-	return []byte(
+	data := []byte(
 		fmt.Sprintf(
 			"gateway_binary_path = %s\ngateway_host = %s\ngateway_port = %d",
 			strconv.Quote(settings.GatewayBinaryPath),
@@ -124,6 +162,11 @@ func encodeSettingsTOML(settings AppSettings) []byte {
 			settings.GatewayPort,
 		),
 	)
+	data = append(data, '\n')
+	data = append(data, []byte(fmt.Sprintf("log_level = %s", strconv.Quote(settings.LogLevel)))...)
+	data = append(data, '\n')
+	data = append(data, []byte(fmt.Sprintf("log_format = %s", strconv.Quote(settings.LogFormat)))...)
+	return data
 }
 
 func writeSettingsFile(path string, settings AppSettings) error {
@@ -142,12 +185,30 @@ func normalizeAppSettings(in AppSettings) AppSettings {
 		GatewayBinaryPath: strings.TrimSpace(in.GatewayBinaryPath),
 		GatewayHost:       strings.TrimSpace(in.GatewayHost),
 		GatewayPort:       in.GatewayPort,
+		LogLevel:          strings.TrimSpace(in.LogLevel),
+		LogFormat:         strings.TrimSpace(in.LogFormat),
 	}
 	if settings.GatewayHost == "" {
 		settings.GatewayHost = defaultGatewayHost
 	}
 	if settings.GatewayPort <= 0 || settings.GatewayPort > 65535 {
 		settings.GatewayPort = defaultGatewayPort
+	}
+	if settings.LogLevel == "" {
+		settings.LogLevel = defaultLogLevel
+	}
+	switch strings.ToLower(settings.LogLevel) {
+	case "debug", "info", "warn", "warning", "error":
+	default:
+		settings.LogLevel = defaultLogLevel
+	}
+	if settings.LogFormat == "" {
+		settings.LogFormat = defaultLogFormat
+	}
+	switch strings.ToLower(settings.LogFormat) {
+	case "text", "json":
+	default:
+		settings.LogFormat = defaultLogFormat
 	}
 	return settings
 }

@@ -5,18 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
 const endpointFileName = "endpoint.json"
 
 func DefaultDataDir() (string, error) {
-	if runtime.GOOS == "windows" {
-		if appData := os.Getenv("APPDATA"); appData != "" {
-			return filepath.Join(appData, "icoo-ai", "gateway"), nil
-		}
-	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err

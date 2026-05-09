@@ -41,10 +41,9 @@ type gatewayBootstrapper struct {
 }
 
 func newGatewayBootstrapper() *gatewayBootstrapper {
-	discoveryPath := strings.TrimSpace(os.Getenv("ICOO_GATEWAY_DISCOVERY_PATH"))
-	devMode := shouldEnableDevFallback()
+	devMode := true
 	bootstrapper := &gatewayBootstrapper{
-		discoveryPath: discoveryPath,
+		discoveryPath: "",
 		devMode:       devMode,
 		waitTimeout:   gatewayBootstrapWaitTimeout,
 		pollInterval:  gatewayBootstrapPollInterval,

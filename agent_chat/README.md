@@ -5,11 +5,10 @@
 ## 当前能力
 
 - 三栏桌面聊天布局：左侧导航、中间会话列表、右侧聊天区。
-- 使用 mock 数据展示 `sess_` 主会话与 `subsess_` subagent 独立会话。
 - 展示消息气泡、工具调用摘要卡片、审批卡片、subagent 运行卡片。
 - 使用无边框桌面窗口，并提供全局 header 承载拖拽、品牌、当前模块和窗口操作。
 - 工具结果只展示安全摘要字段，例如输出大小、摘要 hash、是否落盘，不保存完整大输出。
-- 前端 store 统一通过 `agentBridge` 读写；浏览器开发态 fallback 到 mock，Wails 打包态可使用生成 bindings。
+- 前端 store 统一通过 `agentBridge` 读写 Wails bindings，不再依赖 mock fallback。
 - Go bridge 已优先对接本地 `agent_gateway`（HTTP + SSE），并在启动阶段自动尝试唤醒 gateway。
 - `Prompt` 已兼容 gateway 结构化响应（`run/messages/approval`）并标准化为前端 `MessageEvent`。
 - 已沉淀 QQ 桌面端风格 UED 规范，并在 `frontend/src/styles/globals.css` 中提供统一 `qq-*` CSS token 和组件类。
@@ -20,18 +19,17 @@
 wails3 dev
 ```
 
-如果需要显式指定 gateway 可执行文件路径：
+网关与日志配置统一写入仓库根目录 `chat.toml`：
 
-```powershell
-$env:ICOO_GATEWAY_BIN="E:\codes\icoo_ai\agent_gateway\dist\agent-gateway.exe"
-wails3 dev
+```toml
+gateway_binary_path = "E:/codes/icoo_ai/agent_gateway/dist/agent-gateway.exe"
+gateway_host = "127.0.0.1"
+gateway_port = 17889
+log_level = "info"
+log_format = "text"
 ```
 
-可选环境变量：
-
-- `ICOO_GATEWAY_DISCOVERY_PATH`：自定义 endpoint/token 发现目录或 endpoint 文件路径。
-- `ICOO_GATEWAY_TOKEN`：覆盖 discovery 读到的 token。
-- `ICOO_BRIDGE_DEV_FALLBACK=false`：开发环境禁用 mock fallback（建议联调时开启此开关）。
+`agent_chat` 启动时读取该文件；设置页保存后也会回写同一文件。
 
 前端单独调试时可在 `frontend/` 目录运行 `npm run dev`。
 
@@ -83,9 +81,8 @@ go test ./...
 
 - `frontend/src/components/`：桌面聊天 UI 组件。
 - `frontend/src/stores/`：Pinia 状态管理。
-- `frontend/src/services/mockData.js`：最小 mock 数据。
 - `frontend/src/services/agentBridge.js`：未来 Wails bindings 的前端适配层。
 - `frontend/src/bindings/`：Wails 3 生成的 bridge bindings。
-- `internal/bridge/`：Go bridge DTO 与 mock service。
+- `internal/bridge/`：Go bridge DTO 与 gateway 对接服务。
 - `docs/`：中文设计文档和多 worker 阶段计划。
 - `docs/ued-guidelines.md`：桌面聊天 UI 的 UED 规范。

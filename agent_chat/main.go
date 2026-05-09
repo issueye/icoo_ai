@@ -2,9 +2,10 @@ package main
 
 import (
 	"embed"
-	"log"
+	"os"
 
 	"github.com/icoo-ai/icoo-ai/agent_chat/internal/bridge"
+	"github.com/icoo-ai/icoo-ai/agent_chat/internal/logging"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -16,6 +17,9 @@ func init() {
 }
 
 func main() {
+	logger := logging.ConfigureDefault("agent_chat")
+	logger.Info("starting application")
+
 	agentService := bridge.NewAgentService()
 	app := application.New(application.Options{
 		Name:        "agent_chat",
@@ -43,6 +47,9 @@ func main() {
 	})
 
 	if err := app.Run(); err != nil {
-		log.Fatal(err)
+		logger.Error("application run failed", "error", err)
+		os.Exit(1)
 	}
+
+	logger.Info("application exited")
 }

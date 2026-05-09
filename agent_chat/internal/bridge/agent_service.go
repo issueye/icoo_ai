@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"strings"
 	"sync"
@@ -41,6 +40,7 @@ type AgentService struct {
 }
 
 func NewAgentService() *AgentService {
+	logger.Debug("creating agent service")
 	return &AgentService{
 		messages:       make([]MessageEvent, 0, 32),
 		auditEvents:    make([]AuditEvent, 0, 16),
@@ -51,6 +51,7 @@ func NewAgentService() *AgentService {
 }
 
 func (s *AgentService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
+	logger.Info("service startup begin")
 	s.serviceCtx = ctx
 	if s.eventSink == nil {
 		s.eventSink = func(event MessageEvent) {
@@ -62,6 +63,7 @@ func (s *AgentService) ServiceStartup(ctx context.Context, _ application.Service
 	}
 	s.emitGatewayStatus(GatewayStatusConnecting, "正在连接网关服务", nil)
 	if err := s.ensureGatewayRunning(ctx); err != nil {
+		logger.Error("service startup failed to ensure gateway", "error", err)
 		s.emitGatewayStatus(GatewayStatusFailed, "网关启动失败", map[string]any{
 			"error": err.Error(),
 		})
@@ -77,22 +79,32 @@ func (s *AgentService) ServiceStartup(ctx context.Context, _ application.Service
 	}
 	s.emitGatewayStatus(GatewayStatusReady, "网关连接已就绪", nil)
 	s.startGatewayEventStream(ctx)
+	logger.Info("service startup complete")
 	return nil
 }
 
 func (s *AgentService) ServiceShutdown() error {
+	logger.Info("service shutdown begin")
 	s.stopGatewayEventStream()
 	if s.bootstrap == nil {
+		logger.Info("service shutdown complete")
 		return nil
 	}
-	return s.bootstrap.StopManagedProcess()
+	if err := s.bootstrap.StopManagedProcess(); err != nil {
+		logger.Error("service shutdown failed to stop managed gateway process", "error", err)
+		return err
+	}
+	logger.Info("service shutdown complete")
+	return nil
 }
 
 func (s *AgentService) RestartGateway(ctx context.Context) (GatewayStatus, error) {
+	logger.Info("gateway restart requested")
 	s.emitGatewayStatus(GatewayStatusReconnecting, "正在重启网关服务", nil)
 	s.stopGatewayEventStream()
 	if s.bootstrap != nil {
 		if err := s.bootstrap.StopManagedProcess(); err != nil {
+			logger.Error("gateway restart failed to stop managed process", "error", err)
 			return GatewayStatus{}, &BridgeError{
 				Code:      ErrorCodeGatewayBootstrap,
 				Message:   fmt.Sprintf("stop managed gateway process failed: %v", err),
@@ -104,6 +116,7 @@ func (s *AgentService) RestartGateway(ctx context.Context) (GatewayStatus, error
 	s.gateway = nil
 	s.mu.Unlock()
 	if err := s.ensureGatewayRunning(ctx); err != nil {
+		logger.Error("gateway restart failed to ensure running", "error", err)
 		s.emitGatewayStatus(GatewayStatusFailed, "网关重启失败", map[string]any{
 			"error": err.Error(),
 		})
@@ -117,14 +130,17 @@ func (s *AgentService) RestartGateway(ctx context.Context) (GatewayStatus, error
 	if baseCtx != nil {
 		s.startGatewayEventStream(baseCtx)
 	}
+	logger.Info("gateway restart complete")
 	return s.GetGatewayStatus(ctx)
 }
 
 func (s *AgentService) ensureGatewayRunning(ctx context.Context) error {
 	if s.gateway != nil {
 		if err := s.pingGateway(ctx, s.gateway); err == nil {
+			logger.Debug("gateway already healthy", "baseURL", s.gateway.baseURL)
 			return nil
 		}
+		logger.Warn("gateway health check failed, rediscovering", "baseURL", s.gateway.baseURL)
 		s.gateway = nil
 	}
 	if s.bootstrap == nil {
@@ -143,6 +159,7 @@ func (s *AgentService) ensureGatewayRunning(ctx context.Context) error {
 		}
 	}
 	s.gateway = proxy
+	logger.Info("gateway ensured running", "baseURL", proxy.baseURL)
 	return nil
 }
 
@@ -287,6 +304,7 @@ func (s *AgentService) GetGatewayStatus(ctx context.Context) (GatewayStatus, err
 }
 
 func (s *AgentService) streamGatewayEvents(ctx context.Context) {
+	logger.Info("gateway event stream started")
 	client := gatewayclient.New(s.gateway.baseURL, s.gateway.token)
 	backoff := time.Second
 	failures := 0
@@ -313,6 +331,7 @@ func (s *AgentService) streamGatewayEvents(ctx context.Context) {
 		}
 		bridgeErr := s.mapGatewayStreamError(err)
 		if bridgeErr != nil && bridgeErr.Code == ErrorCodeGatewayAuthFailed {
+			logger.Error("gateway event stream auth failed", "error", bridgeErr.Message, "status", bridgeErr.StatusCode)
 			s.emitGatewayStatus(GatewayStatusFailed, "网关鉴权失败", map[string]any{
 				"code":   bridgeErr.Code,
 				"status": bridgeErr.StatusCode,
@@ -322,7 +341,9 @@ func (s *AgentService) streamGatewayEvents(ctx context.Context) {
 		}
 		if bridgeErr != nil {
 			failures++
+			logger.Warn("gateway event stream failed", "attempt", failures, "error", bridgeErr.Message, "status", bridgeErr.StatusCode)
 			if failures >= maxGatewayStreamFailures {
+				logger.Error("gateway event stream giving up after retries", "failures", failures, "error", bridgeErr.Message)
 				s.emitGatewayStatus(GatewayStatusFailed, "网关事件流重连失败", map[string]any{
 					"code":     bridgeErr.Code,
 					"status":   bridgeErr.StatusCode,
@@ -348,6 +369,7 @@ func (s *AgentService) streamGatewayEvents(ctx context.Context) {
 
 func (s *AgentService) startGatewayEventStream(baseCtx context.Context) {
 	if baseCtx == nil {
+		logger.Warn("skip starting gateway event stream: base context is nil")
 		return
 	}
 	s.streamMu.Lock()
@@ -358,6 +380,7 @@ func (s *AgentService) startGatewayEventStream(baseCtx context.Context) {
 	streamCtx, cancel := context.WithCancel(baseCtx)
 	s.streamCancel = cancel
 	s.streamMu.Unlock()
+	logger.Debug("starting gateway event stream goroutine")
 	go s.streamGatewayEvents(streamCtx)
 }
 
@@ -367,6 +390,7 @@ func (s *AgentService) stopGatewayEventStream() {
 	s.streamCancel = nil
 	s.streamMu.Unlock()
 	if cancel != nil {
+		logger.Debug("stopping gateway event stream")
 		cancel()
 	}
 }
@@ -846,27 +870,15 @@ type gatewayProxy struct {
 }
 
 func loadGatewayProxy() *gatewayProxy {
-	discoveryPath := strings.TrimSpace(os.Getenv("ICOO_GATEWAY_DISCOVERY_PATH"))
-	endpoint, token, err := gatewayclient.DiscoverFromPath(discoveryPath)
+	endpoint, token, err := gatewayclient.DiscoverFromPath("")
 	if err != nil {
 		return nil
-	}
-	if override := strings.TrimSpace(os.Getenv("ICOO_GATEWAY_TOKEN")); override != "" {
-		token = override
 	}
 	return &gatewayProxy{
 		client:  http.DefaultClient,
 		baseURL: strings.TrimRight(endpoint.BaseURL, "/"),
 		token:   strings.TrimSpace(token),
 	}
-}
-
-func shouldEnableDevFallback() bool {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("ICOO_BRIDGE_DEV_FALLBACK")), "false") {
-		return false
-	}
-	env := strings.ToLower(strings.TrimSpace(os.Getenv("ICOO_BRIDGE_ENV")))
-	return env == "" || env == "dev" || env == "development"
 }
 
 func (s *AgentService) gatewayJSON(ctx context.Context, method, rawPath string, payload any, out any) error {
