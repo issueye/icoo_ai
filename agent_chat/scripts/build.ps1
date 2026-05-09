@@ -22,7 +22,7 @@ Require-Command "wails3"
 Require-Command "npm"
 
 if ($Clean) {
-    foreach ($path in @("dist", "bin")) {
+    foreach ($path in @("frontend\dist", "bin")) {
         $target = Join-Path $ProjectRoot $path
         if (Test-Path $target) {
             Remove-Item -LiteralPath $target -Recurse -Force

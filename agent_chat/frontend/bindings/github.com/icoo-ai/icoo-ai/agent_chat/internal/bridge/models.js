@@ -341,7 +341,7 @@ export class MessageEvent {
         if (/** @type {any} */(false)) {
             /**
              * @member
-             * @type {{ [_: string]: any } | undefined}
+             * @type {{ [_ in string]?: any } | undefined}
              */
             this["safeMeta"] = undefined;
         }

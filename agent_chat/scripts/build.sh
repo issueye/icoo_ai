@@ -43,7 +43,7 @@ require_command wails3
 require_command npm
 
 if [ "$CLEAN" -eq 1 ]; then
-  rm -rf dist bin
+  rm -rf frontend/dist bin
 fi
 
 if [ "$RUN_TESTS" -eq 1 ]; then
