@@ -13,12 +13,18 @@ defineProps({
 const gatewayPath = ref('')
 const gatewayHost = ref('127.0.0.1')
 const gatewayPort = ref(17889)
+const logLevel = ref('info')
+const logFormat = ref('text')
+const logFilePath = ref('logs/agent_chat.log')
 
 onMounted(async () => {
   await app.loadAppSettings()
   gatewayPath.value = app.gatewayBinaryPath || ''
   gatewayHost.value = app.gatewayHost || '127.0.0.1'
   gatewayPort.value = Number(app.gatewayPort || 17889)
+  logLevel.value = app.logLevel || 'info'
+  logFormat.value = app.logFormat || 'text'
+  logFilePath.value = app.logFilePath || 'logs/agent_chat.log'
 })
 
 const disabled = computed(() => app.settingsSaving)
@@ -48,15 +54,28 @@ async function saveSettings() {
     const normalizedHost = gatewayHost.value.trim() || '127.0.0.1'
     const normalizedBinaryPath = gatewayPath.value.trim()
     const normalizedGatewayPort = Number.isFinite(normalizedPort) ? normalizedPort : 17889
+    const normalizedLogLevel = ['debug', 'info', 'warn', 'error'].includes((logLevel.value || '').trim().toLowerCase())
+      ? (logLevel.value || '').trim().toLowerCase()
+      : 'info'
+    const normalizedLogFormat = ['text', 'json'].includes((logFormat.value || '').trim().toLowerCase())
+      ? (logFormat.value || '').trim().toLowerCase()
+      : 'text'
+    const normalizedLogFilePath = logFilePath.value.trim() || 'logs/agent_chat.log'
     const settingsChanged =
       normalizedBinaryPath !== (app.gatewayBinaryPath || '') ||
       normalizedHost !== (app.gatewayHost || '127.0.0.1') ||
-      normalizedGatewayPort !== Number(app.gatewayPort || 17889)
+      normalizedGatewayPort !== Number(app.gatewayPort || 17889) ||
+      normalizedLogLevel !== (app.logLevel || 'info') ||
+      normalizedLogFormat !== (app.logFormat || 'text') ||
+      normalizedLogFilePath !== (app.logFilePath || 'logs/agent_chat.log')
 
     await app.saveAppSettings({
       gatewayBinaryPath: normalizedBinaryPath,
       gatewayHost: normalizedHost,
       gatewayPort: normalizedGatewayPort,
+      logLevel: normalizedLogLevel,
+      logFormat: normalizedLogFormat,
+      logFilePath: normalizedLogFilePath,
     })
 
     if (settingsChanged) {
@@ -100,6 +119,9 @@ function resetToDefault() {
   gatewayPath.value = ''
   gatewayHost.value = '127.0.0.1'
   gatewayPort.value = 17889
+  logLevel.value = 'info'
+  logFormat.value = 'text'
+  logFilePath.value = 'logs/agent_chat.log'
   app.pushToast({ type: 'info', message: '已恢复默认配置，请保存后重启网关' })
 }
 </script>
@@ -109,7 +131,7 @@ function resetToDefault() {
     <header class="qq-chat-header qq-settings-header">
       <div class="min-w-0 flex-1">
         <h2 class="qq-chat-title">配置</h2>
-        <p class="qq-sidebar-subtitle">网关服务路径与连接参数</p>
+        <p class="qq-sidebar-subtitle">网关服务与日志参数</p>
       </div>
     </header>
 
@@ -140,6 +162,26 @@ function resetToDefault() {
           max="65535"
           class="qq-settings-input"
           placeholder="17889"
+        />
+        <label class="qq-settings-label" for="logLevel">日志级别</label>
+        <select id="logLevel" v-model="logLevel" class="qq-settings-input">
+          <option value="debug">debug</option>
+          <option value="info">info</option>
+          <option value="warn">warn</option>
+          <option value="error">error</option>
+        </select>
+        <label class="qq-settings-label" for="logFormat">日志格式</label>
+        <select id="logFormat" v-model="logFormat" class="qq-settings-input">
+          <option value="text">text</option>
+          <option value="json">json</option>
+        </select>
+        <label class="qq-settings-label" for="logFilePath">日志文件路径</label>
+        <input
+          id="logFilePath"
+          v-model="logFilePath"
+          type="text"
+          class="qq-settings-input"
+          placeholder="logs/agent_chat.log"
         />
         <div class="qq-settings-actions">
           <button class="qq-icon-button" :disabled="disabled" aria-label="恢复默认路径" @click="resetToDefault">

@@ -15,6 +15,7 @@ type AppSettings struct {
 	GatewayPort       int    `json:"gatewayPort,omitempty"`
 	LogLevel          string `json:"logLevel,omitempty"`
 	LogFormat         string `json:"logFormat,omitempty"`
+	LogFilePath       string `json:"logFilePath,omitempty"`
 }
 
 const (
@@ -22,6 +23,7 @@ const (
 	defaultGatewayPort = 17889
 	defaultLogLevel    = "info"
 	defaultLogFormat   = "text"
+	defaultLogFilePath = "logs/agent_chat.log"
 )
 
 func settingsFilePath() (string, error) {
@@ -53,6 +55,7 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 		"gatewayPort", settings.GatewayPort,
 		"logLevel", settings.LogLevel,
 		"logFormat", settings.LogFormat,
+		"logFilePath", settings.LogFilePath,
 	)
 	return settings, nil
 }
@@ -89,6 +92,7 @@ func loadAppSettings() (AppSettings, error) {
 		"gatewayPort", normalized.GatewayPort,
 		"logLevel", normalized.LogLevel,
 		"logFormat", normalized.LogFormat,
+		"logFilePath", normalized.LogFilePath,
 	)
 	return normalized, nil
 }
@@ -145,6 +149,12 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 				return AppSettings{}, err
 			}
 			settings.LogFormat = strings.TrimSpace(unquoted)
+		case "log_file_path":
+			unquoted, err := strconv.Unquote(value)
+			if err != nil {
+				return AppSettings{}, err
+			}
+			settings.LogFilePath = strings.TrimSpace(unquoted)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -166,6 +176,8 @@ func encodeSettingsTOML(settings AppSettings) []byte {
 	data = append(data, []byte(fmt.Sprintf("log_level = %s", strconv.Quote(settings.LogLevel)))...)
 	data = append(data, '\n')
 	data = append(data, []byte(fmt.Sprintf("log_format = %s", strconv.Quote(settings.LogFormat)))...)
+	data = append(data, '\n')
+	data = append(data, []byte(fmt.Sprintf("log_file_path = %s", strconv.Quote(settings.LogFilePath)))...)
 	return data
 }
 
@@ -187,6 +199,7 @@ func normalizeAppSettings(in AppSettings) AppSettings {
 		GatewayPort:       in.GatewayPort,
 		LogLevel:          strings.TrimSpace(in.LogLevel),
 		LogFormat:         strings.TrimSpace(in.LogFormat),
+		LogFilePath:       strings.TrimSpace(in.LogFilePath),
 	}
 	if settings.GatewayHost == "" {
 		settings.GatewayHost = defaultGatewayHost
@@ -209,6 +222,9 @@ func normalizeAppSettings(in AppSettings) AppSettings {
 	case "text", "json":
 	default:
 		settings.LogFormat = defaultLogFormat
+	}
+	if settings.LogFilePath == "" {
+		settings.LogFilePath = defaultLogFilePath
 	}
 	return settings
 }

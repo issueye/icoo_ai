@@ -51,6 +51,13 @@ export class AppSettings {
              */
             this["logFormat"] = undefined;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["logFilePath"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }

@@ -3,6 +3,7 @@ package logging
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -15,29 +16,33 @@ func ConfigureDefault(app string) *slog.Logger {
 	level := parseLevel(cfg.Level)
 	opts := &slog.HandlerOptions{Level: level}
 	format := strings.ToLower(strings.TrimSpace(cfg.Format))
+	writer, resolvedLogFilePath := buildLogWriter(cfg.FilePath)
 
 	var handler slog.Handler
 	switch format {
 	case "json":
-		handler = slog.NewJSONHandler(os.Stderr, opts)
+		handler = slog.NewJSONHandler(writer, opts)
 	default:
-		handler = slog.NewTextHandler(os.Stderr, opts)
+		handler = slog.NewTextHandler(writer, opts)
 	}
 
 	logger := slog.New(handler).With("app", app)
 	slog.SetDefault(logger)
+	logger.Info("logging configured", "level", cfg.Level, "format", format, "logFilePath", resolvedLogFilePath)
 	return logger
 }
 
 type Config struct {
-	Level  string
-	Format string
+	Level    string
+	Format   string
+	FilePath string
 }
 
 func defaultConfig() Config {
 	return Config{
-		Level:  "info",
-		Format: "text",
+		Level:    "info",
+		Format:   "text",
+		FilePath: "logs/agent_chat.log",
 	}
 }
 
@@ -85,6 +90,11 @@ func loadConfig() Config {
 			if err == nil && strings.TrimSpace(parsed) != "" {
 				cfg.Format = strings.TrimSpace(parsed)
 			}
+		case "log_file_path":
+			parsed, err := strconv.Unquote(value)
+			if err == nil && strings.TrimSpace(parsed) != "" {
+				cfg.FilePath = strings.TrimSpace(parsed)
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -104,4 +114,36 @@ func parseLevel(raw string) slog.Leveler {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+func buildLogWriter(rawPath string) (io.Writer, string) {
+	path := resolveLogFilePath(rawPath)
+	if path == "" {
+		return os.Stderr, ""
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "agent_chat logging create log directory failed: %v\n", err)
+		return os.Stderr, ""
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "agent_chat logging open log file failed: %v\n", err)
+		return os.Stderr, ""
+	}
+	return io.MultiWriter(os.Stderr, file), path
+}
+
+func resolveLogFilePath(rawPath string) string {
+	trimmed := strings.TrimSpace(rawPath)
+	if trimmed == "" {
+		return ""
+	}
+	if filepath.IsAbs(trimmed) {
+		return trimmed
+	}
+	wd, err := os.Getwd()
+	if err != nil || strings.TrimSpace(wd) == "" {
+		return filepath.Clean(trimmed)
+	}
+	return filepath.Join(wd, trimmed)
 }

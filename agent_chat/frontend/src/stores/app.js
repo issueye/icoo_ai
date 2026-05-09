@@ -12,6 +12,9 @@ export const useAppStore = defineStore('app', {
     gatewayBinaryPath: '',
     gatewayHost: '127.0.0.1',
     gatewayPort: 17889,
+    logLevel: 'info',
+    logFormat: 'text',
+    logFilePath: 'logs/agent_chat.log',
     settingsSaving: false,
     settingsError: null,
     toasts: [],
@@ -56,6 +59,9 @@ export const useAppStore = defineStore('app', {
         this.gatewayHost = settings?.gatewayHost || '127.0.0.1'
         const loadedPort = Number(settings?.gatewayPort)
         this.gatewayPort = Number.isFinite(loadedPort) && loadedPort > 0 ? loadedPort : 17889
+        this.logLevel = settings?.logLevel || 'info'
+        this.logFormat = settings?.logFormat || 'text'
+        this.logFilePath = settings?.logFilePath || 'logs/agent_chat.log'
       } catch (error) {
         this.settingsError = error?.message || '加载配置失败'
       }
@@ -68,11 +74,17 @@ export const useAppStore = defineStore('app', {
           gatewayBinaryPath: payload.gatewayBinaryPath ?? this.gatewayBinaryPath ?? '',
           gatewayHost: payload.gatewayHost ?? this.gatewayHost ?? '127.0.0.1',
           gatewayPort: payload.gatewayPort ?? this.gatewayPort ?? 17889,
+          logLevel: payload.logLevel ?? this.logLevel ?? 'info',
+          logFormat: payload.logFormat ?? this.logFormat ?? 'text',
+          logFilePath: payload.logFilePath ?? this.logFilePath ?? 'logs/agent_chat.log',
         })
         this.gatewayBinaryPath = saved?.gatewayBinaryPath || ''
         this.gatewayHost = saved?.gatewayHost || '127.0.0.1'
         const savedPort = Number(saved?.gatewayPort)
         this.gatewayPort = Number.isFinite(savedPort) && savedPort > 0 ? savedPort : 17889
+        this.logLevel = saved?.logLevel || 'info'
+        this.logFormat = saved?.logFormat || 'text'
+        this.logFilePath = saved?.logFilePath || 'logs/agent_chat.log'
         return saved
       } catch (error) {
         this.settingsError = error?.message || '保存配置失败'

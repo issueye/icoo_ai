@@ -24,7 +24,8 @@ func TestDecodeSettingsTOML_ReadsHostAndPort(t *testing.T) {
 		"gateway_host = \"127.0.0.1\"\n" +
 		"gateway_port = 18080\n" +
 		"log_level = \"debug\"\n" +
-		"log_format = \"json\"\n")
+		"log_format = \"json\"\n" +
+		"log_file_path = \"logs/custom.log\"\n")
 	settings, err := decodeSettingsTOML(data)
 	if err != nil {
 		t.Fatalf("decodeSettingsTOML returned error: %v", err)
@@ -44,6 +45,9 @@ func TestDecodeSettingsTOML_ReadsHostAndPort(t *testing.T) {
 	if settings.LogFormat != "json" {
 		t.Fatalf("unexpected log format: %q", settings.LogFormat)
 	}
+	if settings.LogFilePath != "logs/custom.log" {
+		t.Fatalf("unexpected log file path: %q", settings.LogFilePath)
+	}
 }
 
 func TestNormalizeAppSettings_DefaultAndInvalidLogConfig(t *testing.T) {
@@ -55,6 +59,9 @@ func TestNormalizeAppSettings_DefaultAndInvalidLogConfig(t *testing.T) {
 	}
 	if settings.LogFormat != "text" {
 		t.Fatalf("expected default log format text, got %q", settings.LogFormat)
+	}
+	if settings.LogFilePath != "logs/agent_chat.log" {
+		t.Fatalf("expected default log file path logs/agent_chat.log, got %q", settings.LogFilePath)
 	}
 
 	invalid := normalizeAppSettings(AppSettings{
@@ -78,6 +85,7 @@ func TestEncodeSettingsTOML_PreservesLogConfig(t *testing.T) {
 		GatewayPort:       18080,
 		LogLevel:          "debug",
 		LogFormat:         "json",
+		LogFilePath:       "logs/runtime.log",
 	})))
 
 	if !containsLine(data, "log_level = \"debug\"") {
@@ -85,6 +93,9 @@ func TestEncodeSettingsTOML_PreservesLogConfig(t *testing.T) {
 	}
 	if !containsLine(data, "log_format = \"json\"") {
 		t.Fatalf("encoded settings missing log_format: %q", data)
+	}
+	if !containsLine(data, "log_file_path = \"logs/runtime.log\"") {
+		t.Fatalf("encoded settings missing log_file_path: %q", data)
 	}
 }
 
