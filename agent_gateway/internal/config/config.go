@@ -13,6 +13,13 @@ type Config struct {
 	Port    int
 	DataDir string
 	Version string
+	ACP     ACPConfig
+}
+
+type ACPConfig struct {
+	Enabled bool
+	Command string
+	Args    []string
 }
 
 func Default() Config {
@@ -20,6 +27,9 @@ func Default() Config {
 		Host:    "127.0.0.1",
 		Port:    0,
 		Version: Version,
+		ACP: ACPConfig{
+			Enabled: false,
+		},
 	}
 }
 
@@ -33,6 +43,9 @@ func (c Config) Validate() error {
 	}
 	if c.Port < 0 || c.Port > 65535 {
 		return errors.New("port must be between 0 and 65535")
+	}
+	if c.ACP.Enabled && strings.TrimSpace(c.ACP.Command) == "" {
+		return errors.New("acp.command is required when acp.enabled=true")
 	}
 	return nil
 }

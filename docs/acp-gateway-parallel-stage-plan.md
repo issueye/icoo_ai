@@ -28,9 +28,8 @@
 
 尚未存在：
 
-- `agent_chat/internal/bridge` 到 gatewayclient/gateway API 的真实转调。
-- gateway SSE 事件流与 ApprovalBroker。
-- gateway store 与 service 的真实接线和 json/jsonl 落盘。
+- gateway ApprovalBroker。
+- gateway store 与 service 的真实接线（当前已有 json/jsonl 落盘能力）。
 - gateway 与 ACP server 的真实连接。
 
 ## 3. 当前进度快照
@@ -41,16 +40,17 @@
 |---|---|---|
 | P1：独立服务骨架 | 已完成 | `agent_gateway` 可独立启动，`/health` 可用，随机端口、token、endpoint 文件已落地。 |
 | P2a：三 worker 并行批次 | 已完成 | Worker B/API-Service、Worker C/Store、Worker F/gatewayclient 已完成并由主线程集成。 |
-| P2b：bridge 接入 gateway | 未开始 | 需要把 `agent_chat/internal/bridge` 从 mock-only 改为优先使用 gatewayclient，保留开发 fallback。 |
-| P3：事件流与审批闭环 | 未开始 | 需要 SSE event bus、ApprovalBroker、bridge event subscription。 |
-| P4：ACP connector | 未开始 | 需要 connector registry 和 `icoo-ai serve` stdio 接入。 |
-| P5：持久化与恢复 | 未开始 | 需要 json/jsonl store 接线、重启恢复、事件补拉。 |
+| P2b：bridge 接入 gateway | 已完成 | `agent_chat/internal/bridge` 已优先走 gatewayclient，保留开发 fallback，生产返回结构化错误。 |
+| P3：事件流与审批闭环 | 已完成 | SSE event bus、ApprovalBroker、bridge event subscription 已完成并有测试覆盖。 |
+| P4：ACP connector | 进行中 | 已完成 `AgentConnector` 抽象、ACP 异步 session update 映射、真实进程 smoke test 接线；待默认 profile 集成与生产级观测。 |
+| P5：持久化与恢复 | 进行中 | json/jsonl 落盘与重启读取（含 approvals）已完成，service 已统一走 Store；待事件补拉完善。 |
 | P6：多 Agent 并发 | 未开始 | 需要多 connector profile、事件/审批/取消隔离验证。 |
 
 已通过验证：
 
 ```text
 cd agent_gateway && go test ./...
+cd agent_chat && go test ./...
 cd agent_chat && go test ./internal/gatewayclient
 ```
 
@@ -158,7 +158,7 @@ agent_gateway/internal/store/types.go
 验收：
 
 - 已完成：MemoryStore 单元测试覆盖 upsert/list、message 按 session 过滤、approval 更新。
-- 未开始：json/jsonl 落盘、重启读取、损坏 jsonl 行策略。
+- 已完成：json/jsonl 落盘、重启读取、损坏 jsonl 行跳过与诊断信息记录策略（`internal/store/jsonl_test.go` 覆盖）。
 
 ### Worker D：Event / Approval
 
@@ -187,7 +187,7 @@ agent_gateway/internal/service/approval_broker.go
 
 验收：
 
-- httptest 能读取 SSE event。
+- 已完成：httptest 能读取 SSE event（`internal/api/events_test.go`）。
 - 两个 session 的审批不会串线。
 - cancel 后 pending approval 能过期或拒绝。
 
@@ -239,7 +239,7 @@ agent_chat/internal/bridge/types.go
 验收：
 
 - 已完成：`gatewayclient` 单元测试覆盖 endpoint/token 读取、Authorization header、非 2xx 错误。
-- 未开始：bridge 单元测试覆盖 gateway 可用、不可用、token 错误。
+- 进行中：bridge 已完成 gateway 转调与 fallback；bridge 单元测试仍待补齐（当前 `internal/bridge` 无 `_test.go`）。
 - 前端 bindings 暂不强制重生成，除非 bridge DTO 变更。
 
 ## 6. 阶段拆分
@@ -277,7 +277,7 @@ agent_chat/internal/bridge/types.go
 - 已完成：gateway sessions/messages/runs/approvals mock API。
 - 已完成：`agent_gateway/internal/store` MemoryStore 基础能力。
 - 已完成：`agent_chat/internal/gatewayclient` 可发现 gateway 并调用 `/health`。
-- 未开始：`agent_chat` bridge 转调 gateway client。
+- 已完成：`agent_chat` bridge 转调 gateway client（含 dev fallback / prod 结构化报错）。
 - 未开始：事件由 bridge 映射成现有 `agent:event`。
 
 验收：
@@ -285,7 +285,7 @@ agent_chat/internal/bridge/types.go
 - 未完成：`agent_chat` UI 能创建会话、发送 prompt、取消运行。
 - 未完成：无 gateway 时有清晰连接状态或开发 fallback。
 
-### P3：事件流与审批闭环
+### P3：事件流与审批闭环（已完成）
 
 范围：
 
@@ -293,17 +293,17 @@ agent_chat/internal/bridge/types.go
 
 交付：
 
-- SSE 事件流。
-- ApprovalBroker。
+- 已完成：SSE 事件流。
+- 已完成：ApprovalBroker（含终态索引清理，避免长生命周期内存增长）。
 - `/v1/approvals/{id}/decision`。
-- `agent_chat` 订阅 event stream 并发出 Wails event。
+- 已完成：`agent_chat` 订阅 event stream 并发出 Wails event。
 
 验收：
 
-- prompt 能产生 user/assistant/tool/approval event。
-- 审批卡片决策能回到 gateway。
+- 已完成：prompt 可通过 ACP 异步 update 发布 user/assistant/tool/approval 等事件 envelope。
+- 已完成：审批卡片决策可回到 gateway，且跨 session 不串线，cancel 后 pending 可过期/拒绝。
 
-### P4：接入 `icoo-ai` ACP connector
+### P4：接入 `icoo-ai` ACP connector（进行中）
 
 范围：
 
@@ -311,10 +311,11 @@ agent_chat/internal/bridge/types.go
 
 交付：
 
-- `AgentConnector` registry。
-- `icoo-ai-acp` 默认 profile。
-- ACP stdio process 管理。
-- ACP update 到 GatewayEvent 的映射。
+- 已完成：`AgentConnector` 抽象与结构化 connector error。
+- 已完成：ACP stdio process 最小骨架与 fake-process 协议映射测试。
+- 已完成：ACP 异步 session update -> GatewayEvent envelope 映射。
+- 已完成：真实 `icoo-ai serve` smoke test 接线（默认跳过，显式开关启用）。
+- 未开始：`icoo-ai-acp` 默认 profile 集成。
 
 验收：
 
@@ -363,15 +364,15 @@ agent_chat/internal/bridge/types.go
 
 | Worker | 任务 | 写入范围 | 验收 |
 |---|---|---|---|
-| F1 | bridge 接入 gatewayclient | `agent_chat/internal/bridge/**`，必要时只读 `agent_chat/internal/gatewayclient/**` | bridge 优先探活 gateway；gateway 不可用时开发 fallback；原前端 API 不变。 |
-| D1 | SSE event bus | `agent_gateway/internal/events/**`、`agent_gateway/internal/api/events.go` | httptest 能订阅 `/v1/events/stream` 并收到 event envelope。 |
-| C1 | json/jsonl store spike | `agent_gateway/internal/store/**` | conversations/messages/runs/audit 可落盘并重启读取，测试覆盖损坏行策略。 |
+| E4 | ACP 默认 profile 与 runtime 接线 | `agent_gateway/internal/runtime/**`、`agent_gateway/internal/service/**`、`agent_gateway/internal/connectors/acp/**` | gateway 启动后可按配置创建默认 `icoo-ai-acp` connector。 |
+| E5 | ACP 观测与错误收口 | `agent_gateway/internal/connectors/acp/**`、`agent_gateway/internal/service/**` | stderr 接入 audit/logger，结构化错误码覆盖关键失败路径。 |
+| P6a | 多 session 并发隔离测试 | `agent_gateway/internal/api/**`、`agent_gateway/internal/service/**`、`agent_chat/internal/bridge/**` 测试文件 | 两个 session 并发 prompt/cancel/approval 不串线，事件和审批隔离可复现。 |
 
 主线程集成点：
 
-1. 将 event bus 挂到 `runtime/server.go`。
-2. 决定 mock service 是否直接使用 Store 接口，或保留独立 mock service 到 P3 后再替换。
-3. bridge 接入后运行 `agent_chat` Go 测试，并视 DTO 变更决定是否重生成前端 bindings。
+1. 将 event bus 接到 prompt/run 生命周期关键节点，明确发布责任边界。
+2. 把 approvals 持久化纳入 Store 并接入 service，避免重启后审批态丢失。
+3. bridge 完成事件订阅后运行 `agent_chat` Go 测试，并视 DTO 变更决定是否重生成前端 bindings。
 
 ## 8. 风险与约束
 

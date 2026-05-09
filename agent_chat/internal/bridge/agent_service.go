@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,12 +11,15 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/icoo-ai/icoo-ai/agent_chat/internal/gatewayclient"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type AgentService struct {
+	mu            sync.RWMutex
 	now           time.Time
 	conversations []Conversation
 	messages      []MessageEvent
@@ -24,6 +28,8 @@ type AgentService struct {
 	auditEvents   []AuditEvent
 	gateway       *gatewayProxy
 	devFallback   bool
+	lastEventID   string
+	eventSink     func(MessageEvent)
 }
 
 func NewAgentService() *AgentService {
@@ -61,6 +67,22 @@ func NewAgentService() *AgentService {
 	}
 }
 
+func (s *AgentService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
+	if s.eventSink == nil {
+		s.eventSink = func(event MessageEvent) {
+			app := application.Get()
+			if app != nil {
+				app.Event.Emit("agent:event", event)
+			}
+		}
+	}
+	if s.gateway == nil {
+		return nil
+	}
+	go s.streamGatewayEvents(ctx)
+	return nil
+}
+
 func (s *AgentService) NewSession(ctx context.Context, req NewSessionRequest) (Conversation, error) {
 	if s.gateway != nil {
 		var out Conversation
@@ -89,7 +111,9 @@ func (s *AgentService) NewSession(ctx context.Context, req NewSessionRequest) (C
 		Mode:        fallbackString(req.Mode, "agent"),
 		Model:       fallbackString(req.Model, "gpt-5.4"),
 	}
+	s.mu.Lock()
 	s.conversations = append([]Conversation{conversation}, s.conversations...)
+	s.mu.Unlock()
 	return conversation, nil
 }
 
@@ -123,6 +147,8 @@ func (s *AgentService) ListConversations(ctx context.Context) ([]Conversation, e
 			return nil, err
 		}
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return append([]Conversation(nil), s.conversations...), nil
 }
 
@@ -159,7 +185,9 @@ func (s *AgentService) Prompt(ctx context.Context, req PromptRequest) ([]Message
 		Content:   "mock bridge 已收到输入。真实 Runtime 接入后这里会由 agent:event 流式更新。",
 		CreatedAt: createdAt.Add(time.Second),
 	}
+	s.mu.Lock()
 	s.messages = append(s.messages, userMessage, assistantMessage)
+	s.mu.Unlock()
 	s.touchConversation(req.SessionID, "mock bridge 已生成响应", "idle")
 	return []MessageEvent{userMessage, assistantMessage}, nil
 }
@@ -193,11 +221,13 @@ func (s *AgentService) ListMessages(ctx context.Context, sessionID string) ([]Me
 		}
 	}
 	filtered := make([]MessageEvent, 0, len(s.messages))
+	s.mu.RLock()
 	for _, item := range s.messages {
 		if item.SessionID == sessionID {
 			filtered = append(filtered, item)
 		}
 	}
+	s.mu.RUnlock()
 	return filtered, nil
 }
 
@@ -212,6 +242,8 @@ func (s *AgentService) ListRuns(ctx context.Context) ([]RunSummary, error) {
 			return nil, err
 		}
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return append([]RunSummary(nil), s.runs...), nil
 }
 
@@ -226,6 +258,8 @@ func (s *AgentService) ListApprovals(ctx context.Context) ([]ApprovalDecision, e
 			return nil, err
 		}
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return append([]ApprovalDecision(nil), s.approvals...), nil
 }
 
@@ -241,6 +275,7 @@ func (s *AgentService) DecideApproval(ctx context.Context, req ApprovalDecisionR
 		}
 	}
 	decision := ApprovalDecision{ID: req.ID, SessionID: req.SessionID, Decision: req.Decision, Actor: "user", Summary: "用户已处理审批请求", CreatedAt: s.now}
+	s.mu.Lock()
 	for i := range s.approvals {
 		if s.approvals[i].ID == req.ID {
 			s.approvals[i] = decision
@@ -253,6 +288,7 @@ func (s *AgentService) DecideApproval(ctx context.Context, req ApprovalDecisionR
 		}
 	}
 	s.auditEvents = append(s.auditEvents, AuditEvent{ID: fmt.Sprintf("audit_%d", len(s.auditEvents)+1), SessionID: req.SessionID, Type: "approval_decision", Level: "notice", Summary: "用户决策：" + req.Decision, CreatedAt: s.now})
+	s.mu.Unlock()
 	s.touchConversation(req.SessionID, "审批已处理："+req.Decision, "idle")
 	return decision, nil
 }
@@ -272,10 +308,14 @@ func (s *AgentService) ListSkills(ctx context.Context) ([]SkillInfo, error) {
 }
 
 func (s *AgentService) ListAuditEvents(ctx context.Context) ([]AuditEvent, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return append([]AuditEvent(nil), s.auditEvents...), nil
 }
 
 func (s *AgentService) touchConversation(sessionID string, subtitle string, status string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for i := range s.conversations {
 		if s.conversations[i].ID == sessionID {
 			s.conversations[i].Subtitle = subtitle
@@ -284,6 +324,162 @@ func (s *AgentService) touchConversation(sessionID string, subtitle string, stat
 			return
 		}
 	}
+}
+
+func (s *AgentService) streamGatewayEvents(ctx context.Context) {
+	client := gatewayclient.New(s.gateway.baseURL, s.gateway.token)
+	backoff := time.Second
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		err := client.StreamEvents(ctx, s.lastStreamEventID(), func(event gatewayclient.StreamEnvelope) error {
+			return s.forwardGatewayEvent(event)
+		})
+		if ctx.Err() != nil {
+			return
+		}
+		bridgeErr := s.mapGatewayStreamError(err)
+		if bridgeErr != nil && bridgeErr.Code == ErrorCodeGatewayAuthFailed {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		if backoff < 10*time.Second {
+			backoff *= 2
+			if backoff > 10*time.Second {
+				backoff = 10 * time.Second
+			}
+		}
+	}
+}
+
+func (s *AgentService) lastStreamEventID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastEventID
+}
+
+func (s *AgentService) setLastStreamEventID(id string) {
+	if id == "" {
+		return
+	}
+	s.mu.Lock()
+	s.lastEventID = id
+	s.mu.Unlock()
+}
+
+func (s *AgentService) forwardGatewayEvent(in gatewayclient.StreamEnvelope) error {
+	envelope := GatewayEventEnvelope{
+		ID:        in.ID,
+		Type:      in.Type,
+		AgentID:   in.AgentID,
+		SessionID: in.SessionID,
+		RunID:     in.RunID,
+		Payload:   in.Payload,
+	}
+	if in.CreatedAt != "" {
+		if ts, err := time.Parse(time.RFC3339, in.CreatedAt); err == nil {
+			envelope.CreatedAt = ts
+		}
+	}
+	out := s.mapEnvelopeToMessageEvent(envelope)
+	s.mu.Lock()
+	s.messages = append(s.messages, out)
+	s.mu.Unlock()
+	s.setLastStreamEventID(envelope.ID)
+	if s.eventSink != nil {
+		s.eventSink(out)
+	}
+	return nil
+}
+
+func (s *AgentService) mapEnvelopeToMessageEvent(envelope GatewayEventEnvelope) MessageEvent {
+	var payload MessageEvent
+	_ = json.Unmarshal(envelope.Payload, &payload)
+	if payload.ID == "" {
+		payload.ID = envelope.ID
+	}
+	if payload.SessionID == "" {
+		payload.SessionID = envelope.SessionID
+	}
+	payload.Kind = mapGatewayEventTypeToBridgeKind(envelope.Type, payload.Kind)
+	if payload.CreatedAt.IsZero() {
+		if !envelope.CreatedAt.IsZero() {
+			payload.CreatedAt = envelope.CreatedAt
+		} else {
+			payload.CreatedAt = time.Now()
+		}
+	}
+	if !isKnownBridgeKind(payload.Kind) {
+		originalKind := payload.Kind
+		payload.Kind = BridgeEventKindGateway
+		if payload.SafeMeta == nil {
+			payload.SafeMeta = make(map[string]any, 2)
+		}
+		if strings.TrimSpace(envelope.Type) != "" {
+			payload.SafeMeta["gatewayType"] = envelope.Type
+		}
+		if strings.TrimSpace(originalKind) != "" {
+			payload.SafeMeta["gatewayKind"] = originalKind
+		}
+	}
+	return payload
+}
+
+func mapGatewayEventTypeToBridgeKind(eventType string, payloadKind string) string {
+	normalized := strings.ToLower(strings.TrimSpace(eventType))
+	switch normalized {
+	case "message", "msg", "agent.message", "session.message", "conversation.message":
+		return BridgeEventKindMessage
+	case "tool_call", "tool.call", "tool_started", "tool.start":
+		return BridgeEventKindToolCall
+	case "tool_result", "tool.result", "tool_completed", "tool.complete":
+		return BridgeEventKindToolResult
+	case "approval", "approval_required", "approval.requested", "approval_requested", "approval_decision", "approval.decided":
+		return BridgeEventKindApproval
+	case "subagent_run", "subagent.run", "subagent_started", "subagent.start", "subagent_completed", "subagent.complete":
+		return BridgeEventKindSubagent
+	case "run", "run_started", "run.start", "run_completed", "run.complete", "run_failed", "run.cancelled", "run_cancelled":
+		return BridgeEventKindRun
+	case "audit", "audit_event", "audit.event":
+		return BridgeEventKindAudit
+	}
+
+	if strings.TrimSpace(payloadKind) != "" {
+		return payloadKind
+	}
+	return eventType
+}
+
+func isKnownBridgeKind(kind string) bool {
+	switch kind {
+	case BridgeEventKindMessage, BridgeEventKindToolCall, BridgeEventKindToolResult, BridgeEventKindApproval, BridgeEventKindSubagent, BridgeEventKindRun, BridgeEventKindAudit:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *AgentService) mapGatewayStreamError(err error) *BridgeError {
+	if err == nil {
+		return nil
+	}
+	type statusCoder interface {
+		StatusCode() int
+	}
+	var statusErr statusCoder
+	if errors.As(err, &statusErr) {
+		status := statusErr.StatusCode()
+		if status == http.StatusUnauthorized || status == http.StatusForbidden {
+			return &BridgeError{Code: ErrorCodeGatewayAuthFailed, Message: "gateway token is invalid or expired", StatusCode: status, Retryable: false}
+		}
+		return &BridgeError{Code: ErrorCodeGatewayStream, Message: err.Error(), StatusCode: status, Retryable: status >= 500}
+	}
+	return &BridgeError{Code: ErrorCodeGatewayUnavailable, Message: err.Error(), Retryable: true}
 }
 
 func fallbackString(value string, fallback string) string {

@@ -1,6 +1,9 @@
 package bridge
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type ErrorCode string
 
@@ -8,6 +11,7 @@ const (
 	ErrorCodeGatewayUnavailable ErrorCode = "gateway_unavailable"
 	ErrorCodeGatewayAuthFailed  ErrorCode = "gateway_auth_failed"
 	ErrorCodeGatewayRequest     ErrorCode = "gateway_request_failed"
+	ErrorCodeGatewayStream      ErrorCode = "gateway_stream_failed"
 	ErrorCodeInvalidArgument    ErrorCode = "invalid_argument"
 )
 
@@ -83,6 +87,17 @@ type MessageEvent struct {
 	CreatedAt       time.Time      `json:"createdAt"`
 }
 
+const (
+	BridgeEventKindMessage    = "message"
+	BridgeEventKindToolCall   = "tool_call"
+	BridgeEventKindToolResult = "tool_result"
+	BridgeEventKindApproval   = "approval"
+	BridgeEventKindSubagent   = "subagent_run"
+	BridgeEventKindRun        = "run"
+	BridgeEventKindAudit      = "audit"
+	BridgeEventKindGateway    = "gateway_event"
+)
+
 type RunSummary struct {
 	ID              string     `json:"id"`
 	SessionID       string     `json:"sessionId"`
@@ -115,4 +130,14 @@ type AuditEvent struct {
 	Level     string    `json:"level"`
 	Summary   string    `json:"summary"`
 	CreatedAt time.Time `json:"createdAt"`
+}
+
+type GatewayEventEnvelope struct {
+	ID        string          `json:"id"`
+	Type      string          `json:"type"`
+	AgentID   string          `json:"agentId,omitempty"`
+	SessionID string          `json:"sessionId,omitempty"`
+	RunID     string          `json:"runId,omitempty"`
+	Payload   json.RawMessage `json:"payload"`
+	CreatedAt time.Time       `json:"createdAt"`
 }

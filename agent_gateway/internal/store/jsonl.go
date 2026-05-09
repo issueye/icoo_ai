@@ -15,6 +15,7 @@ const (
 	conversationsFile = "conversations.jsonl"
 	messagesFile      = "messages.jsonl"
 	runsFile          = "runs.jsonl"
+	approvalsFile     = "approvals.jsonl"
 	auditFile         = "audit.jsonl"
 )
 
@@ -72,6 +73,9 @@ func (s *JSONLStore) load(ctx context.Context) error {
 	if err := s.loadRuns(ctx); err != nil {
 		return err
 	}
+	if err := s.loadApprovals(ctx); err != nil {
+		return err
+	}
 	if err := s.loadAudit(ctx); err != nil {
 		return err
 	}
@@ -117,6 +121,21 @@ func (s *JSONLStore) loadRuns(ctx context.Context) error {
 			return nil
 		}
 		if err := s.mem.UpsertRun(ctx, item); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func (s *JSONLStore) loadApprovals(ctx context.Context) error {
+	path := filepath.Join(s.baseDir, approvalsFile)
+	return decodeJSONLLines(path, func(raw []byte, line int) error {
+		var item ApprovalDecision
+		if err := json.Unmarshal(raw, &item); err != nil {
+			s.appendIssue(path, line, err)
+			return nil
+		}
+		if err := s.mem.UpsertApproval(ctx, item); err != nil {
 			return err
 		}
 		return nil
@@ -255,7 +274,17 @@ func (s *JSONLStore) ListRuns(ctx context.Context, sessionID string) ([]RunSumma
 }
 
 func (s *JSONLStore) UpsertApproval(ctx context.Context, approval ApprovalDecision) error {
-	return s.mem.UpsertApproval(ctx, approval)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	item := cloneApprovalDecision(approval)
+	if err := s.mem.UpsertApproval(ctx, item); err != nil {
+		return err
+	}
+	return appendJSONL(ctx, filepath.Join(s.baseDir, approvalsFile), item)
 }
 
 func (s *JSONLStore) ListApprovals(ctx context.Context) ([]ApprovalDecision, error) {

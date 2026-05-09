@@ -53,6 +53,18 @@ func TestJSONLStorePersistsAndRestores(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("upsert run: %v", err)
 	}
+	if err := s.UpsertApproval(ctx, ApprovalDecision{
+		ID:                 "approval_001",
+		AgentID:            "icoo-ai-acp",
+		SessionID:          "sess_001",
+		RunID:              "run_001",
+		ConnectorRequestID: "tool_call_001",
+		Status:             "pending",
+		Summary:            "pending user decision",
+		CreatedAt:          now,
+	}); err != nil {
+		t.Fatalf("upsert approval: %v", err)
+	}
 	if err := s.AppendAudit(ctx, AuditEvent{
 		ID:        "audit_001",
 		Type:      "session.created",
@@ -81,6 +93,10 @@ func TestJSONLStorePersistsAndRestores(t *testing.T) {
 	runs, err := s2.ListRuns(ctx, "sess_001")
 	if err != nil || len(runs) != 1 || runs[0].RunID != "run_001" {
 		t.Fatalf("runs = %+v, err=%v", runs, err)
+	}
+	approvals, err := s2.ListApprovals(ctx)
+	if err != nil || len(approvals) != 1 || approvals[0].ID != "approval_001" {
+		t.Fatalf("approvals = %+v, err=%v", approvals, err)
 	}
 	audit, err := s2.ListAuditEvents(ctx)
 	if err != nil || len(audit) != 1 || audit[0].ID != "audit_001" {

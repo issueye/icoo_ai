@@ -10,6 +10,7 @@ import (
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/api"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/config"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connectors/acp"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/security"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
 )
@@ -21,6 +22,7 @@ type Server struct {
 	endpoint  Endpoint
 	http      *http.Server
 	listener  net.Listener
+	acpConn   *acp.Connector
 }
 
 func NewServer(cfg config.Config) (*Server, error) {
@@ -51,7 +53,12 @@ func (s *Server) Start() error {
 
 	mux := http.NewServeMux()
 	mux.Handle("/health", api.HealthHandler(s.cfg.Version, s.startedAt))
-	mux.Handle("/v1/", s.authorize(api.NewRouter(service.NewMockGatewayService())))
+	gatewayService, err := s.newGatewayService()
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
+	mux.Handle("/v1/", s.authorize(api.NewRouter(gatewayService)))
 	s.http = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -87,10 +94,37 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.acpConn != nil {
+		_ = s.acpConn.Close()
+	}
 	if s.http == nil {
 		return nil
 	}
 	return s.http.Shutdown(ctx)
+}
+
+func (s *Server) newGatewayService() (service.GatewayService, error) {
+	if !s.cfg.ACP.Enabled {
+		return service.NewMockGatewayService(), nil
+	}
+	conn, err := acp.NewDefaultConnector(acp.DefaultConnectorOptions{
+		Command: s.cfg.ACP.Command,
+		Args:    s.cfg.ACP.Args,
+		Stderr:  io.Discard,
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.acpConn = conn
+	return service.NewMockGatewayServiceWithAgentsAndStore([]service.AgentProfile{
+		{
+			ID:          "icoo-ai-acp",
+			Name:        "Icoo AI",
+			Protocol:    "acp",
+			Models:      []string{"mock-gpt"},
+			Description: "Default ACP connector profile.",
+		},
+	}, store.NewMemoryStore()), nil
 }
 
 func (s *Server) authorize(next http.Handler) http.Handler {

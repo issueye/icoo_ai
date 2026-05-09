@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
 type GatewayService interface {
@@ -35,33 +37,42 @@ func NewError(code, message string) *Error {
 }
 
 type MockGatewayService struct {
-	mu        sync.Mutex
-	now       func() time.Time
-	nextID    int
-	agents    []AgentProfile
-	sessions  map[string]Session
-	messages  map[string][]Message
-	runs      map[string]Run
-	approvals map[string]Approval
+	mu     sync.Mutex
+	now    func() time.Time
+	nextID int
+	agents []AgentProfile
+	store  store.Store
 }
 
 func NewMockGatewayService() *MockGatewayService {
+	return NewMockGatewayServiceWithStore(store.NewMemoryStore())
+}
+
+func NewMockGatewayServiceWithStore(st store.Store) *MockGatewayService {
+	return NewMockGatewayServiceWithAgentsAndStore(defaultAgents(), st)
+}
+
+func NewMockGatewayServiceWithAgentsAndStore(agents []AgentProfile, st store.Store) *MockGatewayService {
+	if len(agents) == 0 {
+		agents = defaultAgents()
+	}
 	return &MockGatewayService{
 		now:    time.Now,
 		nextID: 1,
-		agents: []AgentProfile{
-			{
-				ID:          "icoo-ai-acp",
-				Name:        "Icoo AI",
-				Protocol:    "acp",
-				Models:      []string{"mock-gpt"},
-				Description: "Mock gateway agent for local API development.",
-			},
+		agents: agents,
+		store: st,
+	}
+}
+
+func defaultAgents() []AgentProfile {
+	return []AgentProfile{
+		{
+			ID:          "icoo-ai-acp",
+			Name:        "Icoo AI",
+			Protocol:    "acp",
+			Models:      []string{"mock-gpt"},
+			Description: "Mock gateway agent for local API development.",
 		},
-		sessions:  make(map[string]Session),
-		messages:  make(map[string][]Message),
-		runs:      make(map[string]Run),
-		approvals: make(map[string]Approval),
 	}
 }
 
@@ -107,7 +118,9 @@ func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessio
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	s.sessions[session.ID] = session
+	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
+		return Session{}, err
+	}
 	return session, nil
 }
 
@@ -115,12 +128,13 @@ func (s *MockGatewayService) ListSessions(ctx context.Context) ([]Session, error
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	sessions := make([]Session, 0, len(s.sessions))
-	for _, session := range s.sessions {
-		sessions = append(sessions, session)
+	conversations, err := s.store.ListConversations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sessions := make([]Session, 0, len(conversations))
+	for _, conversation := range conversations {
+		sessions = append(sessions, fromStoreConversation(conversation))
 	}
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].CreatedAt.Before(sessions[j].CreatedAt)
@@ -132,13 +146,20 @@ func (s *MockGatewayService) ListMessages(ctx context.Context, sessionID string)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, ok := s.sessions[sessionID]; !ok {
+	if _, ok, err := s.store.GetConversation(ctx, sessionID); err != nil {
+		return nil, err
+	} else if !ok {
 		return nil, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
 	}
-	messages := append([]Message(nil), s.messages[sessionID]...)
+
+	events, err := s.store.ListMessages(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	messages := make([]Message, 0, len(events))
+	for _, event := range events {
+		messages = append(messages, fromStoreMessageEvent(event))
+	}
 	return messages, nil
 }
 
@@ -149,7 +170,10 @@ func (s *MockGatewayService) Prompt(ctx context.Context, sessionID string, req P
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	session, ok := s.sessions[sessionID]
+	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
+	if err != nil {
+		return PromptResponse{}, err
+	}
 	if !ok {
 		return PromptResponse{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
 	}
@@ -158,6 +182,7 @@ func (s *MockGatewayService) Prompt(ctx context.Context, sessionID string, req P
 		return PromptResponse{}, NewError("invalid_prompt", "prompt content is required")
 	}
 
+	session := fromStoreConversation(conversation)
 	startedAt := s.now()
 	endedAt := startedAt
 	run := Run{
@@ -196,11 +221,22 @@ func (s *MockGatewayService) Prompt(ctx context.Context, sessionID string, req P
 		CreatedAt:          startedAt,
 	}
 
-	s.runs[run.ID] = run
-	s.messages[sessionID] = append(s.messages[sessionID], userMessage, assistantMessage)
-	s.approvals[approval.ID] = approval
+	if err := s.store.UpsertRun(ctx, toStoreRun(run)); err != nil {
+		return PromptResponse{}, err
+	}
+	if err := s.store.AppendMessage(ctx, toStoreMessageEvent(userMessage)); err != nil {
+		return PromptResponse{}, err
+	}
+	if err := s.store.AppendMessage(ctx, toStoreMessageEvent(assistantMessage)); err != nil {
+		return PromptResponse{}, err
+	}
+	if err := s.store.UpsertApproval(ctx, toStoreApproval(approval)); err != nil {
+		return PromptResponse{}, err
+	}
 	session.UpdatedAt = endedAt
-	s.sessions[sessionID] = session
+	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
+		return PromptResponse{}, err
+	}
 
 	return PromptResponse{
 		Run:      run,
@@ -216,10 +252,14 @@ func (s *MockGatewayService) Cancel(ctx context.Context, sessionID string) (Run,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	session, ok := s.sessions[sessionID]
+	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
+	if err != nil {
+		return Run{}, err
+	}
 	if !ok {
 		return Run{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
 	}
+	session := fromStoreConversation(conversation)
 	now := s.now()
 	run := Run{
 		ID:        s.idLocked("run"),
@@ -229,9 +269,30 @@ func (s *MockGatewayService) Cancel(ctx context.Context, sessionID string) (Run,
 		StartedAt: now,
 		EndedAt:   &now,
 	}
-	s.runs[run.ID] = run
+	if err := s.store.UpsertRun(ctx, toStoreRun(run)); err != nil {
+		return Run{}, err
+	}
+	storedApprovals, err := s.store.ListApprovals(ctx)
+	if err != nil {
+		return Run{}, err
+	}
+	for _, storedApproval := range storedApprovals {
+		if storedApproval.SessionID != sessionID || storedApproval.Status != "pending" {
+			continue
+		}
+		approval := fromStoreApproval(storedApproval)
+		approval.Status = "expired"
+		approval.Decision = "rejected"
+		approval.DecidedAt = &now
+		approval.Message = "Approval expired because session was cancelled."
+		if err := s.store.UpsertApproval(ctx, toStoreApproval(approval)); err != nil {
+			return Run{}, err
+		}
+	}
 	session.UpdatedAt = now
-	s.sessions[sessionID] = session
+	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
+		return Run{}, err
+	}
 	return run, nil
 }
 
@@ -239,12 +300,13 @@ func (s *MockGatewayService) ListRuns(ctx context.Context) ([]Run, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	runs := make([]Run, 0, len(s.runs))
-	for _, run := range s.runs {
-		runs = append(runs, run)
+	storedRuns, err := s.store.ListRuns(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	runs := make([]Run, 0, len(storedRuns))
+	for _, storedRun := range storedRuns {
+		runs = append(runs, fromStoreRun(storedRun))
 	}
 	sort.Slice(runs, func(i, j int) bool {
 		return runs[i].StartedAt.Before(runs[j].StartedAt)
@@ -256,12 +318,13 @@ func (s *MockGatewayService) ListApprovals(ctx context.Context) ([]Approval, err
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	approvals := make([]Approval, 0, len(s.approvals))
-	for _, approval := range s.approvals {
-		approvals = append(approvals, approval)
+	storedApprovals, err := s.store.ListApprovals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	approvals := make([]Approval, 0, len(storedApprovals))
+	for _, storedApproval := range storedApprovals {
+		approvals = append(approvals, fromStoreApproval(storedApproval))
 	}
 	sort.Slice(approvals, func(i, j int) bool {
 		return approvals[i].CreatedAt.Before(approvals[j].CreatedAt)
@@ -276,10 +339,27 @@ func (s *MockGatewayService) DecideApproval(ctx context.Context, approvalID stri
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	approval, ok := s.approvals[approvalID]
-	if !ok {
+	storedApprovals, err := s.store.ListApprovals(ctx)
+	if err != nil {
+		return Approval{}, err
+	}
+
+	var approval Approval
+	found := false
+	for _, storedApproval := range storedApprovals {
+		if storedApproval.ID == approvalID {
+			approval = fromStoreApproval(storedApproval)
+			found = true
+			break
+		}
+	}
+	if !found {
 		return Approval{}, NewError("approval_not_found", fmt.Sprintf("approval %q was not found", approvalID))
 	}
+	if approval.Status != "pending" {
+		return Approval{}, NewError("invalid_decision", "approval is no longer pending")
+	}
+
 	decision := strings.ToLower(strings.TrimSpace(req.Decision))
 	if decision != "approved" && decision != "rejected" && decision != "allow" && decision != "deny" {
 		return Approval{}, NewError("invalid_decision", "decision must be approved, rejected, allow, or deny")
@@ -298,7 +378,9 @@ func (s *MockGatewayService) DecideApproval(ctx context.Context, approvalID stri
 	if strings.TrimSpace(req.Message) != "" {
 		approval.Message = req.Message
 	}
-	s.approvals[approvalID] = approval
+	if err := s.store.UpsertApproval(ctx, toStoreApproval(approval)); err != nil {
+		return Approval{}, err
+	}
 	return approval, nil
 }
 
@@ -315,4 +397,121 @@ func (s *MockGatewayService) idLocked(prefix string) string {
 	id := fmt.Sprintf("%s_%06d", prefix, s.nextID)
 	s.nextID++
 	return id
+}
+
+func toStoreConversation(session Session) store.Conversation {
+	return store.Conversation{
+		ID:        session.ID,
+		AgentID:   session.AgentID,
+		SessionID: session.ID,
+		Title:     session.Title,
+		Status:    session.Status,
+		Model:     session.Model,
+		CWD:       session.CWD,
+		CreatedAt: session.CreatedAt,
+		UpdatedAt: session.UpdatedAt,
+	}
+}
+
+func fromStoreConversation(conversation store.Conversation) Session {
+	return Session{
+		ID:        conversation.SessionID,
+		Title:     conversation.Title,
+		CWD:       conversation.CWD,
+		AgentID:   conversation.AgentID,
+		Model:     conversation.Model,
+		Status:    conversation.Status,
+		CreatedAt: conversation.CreatedAt,
+		UpdatedAt: conversation.UpdatedAt,
+	}
+}
+
+func toStoreMessageEvent(message Message) store.MessageEvent {
+	return store.MessageEvent{
+		ID:        message.ID,
+		Type:      "message",
+		SessionID: message.SessionID,
+		RunID:     message.RunID,
+		Role:      message.Role,
+		Summary:   message.Content,
+		CreatedAt: message.CreatedAt,
+	}
+}
+
+func fromStoreMessageEvent(event store.MessageEvent) Message {
+	return Message{
+		ID:        event.ID,
+		SessionID: event.SessionID,
+		RunID:     event.RunID,
+		Role:      event.Role,
+		Content:   event.Summary,
+		CreatedAt: event.CreatedAt,
+	}
+}
+
+func toStoreRun(run Run) store.RunSummary {
+	return store.RunSummary{
+		ID:          run.ID,
+		AgentID:     run.AgentID,
+		SessionID:   run.SessionID,
+		RunID:       run.ID,
+		Status:      run.Status,
+		CreatedAt:   run.StartedAt,
+		UpdatedAt:   timePointerValue(run.EndedAt, run.StartedAt),
+		CompletedAt: run.EndedAt,
+	}
+}
+
+func fromStoreRun(run store.RunSummary) Run {
+	return Run{
+		ID:        run.RunID,
+		SessionID: run.SessionID,
+		AgentID:   run.AgentID,
+		Status:    run.Status,
+		StartedAt: run.CreatedAt,
+		EndedAt:   run.CompletedAt,
+	}
+}
+
+func toStoreApproval(approval Approval) store.ApprovalDecision {
+	return store.ApprovalDecision{
+		ID:                 approval.ID,
+		AgentID:            approval.AgentID,
+		SessionID:          approval.SessionID,
+		RunID:              approval.RunID,
+		ConnectorRequestID: approval.ConnectorRequestID,
+		Status:             approval.Status,
+		Decision:           approval.Decision,
+		Summary:            approval.Message,
+		CreatedAt:          approval.CreatedAt,
+		UpdatedAt:          timePointerValue(approval.DecidedAt, approval.CreatedAt),
+		DecidedAt:          approval.DecidedAt,
+		SafeMeta: store.SafeMeta{
+			"action": approval.Action,
+		},
+	}
+}
+
+func fromStoreApproval(approval store.ApprovalDecision) Approval {
+	action, _ := approval.SafeMeta["action"].(string)
+	return Approval{
+		ID:                 approval.ID,
+		AgentID:            approval.AgentID,
+		SessionID:          approval.SessionID,
+		RunID:              approval.RunID,
+		ConnectorRequestID: approval.ConnectorRequestID,
+		Status:             approval.Status,
+		Action:             action,
+		Message:            approval.Summary,
+		Decision:           approval.Decision,
+		DecidedAt:          approval.DecidedAt,
+		CreatedAt:          approval.CreatedAt,
+	}
+}
+
+func timePointerValue(in *time.Time, fallback time.Time) time.Time {
+	if in == nil {
+		return fallback
+	}
+	return *in
 }

@@ -111,6 +111,41 @@ func TestApprovalDecision(t *testing.T) {
 	}
 }
 
+func TestApprovalDecisionAfterCancelReturnsStructuredError(t *testing.T) {
+	router := api.NewRouter(service.NewMockGatewayService())
+	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
+		"title": "Approval cancel test",
+	})
+	prompt := doJSON[service.PromptResponse](t, router, http.MethodPost, "/v1/sessions/"+session.ID+"/prompt", map[string]string{
+		"content": "needs approval",
+	})
+	if prompt.Approval == nil {
+		t.Fatal("expected prompt approval")
+	}
+
+	doJSON[service.Run](t, router, http.MethodPost, "/v1/sessions/"+session.ID+"/cancel", nil)
+
+	reqBody, err := json.Marshal(map[string]string{"decision": "approved"})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/approvals/"+prompt.Approval.ID+"/decision", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d (%s)", http.StatusBadRequest, rec.Code, rec.Body.String())
+	}
+	var response api.ErrorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if response.Code != "invalid_decision" || response.Message == "" {
+		t.Fatalf("expected structured invalid_decision error, got %#v", response)
+	}
+}
+
 func TestMissingSessionReturnsJSONError(t *testing.T) {
 	router := api.NewRouter(service.NewMockGatewayService())
 
