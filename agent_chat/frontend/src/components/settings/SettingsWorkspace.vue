@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { RefreshCcw, RotateCcw, Save, Server } from 'lucide-vue-next'
+import { RefreshCcw, RotateCcw, Save } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 
 const app = useAppStore()
@@ -11,7 +11,6 @@ defineProps({
   },
 })
 const gatewayPath = ref('')
-const savedTip = ref('')
 
 onMounted(async () => {
   await app.loadAppSettings()
@@ -40,17 +39,27 @@ const statusClass = computed(() => {
 })
 
 async function saveSettings() {
-  savedTip.value = ''
-  await app.saveAppSettings({ gatewayBinaryPath: gatewayPath.value.trim() })
+  try {
+    await app.saveAppSettings({ gatewayBinaryPath: gatewayPath.value.trim() })
+    await app.refreshGatewayStatus()
+    app.pushToast({ type: 'success', message: '配置保存成功' })
+  } catch {
+    app.pushToast({ type: 'error', message: app.settingsError || '配置保存失败' })
+  }
+}
+
+async function refreshGatewayStatus() {
   await app.refreshGatewayStatus()
-  savedTip.value = '已保存'
-  setTimeout(() => {
-    savedTip.value = ''
-  }, 1800)
+  const isReady = app.gatewayStatus === 'gateway_ready'
+  app.pushToast({
+    type: isReady ? 'success' : 'info',
+    message: isReady ? '网关刷新成功，连接正常' : `网关状态已刷新：${statusLabel.value}`,
+  })
 }
 
 function resetToDefault() {
-  gatewayPath.value = './agent-gateway.exe'
+  gatewayPath.value = './runtime/gateway/agent-gateway.exe'
+  app.pushToast({ type: 'info', message: '已恢复默认路径，请保存配置' })
 }
 </script>
 
@@ -71,20 +80,19 @@ function resetToDefault() {
           v-model="gatewayPath"
           type="text"
           class="qq-settings-input"
-          placeholder="例如：E:/codes/icoo_ai/agent_gateway/dist/agent-gateway.exe"
+          placeholder="例如：E:/codes/icoo_ai/agent_gateway/runtime/gateway/agent-gateway.exe"
         />
         <div class="qq-settings-actions">
           <button class="qq-icon-button" :disabled="disabled" aria-label="恢复默认路径" @click="resetToDefault">
             <RotateCcw class="h-4 w-4" />
           </button>
-          <button class="qq-icon-button" :disabled="disabled" aria-label="刷新网关状态" @click="app.refreshGatewayStatus">
+          <button class="qq-icon-button" :disabled="disabled" aria-label="刷新网关状态" @click="refreshGatewayStatus">
             <RefreshCcw class="h-4 w-4" />
           </button>
           <button class="qq-primary-action h-9 px-4" :disabled="disabled" @click="saveSettings">
             <Save class="h-4 w-4" />
             <span>{{ app.settingsSaving ? '保存中' : '保存配置' }}</span>
           </button>
-          <span v-if="savedTip" class="qq-settings-success">{{ savedTip }}</span>
           <span v-if="app.settingsError" class="qq-settings-error">{{ app.settingsError }}</span>
         </div>
       </div>

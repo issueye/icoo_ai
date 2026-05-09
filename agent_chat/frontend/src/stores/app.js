@@ -12,6 +12,7 @@ export const useAppStore = defineStore('app', {
     gatewayBinaryPath: '',
     settingsSaving: false,
     settingsError: null,
+    toasts: [],
   }),
   actions: {
     setActiveNav(value) { this.activeNav = value },
@@ -53,6 +54,23 @@ export const useAppStore = defineStore('app', {
       } finally {
         this.settingsSaving = false
       }
+    },
+    pushToast(payload = {}) {
+      const id = `toast_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+      const toast = {
+        id,
+        type: payload.type || 'info',
+        message: payload.message || '',
+      }
+      this.toasts.push(toast)
+      const duration = Number(payload.duration ?? 1800)
+      setTimeout(() => {
+        this.removeToast(id)
+      }, Number.isFinite(duration) && duration > 0 ? duration : 1800)
+      return id
+    },
+    removeToast(id) {
+      this.toasts = this.toasts.filter((item) => item.id !== id)
     },
   },
 })

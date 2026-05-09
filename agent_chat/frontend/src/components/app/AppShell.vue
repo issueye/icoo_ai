@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AppGlobalHeader from './AppGlobalHeader.vue'
 import AppNavRail from './AppNavRail.vue'
 import AppFooter from './AppFooter.vue'
+import AppToastStack from './AppToastStack.vue'
 import ConversationSidebar from '@/components/conversation/ConversationSidebar.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
 import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
@@ -93,5 +94,6 @@ watch(() => conversations.activeSessionId, async (sessionId) => {
       </template>
     </div>
     <AppFooter />
+    <AppToastStack />
   </main>
 </template>
