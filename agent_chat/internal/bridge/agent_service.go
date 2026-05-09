@@ -76,6 +76,13 @@ func (s *AgentService) ServiceStartup(ctx context.Context, _ application.Service
 	return nil
 }
 
+func (s *AgentService) ServiceShutdown() error {
+	if s.bootstrap == nil {
+		return nil
+	}
+	return s.bootstrap.StopManagedProcess()
+}
+
 func (s *AgentService) ensureGatewayRunning(ctx context.Context) error {
 	if s.gateway != nil {
 		if err := s.pingGateway(ctx, s.gateway); err == nil {

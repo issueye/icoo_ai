@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -372,8 +373,8 @@ func TestServiceStartup_ReturnsBootstrapErrorInProdMode(t *testing.T) {
 		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
 			return nil
 		},
-		startProcess: func(context.Context) error {
-			return errors.New("start failed")
+		startProcess: func(context.Context) (*os.Process, error) {
+			return nil, errors.New("start failed")
 		},
 	}
 
@@ -411,8 +412,8 @@ func TestServiceStartup_EmitsGatewayFailedStatusOnBootstrapError(t *testing.T) {
 		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
 			return nil
 		},
-		startProcess: func(context.Context) error {
-			return errors.New("start failed")
+		startProcess: func(context.Context) (*os.Process, error) {
+			return nil, errors.New("start failed")
 		},
 	}
 
@@ -514,5 +515,50 @@ func TestNormalizeMessageEvents_DefaultsKindToMessage(t *testing.T) {
 	}
 	if out[0].Kind != BridgeEventKindMessage {
 		t.Fatalf("expected kind message, got %q", out[0].Kind)
+	}
+}
+
+func TestServiceShutdown_StopsManagedGatewayProcess(t *testing.T) {
+	t.Parallel()
+
+	stopped := false
+	process := &os.Process{Pid: 12345}
+	svc := NewAgentService()
+	svc.bootstrap = &gatewayBootstrapper{
+		stopProcess: func(p *os.Process) error {
+			if p != process {
+				t.Fatalf("unexpected process pointer: %#v", p)
+			}
+			stopped = true
+			return nil
+		},
+		managedProcess: process,
+	}
+
+	if err := svc.ServiceShutdown(); err != nil {
+		t.Fatalf("ServiceShutdown returned error: %v", err)
+	}
+	if !stopped {
+		t.Fatal("expected managed gateway process to be stopped")
+	}
+}
+
+func TestServiceShutdown_DoesNotStopWhenNoManagedProcess(t *testing.T) {
+	t.Parallel()
+
+	stopCalls := 0
+	svc := NewAgentService()
+	svc.bootstrap = &gatewayBootstrapper{
+		stopProcess: func(*os.Process) error {
+			stopCalls++
+			return nil
+		},
+	}
+
+	if err := svc.ServiceShutdown(); err != nil {
+		t.Fatalf("ServiceShutdown returned error: %v", err)
+	}
+	if stopCalls != 0 {
+		t.Fatalf("expected stop calls = 0, got %d", stopCalls)
 	}
 }

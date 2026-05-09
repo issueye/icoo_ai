@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -27,9 +28,9 @@ func TestGatewayBootstrapperEnsureRunning_UsesExistingHealthyGateway(t *testing.
 		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
 			return nil
 		},
-		startProcess: func(context.Context) error {
+		startProcess: func(context.Context) (*os.Process, error) {
 			startCalls++
-			return nil
+			return nil, nil
 		},
 	}
 
@@ -75,9 +76,9 @@ func TestGatewayBootstrapperEnsureRunning_StartsProcessAndWaitsUntilHealthy(t *t
 		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
 			return nil
 		},
-		startProcess: func(context.Context) error {
+		startProcess: func(context.Context) (*os.Process, error) {
 			startCalls++
-			return nil
+			return nil, nil
 		},
 	}
 
@@ -113,8 +114,8 @@ func TestGatewayBootstrapperEnsureRunning_TimesOutWhenGatewayNeverReady(t *testi
 		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
 			return nil
 		},
-		startProcess: func(context.Context) error {
-			return nil
+		startProcess: func(context.Context) (*os.Process, error) {
+			return nil, nil
 		},
 	}
 

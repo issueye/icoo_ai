@@ -2,12 +2,14 @@ package bridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"strings"
 	"time"
 
@@ -29,7 +31,13 @@ type gatewayBootstrapper struct {
 	sleep         func(time.Duration)
 	discover      func(path string) (gatewayclient.Endpoint, string, error)
 	healthCheck   func(ctx context.Context, endpoint gatewayclient.Endpoint, token string) error
-	startProcess  func(ctx context.Context) error
+	startProcess  func(ctx context.Context) (*os.Process, error)
+	stopProcess   func(process *os.Process) error
+	stopProcessByPID func(pid int) error
+
+	processMu      sync.Mutex
+	managedProcess *os.Process
+	managedPID     int
 }
 
 func newGatewayBootstrapper() *gatewayBootstrapper {
@@ -45,21 +53,27 @@ func newGatewayBootstrapper() *gatewayBootstrapper {
 		discover:      gatewayclient.DiscoverFromPath,
 	}
 	bootstrapper.healthCheck = bootstrapper.defaultHealthCheck
-	bootstrapper.startProcess = func(ctx context.Context) error {
+	bootstrapper.startProcess = func(ctx context.Context) (*os.Process, error) {
 		return defaultStartGatewayProcess(ctx, devMode)
 	}
+	bootstrapper.stopProcess = defaultStopGatewayProcess
+	bootstrapper.stopProcessByPID = defaultStopGatewayProcessByPID
 	return bootstrapper
 }
 
 func (b *gatewayBootstrapper) EnsureRunning(ctx context.Context) (*gatewayProxy, error) {
-	proxy, err := b.discoverHealthy(ctx)
+	proxy, _, err := b.discoverHealthy(ctx)
 	if err == nil {
 		return proxy, nil
 	}
 	lastErr := err
 
-	if err := b.startProcess(ctx); err != nil {
+	startedProcess, err := b.startProcess(ctx)
+	if err != nil {
 		return nil, fmt.Errorf("start agent_gateway process: %w", err)
+	}
+	if startedProcess != nil {
+		b.setManagedProcess(startedProcess)
 	}
 
 	deadline := b.now().Add(b.waitTimeout)
@@ -67,31 +81,86 @@ func (b *gatewayBootstrapper) EnsureRunning(ctx context.Context) (*gatewayProxy,
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		proxy, err := b.discoverHealthy(ctx)
+		proxy, endpoint, err := b.discoverHealthy(ctx)
 		if err == nil {
+			if endpoint.PID > 0 {
+				b.setManagedPID(endpoint.PID)
+			}
 			return proxy, nil
 		}
 		lastErr = err
 		if !b.now().Before(deadline) {
+			_ = b.StopManagedProcess()
 			return nil, fmt.Errorf("gateway bootstrap timeout after %s: %w", b.waitTimeout, lastErr)
 		}
 		b.sleep(b.pollInterval)
 	}
 }
 
-func (b *gatewayBootstrapper) discoverHealthy(ctx context.Context) (*gatewayProxy, error) {
+func (b *gatewayBootstrapper) setManagedProcess(process *os.Process) {
+	if b == nil || process == nil {
+		return
+	}
+	b.processMu.Lock()
+	b.managedProcess = process
+	b.processMu.Unlock()
+}
+
+func (b *gatewayBootstrapper) setManagedPID(pid int) {
+	if b == nil || pid <= 0 {
+		return
+	}
+	b.processMu.Lock()
+	b.managedPID = pid
+	b.processMu.Unlock()
+}
+
+func (b *gatewayBootstrapper) StopManagedProcess() error {
+	if b == nil {
+		return nil
+	}
+	b.processMu.Lock()
+	process := b.managedProcess
+	b.managedProcess = nil
+	pid := b.managedPID
+	b.managedPID = 0
+	stopFn := b.stopProcess
+	stopByPIDFn := b.stopProcessByPID
+	b.processMu.Unlock()
+	if process == nil && pid <= 0 {
+		return nil
+	}
+	if stopFn == nil {
+		stopFn = defaultStopGatewayProcess
+	}
+	if stopByPIDFn == nil {
+		stopByPIDFn = defaultStopGatewayProcessByPID
+	}
+	if pid > 0 {
+		if err := stopByPIDFn(pid); err != nil {
+			return err
+		}
+		return nil
+	}
+	if err := stopFn(process); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (b *gatewayBootstrapper) discoverHealthy(ctx context.Context) (*gatewayProxy, gatewayclient.Endpoint, error) {
 	endpoint, token, err := b.discover(b.discoveryPath)
 	if err != nil {
-		return nil, err
+		return nil, gatewayclient.Endpoint{}, err
 	}
 	if err := b.healthCheck(ctx, endpoint, token); err != nil {
-		return nil, err
+		return nil, gatewayclient.Endpoint{}, err
 	}
 	return &gatewayProxy{
 		client:  http.DefaultClient,
 		baseURL: strings.TrimRight(endpoint.BaseURL, "/"),
 		token:   strings.TrimSpace(token),
-	}, nil
+	}, endpoint, nil
 }
 
 func (b *gatewayBootstrapper) defaultHealthCheck(ctx context.Context, endpoint gatewayclient.Endpoint, token string) error {
@@ -111,14 +180,14 @@ type gatewayCommandSpec struct {
 	dir     string
 }
 
-func defaultStartGatewayProcess(ctx context.Context, devMode bool) error {
+func defaultStartGatewayProcess(ctx context.Context, devMode bool) (*os.Process, error) {
 	spec, err := resolveGatewayCommand(devMode)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	logPath, logFile, err := openGatewayBootstrapLog()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer logFile.Close()
 
@@ -127,9 +196,30 @@ func defaultStartGatewayProcess(ctx context.Context, devMode bool) error {
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start %s %s failed: %w (log: %s)", spec.command, strings.Join(spec.args, " "), err, logPath)
+		return nil, fmt.Errorf("start %s %s failed: %w (log: %s)", spec.command, strings.Join(spec.args, " "), err, logPath)
+	}
+	return cmd.Process, nil
+}
+
+func defaultStopGatewayProcess(process *os.Process) error {
+	if process == nil {
+		return nil
+	}
+	if err := process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
 	}
 	return nil
+}
+
+func defaultStopGatewayProcessByPID(pid int) error {
+	if pid <= 0 {
+		return nil
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return defaultStopGatewayProcess(process)
 }
 
 func resolveGatewayCommand(devMode bool) (gatewayCommandSpec, error) {
