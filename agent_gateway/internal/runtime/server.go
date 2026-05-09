@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -109,10 +108,14 @@ func (s *Server) newGatewayService() (service.GatewayService, error) {
 	if !s.cfg.ACP.Enabled {
 		return service.NewMockGatewayService(), nil
 	}
+	memStore := store.NewMemoryStore()
 	conn, err := acp.NewDefaultConnector(acp.DefaultConnectorOptions{
 		Command: s.cfg.ACP.Command,
 		Args:    s.cfg.ACP.Args,
-		Stderr:  io.Discard,
+		Stderr: acp.NewStderrAuditSink(acp.StderrAuditSinkOptions{
+			Store:   memStore,
+			AgentID: "icoo-ai-acp",
+		}),
 	})
 	if err != nil {
 		return nil, err
@@ -126,7 +129,7 @@ func (s *Server) newGatewayService() (service.GatewayService, error) {
 			Models:      []string{"mock-gpt"},
 			Description: "Default ACP connector profile.",
 		},
-	}, store.NewMemoryStore()), nil
+	}, memStore), nil
 }
 
 func (s *Server) authorize(next http.Handler) http.Handler {

@@ -43,8 +43,8 @@
 | P2b：bridge 接入 gateway | 已完成 | `agent_chat/internal/bridge` 已优先走 gatewayclient，保留开发 fallback，生产返回结构化错误。 |
 | P3：事件流与审批闭环 | 已完成 | SSE event bus、ApprovalBroker、bridge event subscription 已完成并有测试覆盖。 |
 | P4：ACP connector | 已完成 | 已完成 `AgentConnector` 抽象、ACP 异步 session update 映射、真实进程 smoke test 接线、默认 profile 接线与 stderr 观测收口。 |
-| P5：持久化与恢复 | 进行中 | json/jsonl 落盘与重启读取（含 approvals）已完成，service 已统一走 Store；待事件补拉完善。 |
-| P6：多 Agent 并发 | 进行中 | 已完成多 session 并发隔离测试（prompt/cancel/approval 与事件身份字段）；待多 connector profile 维度验证。 |
+| P5：持久化与恢复 | 进行中 | json/jsonl 落盘与重启读取（含 approvals）已完成，service 已统一走 Store；事件补拉策略待完善。 |
+| P6：多 Agent 并发 | 已完成 | 已完成多 session 与多 profile 并发隔离测试（prompt/cancel/approval/事件身份字段）。 |
 
 已通过验证：
 
@@ -365,9 +365,9 @@ agent_chat/internal/bridge/types.go
 
 | Worker | 任务 | 写入范围 | 验收 |
 |---|---|---|---|
-| P6b | 多 connector profile 并发隔离验证 | `agent_gateway/internal/service/**`、`agent_gateway/internal/api/**` 测试文件 | 不同 agent/profile 下 run/event/approval/cancel 隔离。 |
-| O1 | ACP 生产观测增强 | `agent_gateway/internal/connectors/acp/**`、`agent_gateway/internal/store/**` | stderr sink 接 audit 持久化并具备采样/截断策略。 |
-| O2 | 事件订阅过滤策略 | `agent_gateway/internal/api/events.go`、`agent_chat/internal/bridge/**` | 支持按 session/agent 过滤订阅，减少全量广播噪声。 |
+| O3 | 事件补拉策略完善 | `agent_gateway/internal/events/**`、`agent_gateway/internal/api/events.go` | last-event-id 的补拉语义明确并覆盖测试。 |
+| O4 | bridge 多会话订阅治理 | `agent_chat/internal/bridge/**` | 多会话并发视图下订阅策略稳定（单会话过滤，多会话回退全量流）。 |
+| O5 | ACP 业务透传接线 | `agent_gateway/internal/service/**`、`agent_gateway/internal/connectors/acp/**` | mock service 逐步替换为真实 ACP prompt/cancel 路径。 |
 
 主线程集成点：
 

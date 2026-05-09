@@ -30,6 +30,7 @@ type AgentService struct {
 	devFallback      bool
 	lastEventID      string
 	currentSessionID string
+	activeSessions   map[string]struct{}
 	eventSink        func(MessageEvent)
 }
 
@@ -65,6 +66,7 @@ func NewAgentService() *AgentService {
 		},
 		gateway:     loadGatewayProxy(),
 		devFallback: shouldEnableDevFallback(),
+		activeSessions: make(map[string]struct{}),
 	}
 }
 
@@ -385,18 +387,31 @@ func (s *AgentService) setLastStreamEventID(id string) {
 }
 
 func (s *AgentService) setCurrentStreamSessionID(sessionID string) {
-	if strings.TrimSpace(sessionID) == "" {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
 		return
 	}
 	s.mu.Lock()
 	s.currentSessionID = sessionID
+	if s.activeSessions == nil {
+		s.activeSessions = make(map[string]struct{})
+	}
+	s.activeSessions[sessionID] = struct{}{}
 	s.mu.Unlock()
 }
 
 func (s *AgentService) streamSubscriptionState() (string, string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.lastEventID, s.currentSessionID
+	if strings.TrimSpace(s.currentSessionID) != "" {
+		return s.lastEventID, s.currentSessionID
+	}
+	if len(s.activeSessions) == 1 {
+		for id := range s.activeSessions {
+			return s.lastEventID, id
+		}
+	}
+	return s.lastEventID, ""
 }
 
 func (s *AgentService) forwardGatewayEvent(in gatewayclient.StreamEnvelope) error {
