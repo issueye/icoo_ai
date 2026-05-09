@@ -208,6 +208,10 @@ provider = "project-search"
 			"ICOO_AI_AUDIT_MAX_SIZE_MB":          "4",
 			"ICOO_AI_AUDIT_MAX_BACKUPS":          "7",
 			"ICOO_AI_MCP_ENABLED":                "true",
+			"ICOO_AI_SUBAGENTS_MODEL":            "sub-model",
+			"ICOO_AI_SUBAGENTS_MAX_TOOL_ROUNDS":  "9",
+			"ICOO_AI_SUBAGENTS_POOL_CONCURRENCY": "3",
+			"ICOO_AI_SUBAGENTS_POOL_QUEUE_SIZE":  "21",
 			"ICOO_AI_SHELL_TIMEOUT_SECONDS":      "90",
 		},
 	})
@@ -256,6 +260,12 @@ provider = "project-search"
 	}
 	if !cfg.MCP.Enabled {
 		t.Fatalf("MCP.Enabled = false, want true")
+	}
+	if cfg.Subagents.Model != "sub-model" || cfg.Subagents.MaxToolRounds != 9 {
+		t.Fatalf("Subagents = %+v, want env subagent config", cfg.Subagents)
+	}
+	if cfg.Subagents.Pool.Concurrency != 3 || cfg.Subagents.Pool.QueueSize != 21 {
+		t.Fatalf("Subagents.Pool = %+v, want env pool config", cfg.Subagents.Pool)
 	}
 	if cfg.ShellTimeoutSeconds != 90 {
 		t.Fatalf("ShellTimeoutSeconds = %d, want 90", cfg.ShellTimeoutSeconds)

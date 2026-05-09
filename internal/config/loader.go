@@ -214,6 +214,31 @@ func envPatch(env map[string]string) (ConfigPatch, error) {
 		patch.Audit = &audit
 	}
 
+	var subagents SubagentPatch
+	if err := setBool(env, envPrefix+"SUBAGENTS_ENABLED", &subagents.Enabled); err != nil {
+		return ConfigPatch{}, err
+	}
+	setString(env, envPrefix+"SUBAGENTS_MODEL", &subagents.Model)
+	if err := setInt(env, envPrefix+"SUBAGENTS_MAX_TOOL_ROUNDS", &subagents.MaxToolRounds); err != nil {
+		return ConfigPatch{}, err
+	}
+	var pool PoolPatch
+	if err := setBool(env, envPrefix+"SUBAGENTS_POOL_ENABLED", &pool.Enabled); err != nil {
+		return ConfigPatch{}, err
+	}
+	if err := setInt(env, envPrefix+"SUBAGENTS_POOL_CONCURRENCY", &pool.Concurrency); err != nil {
+		return ConfigPatch{}, err
+	}
+	if err := setInt(env, envPrefix+"SUBAGENTS_POOL_QUEUE_SIZE", &pool.QueueSize); err != nil {
+		return ConfigPatch{}, err
+	}
+	if pool.Enabled != nil || pool.Concurrency != nil || pool.QueueSize != nil {
+		subagents.Pool = &pool
+	}
+	if subagents.Enabled != nil || subagents.Model != nil || subagents.MaxToolRounds != nil || subagents.Pool != nil {
+		patch.Subagents = &subagents
+	}
+
 	var mcp MCPPatch
 	if err := setBool(env, envPrefix+"MCP_ENABLED", &mcp.Enabled); err != nil {
 		return ConfigPatch{}, err

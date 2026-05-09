@@ -39,6 +39,7 @@ type Config struct {
 	Hooks               HooksConfig     `json:"hooks" toml:"hooks"`
 	Audit               AuditConfig     `json:"audit" toml:"audit"`
 	MCP                 MCPConfig       `json:"mcp" toml:"mcp"`
+	Subagents           SubagentConfig  `json:"subagents" toml:"subagents"`
 }
 
 type ApprovalMode string
@@ -117,6 +118,19 @@ type AuditRemoteConfig struct {
 	Headers map[string]string `json:"headers,omitempty" toml:"headers,omitempty"`
 }
 
+type SubagentConfig struct {
+	Enabled       bool       `json:"enabled" toml:"enabled"`
+	Model         string     `json:"model,omitempty" toml:"model,omitempty"`
+	MaxToolRounds int        `json:"max_tool_rounds,omitempty" toml:"max_tool_rounds,omitempty"`
+	Pool          PoolConfig `json:"pool" toml:"pool"`
+}
+
+type PoolConfig struct {
+	Enabled     bool `json:"enabled" toml:"enabled"`
+	Concurrency int  `json:"concurrency,omitempty" toml:"concurrency,omitempty"`
+	QueueSize   int  `json:"queue_size,omitempty" toml:"queue_size,omitempty"`
+}
+
 type MCPConfig struct {
 	Enabled bool                       `json:"enabled" toml:"enabled"`
 	Servers map[string]MCPServerConfig `json:"servers,omitempty" toml:"servers,omitempty"`
@@ -150,6 +164,7 @@ type ConfigPatch struct {
 	Hooks               *HooksPatch     `toml:"hooks,omitempty"`
 	Audit               *AuditPatch     `toml:"audit,omitempty"`
 	MCP                 *MCPPatch       `toml:"mcp,omitempty"`
+	Subagents           *SubagentPatch  `toml:"subagents,omitempty"`
 }
 
 type WebSearchPatch struct {
@@ -210,6 +225,19 @@ type AuditRemotePatch struct {
 	Headers *map[string]string `toml:"headers,omitempty"`
 }
 
+type SubagentPatch struct {
+	Enabled       *bool      `toml:"enabled,omitempty"`
+	Model         *string    `toml:"model,omitempty"`
+	MaxToolRounds *int       `toml:"max_tool_rounds,omitempty"`
+	Pool          *PoolPatch `toml:"pool,omitempty"`
+}
+
+type PoolPatch struct {
+	Enabled     *bool `toml:"enabled,omitempty"`
+	Concurrency *int  `toml:"concurrency,omitempty"`
+	QueueSize   *int  `toml:"queue_size,omitempty"`
+}
+
 type MCPPatch struct {
 	Enabled *bool                     `toml:"enabled,omitempty"`
 	Servers map[string]MCPServerPatch `toml:"servers,omitempty"`
@@ -254,6 +282,15 @@ func Default() Config {
 		},
 		MCP: MCPConfig{
 			Servers: map[string]MCPServerConfig{},
+		},
+		Subagents: SubagentConfig{
+			Enabled:       true,
+			MaxToolRounds: 6,
+			Pool: PoolConfig{
+				Enabled:     true,
+				Concurrency: 2,
+				QueueSize:   16,
+			},
 		},
 	}
 }

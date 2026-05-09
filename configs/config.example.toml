@@ -64,3 +64,13 @@ enabled = false
 transport = "stdio"
 command = "mcp-server-filesystem"
 args = ["."]
+
+[subagents]
+enabled = true
+# model = "gpt-5.4"
+max_tool_rounds = 6
+
+[subagents.pool]
+enabled = true
+concurrency = 2
+queue_size = 16

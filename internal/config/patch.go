@@ -57,6 +57,9 @@ func (cfg *Config) applyPatch(patch ConfigPatch) error {
 	if patch.MCP != nil {
 		cfg.MCP.applyPatch(*patch.MCP)
 	}
+	if patch.Subagents != nil {
+		cfg.Subagents.applyPatch(*patch.Subagents)
+	}
 	if err := cfg.validate(); err != nil {
 		return err
 	}
@@ -189,6 +192,33 @@ func (cfg *AuditRemoteConfig) applyPatch(patch AuditRemotePatch) {
 	}
 }
 
+func (cfg *SubagentConfig) applyPatch(patch SubagentPatch) {
+	if patch.Enabled != nil {
+		cfg.Enabled = *patch.Enabled
+	}
+	if patch.Model != nil {
+		cfg.Model = *patch.Model
+	}
+	if patch.MaxToolRounds != nil {
+		cfg.MaxToolRounds = *patch.MaxToolRounds
+	}
+	if patch.Pool != nil {
+		cfg.Pool.applyPatch(*patch.Pool)
+	}
+}
+
+func (cfg *PoolConfig) applyPatch(patch PoolPatch) {
+	if patch.Enabled != nil {
+		cfg.Enabled = *patch.Enabled
+	}
+	if patch.Concurrency != nil {
+		cfg.Concurrency = *patch.Concurrency
+	}
+	if patch.QueueSize != nil {
+		cfg.QueueSize = *patch.QueueSize
+	}
+}
+
 func (cfg *MCPConfig) applyPatch(patch MCPPatch) {
 	if patch.Enabled != nil {
 		cfg.Enabled = *patch.Enabled
@@ -264,6 +294,15 @@ func (cfg Config) validate() error {
 	}
 	if cfg.Audit.MaxBackups < 0 {
 		return fmt.Errorf("audit.max_backups must not be negative")
+	}
+	if cfg.Subagents.MaxToolRounds < 0 {
+		return fmt.Errorf("subagents.max_tool_rounds must not be negative")
+	}
+	if cfg.Subagents.Pool.Concurrency < 0 {
+		return fmt.Errorf("subagents.pool.concurrency must not be negative")
+	}
+	if cfg.Subagents.Pool.QueueSize < 0 {
+		return fmt.Errorf("subagents.pool.queue_size must not be negative")
 	}
 	return nil
 }

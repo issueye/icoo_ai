@@ -198,12 +198,12 @@ func buildTools(cwd, home string, cfg config.Config, p policy.Policy, auditLogge
 	baseTools = append(baseTools, mcpTools...)
 
 	registered := append([]tools.Tool(nil), baseTools...)
-	if provider != nil {
+	if provider != nil && cfg.Subagents.Enabled {
 		runner, err := subagent.NewLocalRunner(subagent.LocalRunnerOptions{
 			Provider:      provider,
 			Tools:         baseTools,
-			Model:         cfg.Model,
-			MaxToolRounds: 6,
+			Model:         subagentModel(cfg),
+			MaxToolRounds: subagentMaxToolRounds(cfg),
 			Approver:      approver,
 			Hooks:         hookDispatcher,
 			AuditLogger:   auditLogger,
@@ -211,10 +211,22 @@ func buildTools(cwd, home string, cfg config.Config, p policy.Policy, auditLogge
 		if err != nil {
 			return nil, err
 		}
+		runnerForTools := subagent.Runner(runner)
+		if cfg.Subagents.Pool.Enabled {
+			pool, err := subagent.NewPool(subagent.PoolOptions{
+				Runner:      runner,
+				Concurrency: cfg.Subagents.Pool.Concurrency,
+				QueueSize:   cfg.Subagents.Pool.QueueSize,
+			})
+			if err != nil {
+				return nil, err
+			}
+			runnerForTools = pool
+		}
 		registered = append(registered, subagent.NewTool(subagent.ToolOptions{
-			Runner:      runner,
+			Runner:      runnerForTools,
 			CWD:         cwd,
-			Model:       cfg.Model,
+			Model:       subagentModel(cfg),
 			AuditLogger: auditLogger,
 		}))
 		sources := skills.DefaultSources(skills.SourceOptions{
@@ -226,14 +238,28 @@ func buildTools(cwd, home string, cfg config.Config, p policy.Policy, auditLogge
 			Sources:       sources,
 			WorkspaceRoot: cwd,
 			CWD:           cwd,
-			Model:         cfg.Model,
+			Model:         subagentModel(cfg),
 			Policy:        p,
-			Runner:        runner,
+			Runner:        runnerForTools,
 			Approver:      approver,
 			AuditLogger:   auditLogger,
 		})...)
 	}
 	return registered, nil
+}
+
+func subagentModel(cfg config.Config) string {
+	if cfg.Subagents.Model != "" {
+		return cfg.Subagents.Model
+	}
+	return cfg.Model
+}
+
+func subagentMaxToolRounds(cfg config.Config) int {
+	if cfg.Subagents.MaxToolRounds > 0 {
+		return cfg.Subagents.MaxToolRounds
+	}
+	return 6
 }
 
 func proxyConfig(cfg config.Config) netutil.ProxyConfig {
