@@ -384,8 +384,10 @@ func (l *ReactLoop) executeWithApproval(ctx context.Context, req RunRequest, too
 		Data:      result.Data,
 	})
 	if approveErr != nil {
+		emitApprovalDecision(ctx, out, req.SessionID, call, ApprovalDecisionDeny, approveErr.Error())
 		return tools.ToolResult{OK: false, Error: approveErr.Error()}, nil
 	}
+	emitApprovalDecision(ctx, out, req.SessionID, call, decision, "")
 	switch decision {
 	case ApprovalDecisionOnce:
 		return capable.ExecuteApproved(ctx, call.Arguments, tools.ApprovalScopeOnce)
@@ -397,6 +399,18 @@ func (l *ReactLoop) executeWithApproval(ctx context.Context, req RunRequest, too
 	default:
 		return tools.ToolResult{OK: false, Error: "approval denied", Data: map[string]any{"code": "approval_denied"}}, nil
 	}
+}
+
+func emitApprovalDecision(ctx context.Context, out chan<- Event, sessionID string, call tools.ToolCall, decision ApprovalDecision, errText string) {
+	data := map[string]any{
+		"id":       call.ID,
+		"name":     call.Name,
+		"decision": decision,
+	}
+	if errText != "" {
+		data["error"] = errText
+	}
+	emit(ctx, out, Event{Type: EventApprovalDecided, SessionID: sessionID, Error: errText, Data: data})
 }
 
 func isApprovalRequired(result tools.ToolResult) bool {

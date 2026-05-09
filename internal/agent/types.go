@@ -106,6 +106,7 @@ const (
 	EventToolCallStarted   EventType = "tool_call_started"
 	EventToolCallCompleted EventType = "tool_call_completed"
 	EventApprovalRequested EventType = "approval_requested"
+	EventApprovalDecided   EventType = "approval_decided"
 	EventPlanUpdated       EventType = "plan_updated"
 	EventRunCompleted      EventType = "run_completed"
 	EventRunFailed         EventType = "run_failed"

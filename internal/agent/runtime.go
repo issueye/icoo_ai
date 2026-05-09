@@ -169,11 +169,15 @@ const maxSessionEvents = 100
 const maxSessionContent = 256
 
 func appendSessionEvent(sess *Session, event Event) {
+	data := summarizeEventData(event.Type, event.Data)
+	if data == nil && event.Content == "" && event.Error == "" && !shouldPersistEmptyEvent(event.Type) {
+		return
+	}
 	summary := SessionEventSummary{
 		Type:      event.Type,
-		Content:   trimSummaryText(event.Content),
-		Error:     trimSummaryText(event.Error),
-		Data:      summarizeEventData(event.Type, event.Data),
+		Content:   summarizeEventContent(event.Type, event.Content),
+		Error:     summarizeEventError(event.Type, event.Error),
+		Data:      data,
 		CreatedAt: event.CreatedAt.UTC(),
 	}
 	sess.Events = append(sess.Events, summary)
@@ -186,38 +190,32 @@ func summarizeEventData(typ EventType, data map[string]any) map[string]any {
 	if len(data) == 0 {
 		return nil
 	}
-	out := map[string]any{}
-	for _, key := range []string{"id", "name", "ok", "reason"} {
-		if value, ok := data[key]; ok {
-			out[key] = value
-		}
-	}
-	if result, ok := data["result"].(map[string]any); ok && typ == EventToolCallCompleted {
-		trimmed := map[string]any{}
-		for _, key := range []string{"code", "path", "bytes", "status_code", "content_type"} {
-			if value, ok := result[key]; ok {
-				trimmed[key] = value
+	switch typ {
+	case EventToolCallStarted:
+		return copyKeys(data, "id", "name")
+	case EventToolCallCompleted:
+		out := copyKeys(data, "id", "name", "ok")
+		if result, ok := data["result"].(map[string]any); ok {
+			if trimmed := copyKeys(result, "code", "path", "bytes", "status_code", "content_type", "retry_attempts"); len(trimmed) > 0 {
+				out["result"] = trimmed
 			}
 		}
-		if len(trimmed) > 0 {
-			out["result"] = trimmed
-		}
-	}
-	if raw, ok := data["data"].(map[string]any); ok && typ == EventApprovalRequested {
-		trimmed := map[string]any{}
-		for _, key := range []string{"code", "risk", "action"} {
-			if value, ok := raw[key]; ok {
-				trimmed[key] = value
+		return nilIfEmpty(out)
+	case EventApprovalRequested:
+		out := copyKeys(data, "id", "name", "reason")
+		if raw, ok := data["data"].(map[string]any); ok {
+			if trimmed := copyKeys(raw, "code", "risk", "action"); len(trimmed) > 0 {
+				out["data"] = trimmed
 			}
 		}
-		if len(trimmed) > 0 {
-			out["data"] = trimmed
-		}
-	}
-	if len(out) == 0 {
+		return nilIfEmpty(out)
+	case EventApprovalDecided:
+		return copyKeys(data, "id", "name", "decision")
+	case EventRunStarted, EventRunCompleted, EventRunFailed, EventRunCancelled:
+		return copyKeys(data, "id", "name", "ok", "reason")
+	default:
 		return nil
 	}
-	return out
 }
 
 func trimSummaryText(value string) string {
@@ -226,4 +224,48 @@ func trimSummaryText(value string) string {
 		return value
 	}
 	return value[:maxSessionContent] + "...(truncated)"
+}
+
+func summarizeEventContent(typ EventType, content string) string {
+	switch typ {
+	case EventApprovalRequested:
+		return trimSummaryText(content)
+	default:
+		return ""
+	}
+}
+
+func summarizeEventError(typ EventType, errText string) string {
+	switch typ {
+	case EventRunFailed, EventRunCancelled, EventApprovalDecided:
+		return trimSummaryText(errText)
+	default:
+		return ""
+	}
+}
+
+func shouldPersistEmptyEvent(typ EventType) bool {
+	switch typ {
+	case EventRunStarted, EventRunCompleted, EventRunFailed, EventRunCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func copyKeys(data map[string]any, keys ...string) map[string]any {
+	out := map[string]any{}
+	for _, key := range keys {
+		if value, ok := data[key]; ok {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func nilIfEmpty(data map[string]any) map[string]any {
+	if len(data) == 0 {
+		return nil
+	}
+	return data
 }
