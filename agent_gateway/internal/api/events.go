@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
 )
 
 func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
@@ -24,6 +27,8 @@ func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	if lastEventID == "" {
 		lastEventID = r.URL.Query().Get("lastEventId")
 	}
+	sessionFilter := strings.TrimSpace(r.URL.Query().Get("sessionId"))
+	agentFilter := strings.TrimSpace(r.URL.Query().Get("agentId"))
 	sub, buffered := h.bus.Subscribe(r.Context(), lastEventID)
 	defer sub.Close()
 
@@ -32,6 +37,9 @@ func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 
 	for _, event := range buffered {
+		if !matchesEventFilter(event, sessionFilter, agentFilter) {
+			continue
+		}
 		if err := writeSSEEnvelope(w, event); err != nil {
 			return
 		}
@@ -54,12 +62,25 @@ func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
+			if !matchesEventFilter(event, sessionFilter, agentFilter) {
+				continue
+			}
 			if err := writeSSEEnvelope(w, event); err != nil {
 				return
 			}
 			flusher.Flush()
 		}
 	}
+}
+
+func matchesEventFilter(event events.Envelope, sessionID string, agentID string) bool {
+	if sessionID != "" && event.SessionID != sessionID {
+		return false
+	}
+	if agentID != "" && event.AgentID != agentID {
+		return false
+	}
+	return true
 }
 
 func writeSSEEnvelope(w http.ResponseWriter, event any) error {

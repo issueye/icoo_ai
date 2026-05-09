@@ -371,3 +371,81 @@ func TestApprovalBrokerConcurrentSessionIsolationRepeated(t *testing.T) {
 		}
 	}
 }
+
+func TestApprovalBrokerRouteIsolationByAgentAndConnectorProfile(t *testing.T) {
+	broker := NewApprovalBroker()
+	now := time.Now().UTC()
+	approvals := map[string]Approval{
+		"approval-agent-a": {
+			ID:                 "approval-agent-a",
+			AgentID:            "agent-a",
+			SessionID:          "sess-shared",
+			RunID:              "run-shared",
+			ConnectorRequestID: "connector-profile-1",
+			Status:             "pending",
+		},
+		"approval-agent-b": {
+			ID:                 "approval-agent-b",
+			AgentID:            "agent-b",
+			SessionID:          "sess-shared",
+			RunID:              "run-shared",
+			ConnectorRequestID: "connector-profile-1",
+			Status:             "pending",
+		},
+		"approval-connector-2": {
+			ID:                 "approval-connector-2",
+			AgentID:            "agent-a",
+			SessionID:          "sess-shared",
+			RunID:              "run-shared",
+			ConnectorRequestID: "connector-profile-2",
+			Status:             "pending",
+		},
+	}
+
+	for _, id := range []string{"approval-agent-a", "approval-agent-b", "approval-connector-2"} {
+		if err := broker.Register(approvals[id]); err != nil {
+			t.Fatalf("register %s: %v", id, err)
+		}
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		updated, err := broker.Decide("approval-agent-a", ApprovalDecisionRequest{Decision: "approved"}, approvals, now)
+		if err != nil {
+			errs <- err
+			return
+		}
+		if updated.AgentID != "agent-a" || updated.ConnectorRequestID != "connector-profile-1" || updated.Status != "approved" {
+			errs <- NewError("invalid_decision", "agent-a approval identity/status changed unexpectedly")
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		updated, err := broker.Decide("approval-agent-b", ApprovalDecisionRequest{Decision: "rejected"}, approvals, now)
+		if err != nil {
+			errs <- err
+			return
+		}
+		if updated.AgentID != "agent-b" || updated.ConnectorRequestID != "connector-profile-1" || updated.Status != "rejected" {
+			errs <- NewError("invalid_decision", "agent-b approval identity/status changed unexpectedly")
+		}
+	}()
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent decide failed: %v", err)
+	}
+
+	if got := approvals["approval-agent-a"]; got.Status != "approved" || got.Decision != "approved" {
+		t.Fatalf("expected approval-agent-a approved, got %#v", got)
+	}
+	if got := approvals["approval-agent-b"]; got.Status != "rejected" || got.Decision != "rejected" {
+		t.Fatalf("expected approval-agent-b rejected, got %#v", got)
+	}
+	if got := approvals["approval-connector-2"]; got.Status != "pending" || got.Decision != "" {
+		t.Fatalf("expected approval-connector-2 still pending, got %#v", got)
+	}
+}

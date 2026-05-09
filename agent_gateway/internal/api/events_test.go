@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -162,4 +162,96 @@ func TestEventStreamConcurrentSubscribersKeepSessionIdentity(t *testing.T) {
 			t.Fatalf("%s unexpected event identity: got %#v want %#v", res.name, res.evt, want)
 		}
 	}
+}
+
+func TestEventStreamFiltersBySessionID(t *testing.T) {
+	router := api.NewRouter(service.NewMockGatewayService())
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/v1/events/stream?sessionId=sess_target", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
+	defer resp.Body.Close()
+
+	events.DefaultBus().Publish(events.Envelope{ID: "evt_other", Type: "message.created", SessionID: "sess_other", AgentID: "agent_a", CreatedAt: time.Now().UTC()})
+	want := events.Envelope{ID: "evt_target", Type: "message.created", SessionID: "sess_target", AgentID: "agent_a", CreatedAt: time.Now().UTC()}
+	events.DefaultBus().Publish(want)
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var got events.Envelope
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &got); err != nil {
+			t.Fatalf("unmarshal envelope: %v", err)
+		}
+		if got.ID != want.ID {
+			t.Fatalf("expected %s, got %s", want.ID, got.ID)
+		}
+		if got.SessionID != "sess_target" {
+			t.Fatalf("expected session sess_target, got %s", got.SessionID)
+		}
+		return
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("read stream: %v", err)
+	}
+	t.Fatal("stream closed before receiving filtered event")
+}
+
+func TestEventStreamFiltersByAgentID(t *testing.T) {
+	router := api.NewRouter(service.NewMockGatewayService())
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/v1/events/stream?agentId=agent_target", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
+	defer resp.Body.Close()
+
+	events.DefaultBus().Publish(events.Envelope{ID: "evt_other_agent", Type: "message.created", SessionID: "sess_1", AgentID: "agent_other", CreatedAt: time.Now().UTC()})
+	want := events.Envelope{ID: "evt_target_agent", Type: "message.created", SessionID: "sess_1", AgentID: "agent_target", CreatedAt: time.Now().UTC()}
+	events.DefaultBus().Publish(want)
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var got events.Envelope
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &got); err != nil {
+			t.Fatalf("unmarshal envelope: %v", err)
+		}
+		if got.ID != want.ID {
+			t.Fatalf("expected %s, got %s", want.ID, got.ID)
+		}
+		if got.AgentID != "agent_target" {
+			t.Fatalf("expected agent agent_target, got %s", got.AgentID)
+		}
+		return
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("read stream: %v", err)
+	}
+	t.Fatal("stream closed before receiving filtered event")
 }

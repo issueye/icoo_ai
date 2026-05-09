@@ -11,6 +11,7 @@ import (
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/api"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
 func TestCreateAndListSessions(t *testing.T) {
@@ -253,6 +254,108 @@ func TestConcurrentSessionPromptCancelAndApprovalIsolation(t *testing.T) {
 		if msg.SessionID != sessionB.ID {
 			t.Fatalf("session B message crossed sessions: %#v", msg)
 		}
+	}
+}
+
+func TestConcurrentMultiAgentProfileRunEventApprovalCancelIsolation(t *testing.T) {
+	svc := service.NewMockGatewayServiceWithAgentsAndStore([]service.AgentProfile{
+		{ID: "icoo-ai-acp", Name: "ACP", Protocol: "acp"},
+		{ID: "icoo-ai-http", Name: "HTTP", Protocol: "http"},
+	}, store.NewMemoryStore())
+	router := api.NewRouter(svc)
+
+	sessionA := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
+		"title":   "agent-a",
+		"agentId": "icoo-ai-acp",
+	})
+	sessionB := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
+		"title":   "agent-b",
+		"agentId": "icoo-ai-http",
+	})
+	if sessionA.AgentID == sessionB.AgentID {
+		t.Fatalf("expected different agent profiles, got %q and %q", sessionA.AgentID, sessionB.AgentID)
+	}
+
+	var (
+		promptA service.PromptResponse
+		promptB service.PromptResponse
+		errA    error
+		errB    error
+	)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		promptA, errA = doJSONNoFail[service.PromptResponse](router, http.MethodPost, "/v1/sessions/"+sessionA.ID+"/prompt", map[string]string{"content": "hello A"})
+	}()
+	go func() {
+		defer wg.Done()
+		promptB, errB = doJSONNoFail[service.PromptResponse](router, http.MethodPost, "/v1/sessions/"+sessionB.ID+"/prompt", map[string]string{"content": "hello B"})
+	}()
+	wg.Wait()
+	if errA != nil || errB != nil {
+		t.Fatalf("prompt errors: A=%v B=%v", errA, errB)
+	}
+	if promptA.Approval == nil || promptB.Approval == nil {
+		t.Fatal("expected approvals for both sessions")
+	}
+	if promptA.Run.AgentID != sessionA.AgentID || promptB.Run.AgentID != sessionB.AgentID {
+		t.Fatalf("run agent mismatch: runA=%q runB=%q sessionA=%q sessionB=%q", promptA.Run.AgentID, promptB.Run.AgentID, sessionA.AgentID, sessionB.AgentID)
+	}
+	if promptA.Approval.AgentID != sessionA.AgentID || promptB.Approval.AgentID != sessionB.AgentID {
+		t.Fatalf("approval agent mismatch: apprA=%q apprB=%q sessionA=%q sessionB=%q", promptA.Approval.AgentID, promptB.Approval.AgentID, sessionA.AgentID, sessionB.AgentID)
+	}
+
+	var (
+		cancelRun service.Run
+		approved  service.Approval
+		cancelErr error
+		decideErr error
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		cancelRun, cancelErr = doJSONNoFail[service.Run](router, http.MethodPost, "/v1/sessions/"+sessionA.ID+"/cancel", nil)
+	}()
+	go func() {
+		defer wg.Done()
+		approved, decideErr = doJSONNoFail[service.Approval](router, http.MethodPost, "/v1/approvals/"+promptB.Approval.ID+"/decision", map[string]string{"decision": "approved"})
+	}()
+	wg.Wait()
+	if cancelErr != nil || decideErr != nil {
+		t.Fatalf("cancel/decide errors: cancel=%v decide=%v", cancelErr, decideErr)
+	}
+	if cancelRun.AgentID != sessionA.AgentID || cancelRun.Status != "cancelled" {
+		t.Fatalf("expected cancelled run on session A profile, got %#v", cancelRun)
+	}
+	if approved.AgentID != sessionB.AgentID || approved.Status != "approved" {
+		t.Fatalf("expected approved decision on session B profile, got %#v", approved)
+	}
+
+	runs := doJSON[[]service.Run](t, router, http.MethodGet, "/v1/runs", nil)
+	for _, run := range runs {
+		switch run.SessionID {
+		case sessionA.ID:
+			if run.AgentID != sessionA.AgentID {
+				t.Fatalf("session A run crossed profile: %#v", run)
+			}
+		case sessionB.ID:
+			if run.AgentID != sessionB.AgentID {
+				t.Fatalf("session B run crossed profile: %#v", run)
+			}
+		}
+	}
+
+	approvals := doJSON[[]service.Approval](t, router, http.MethodGet, "/v1/approvals", nil)
+	byID := make(map[string]service.Approval, len(approvals))
+	for _, approval := range approvals {
+		byID[approval.ID] = approval
+	}
+	if got := byID[promptA.Approval.ID]; got.AgentID != sessionA.AgentID || got.Status != "expired" || got.Decision != "rejected" {
+		t.Fatalf("expected session A approval expired/rejected in its profile, got %#v", got)
+	}
+	if got := byID[promptB.Approval.ID]; got.AgentID != sessionB.AgentID || got.Status != "approved" || got.Decision != "approved" {
+		t.Fatalf("expected session B approval approved in its profile, got %#v", got)
 	}
 }
 

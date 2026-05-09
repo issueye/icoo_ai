@@ -81,6 +81,10 @@ func (c *Client) Health(ctx context.Context) (HealthResponse, error) {
 }
 
 func (c *Client) StreamEvents(ctx context.Context, lastEventID string, onEvent func(StreamEnvelope) error) error {
+	return c.StreamEventsWithFilter(ctx, lastEventID, "", "", onEvent)
+}
+
+func (c *Client) StreamEventsWithFilter(ctx context.Context, lastEventID string, sessionID string, agentID string, onEvent func(StreamEnvelope) error) error {
 	if c == nil {
 		return fmt.Errorf("gateway client is nil")
 	}
@@ -95,6 +99,14 @@ func (c *Client) StreamEvents(ctx context.Context, lastEventID string, onEvent f
 	if err != nil {
 		return fmt.Errorf("create stream request: %w", err)
 	}
+	query := req.URL.Query()
+	if strings.TrimSpace(sessionID) != "" {
+		query.Set("sessionId", strings.TrimSpace(sessionID))
+	}
+	if strings.TrimSpace(agentID) != "" {
+		query.Set("agentId", strings.TrimSpace(agentID))
+	}
+	req.URL.RawQuery = query.Encode()
 	req.Header.Set("Accept", "text/event-stream")
 	if lastEventID != "" {
 		req.Header.Set("Last-Event-ID", lastEventID)

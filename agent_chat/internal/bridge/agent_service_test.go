@@ -131,6 +131,9 @@ func TestStreamGatewayEvents_ForwardsEventAndUpdatesLastEventID(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
+		if got := r.URL.Query().Get("sessionId"); got != "sess_1" {
+			t.Fatalf("expected sessionId query sess_1, got %q", got)
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		payload := `{"id":"evt_1","sessionId":"sess_1","kind":"message","role":"assistant","content":"hello"}`
@@ -153,6 +156,7 @@ func TestStreamGatewayEvents_ForwardsEventAndUpdatesLastEventID(t *testing.T) {
 		default:
 		}
 	}
+	svc.setCurrentStreamSessionID("sess_1")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -19,17 +19,18 @@ import (
 )
 
 type AgentService struct {
-	mu            sync.RWMutex
-	now           time.Time
-	conversations []Conversation
-	messages      []MessageEvent
-	runs          []RunSummary
-	approvals     []ApprovalDecision
-	auditEvents   []AuditEvent
-	gateway       *gatewayProxy
-	devFallback   bool
-	lastEventID   string
-	eventSink     func(MessageEvent)
+	mu               sync.RWMutex
+	now              time.Time
+	conversations    []Conversation
+	messages         []MessageEvent
+	runs             []RunSummary
+	approvals        []ApprovalDecision
+	auditEvents      []AuditEvent
+	gateway          *gatewayProxy
+	devFallback      bool
+	lastEventID      string
+	currentSessionID string
+	eventSink        func(MessageEvent)
 }
 
 func NewAgentService() *AgentService {
@@ -88,6 +89,7 @@ func (s *AgentService) NewSession(ctx context.Context, req NewSessionRequest) (C
 		var out Conversation
 		err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions", req, &out)
 		if err == nil {
+			s.setCurrentStreamSessionID(out.ID)
 			return out, nil
 		}
 		if !s.shouldFallback(err) {
@@ -114,6 +116,7 @@ func (s *AgentService) NewSession(ctx context.Context, req NewSessionRequest) (C
 	s.mu.Lock()
 	s.conversations = append([]Conversation{conversation}, s.conversations...)
 	s.mu.Unlock()
+	s.setCurrentStreamSessionID(conversation.ID)
 	return conversation, nil
 }
 
@@ -122,6 +125,7 @@ func (s *AgentService) LoadSession(ctx context.Context, sessionID string) (Conve
 		var out Conversation
 		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID), nil, &out)
 		if err == nil {
+			s.setCurrentStreamSessionID(out.ID)
 			return out, nil
 		}
 		if !s.shouldFallback(err) {
@@ -130,6 +134,7 @@ func (s *AgentService) LoadSession(ctx context.Context, sessionID string) (Conve
 	}
 	for _, conversation := range s.conversations {
 		if conversation.ID == sessionID {
+			s.setCurrentStreamSessionID(sessionID)
 			return conversation, nil
 		}
 	}
@@ -157,6 +162,7 @@ func (s *AgentService) Prompt(ctx context.Context, req PromptRequest) ([]Message
 		var out []MessageEvent
 		err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(req.SessionID)+"/prompt", req, &out)
 		if err == nil {
+			s.setCurrentStreamSessionID(req.SessionID)
 			return out, nil
 		}
 		if !s.shouldFallback(err) {
@@ -189,6 +195,7 @@ func (s *AgentService) Prompt(ctx context.Context, req PromptRequest) ([]Message
 	s.messages = append(s.messages, userMessage, assistantMessage)
 	s.mu.Unlock()
 	s.touchConversation(req.SessionID, "mock bridge 已生成响应", "idle")
+	s.setCurrentStreamSessionID(req.SessionID)
 	return []MessageEvent{userMessage, assistantMessage}, nil
 }
 
@@ -197,6 +204,7 @@ func (s *AgentService) Cancel(ctx context.Context, sessionID string) (RunSummary
 		var out RunSummary
 		err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/cancel", nil, &out)
 		if err == nil {
+			s.setCurrentStreamSessionID(sessionID)
 			return out, nil
 		}
 		if !s.shouldFallback(err) {
@@ -204,6 +212,7 @@ func (s *AgentService) Cancel(ctx context.Context, sessionID string) (RunSummary
 		}
 	}
 	s.touchConversation(sessionID, "运行已取消", "cancelled")
+	s.setCurrentStreamSessionID(sessionID)
 	run := RunSummary{ID: fmt.Sprintf("run_cancel_%d", len(s.runs)+1), SessionID: sessionID, Status: "cancelled", Label: "运行已取消", StartedAt: s.now, CompletedAt: &s.now}
 	s.runs = append(s.runs, run)
 	return run, nil
@@ -214,6 +223,7 @@ func (s *AgentService) ListMessages(ctx context.Context, sessionID string) ([]Me
 		var out []MessageEvent
 		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID)+"/messages", nil, &out)
 		if err == nil {
+			s.setCurrentStreamSessionID(sessionID)
 			return out, nil
 		}
 		if !s.shouldFallback(err) {
@@ -228,6 +238,7 @@ func (s *AgentService) ListMessages(ctx context.Context, sessionID string) ([]Me
 		}
 	}
 	s.mu.RUnlock()
+	s.setCurrentStreamSessionID(sessionID)
 	return filtered, nil
 }
 
@@ -333,7 +344,8 @@ func (s *AgentService) streamGatewayEvents(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		err := client.StreamEvents(ctx, s.lastStreamEventID(), func(event gatewayclient.StreamEnvelope) error {
+		lastEventID, sessionID := s.streamSubscriptionState()
+		err := client.StreamEventsWithFilter(ctx, lastEventID, sessionID, "", func(event gatewayclient.StreamEnvelope) error {
 			return s.forwardGatewayEvent(event)
 		})
 		if ctx.Err() != nil {
@@ -370,6 +382,21 @@ func (s *AgentService) setLastStreamEventID(id string) {
 	s.mu.Lock()
 	s.lastEventID = id
 	s.mu.Unlock()
+}
+
+func (s *AgentService) setCurrentStreamSessionID(sessionID string) {
+	if strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	s.mu.Lock()
+	s.currentSessionID = sessionID
+	s.mu.Unlock()
+}
+
+func (s *AgentService) streamSubscriptionState() (string, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastEventID, s.currentSessionID
 }
 
 func (s *AgentService) forwardGatewayEvent(in gatewayclient.StreamEnvelope) error {
