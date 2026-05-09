@@ -660,3 +660,61 @@ func TestRestartGateway_ContinuesWhenStopManagedProcessFails(t *testing.T) {
 		t.Fatalf("expected status %q, got %q", GatewayStatusReady, status.Status)
 	}
 }
+
+func TestStopGateway_StopsManagedProcessAndUpdatesStatus(t *testing.T) {
+	t.Parallel()
+
+	stopCalled := false
+	svc := NewAgentService()
+	svc.gateway = &gatewayProxy{baseURL: "http://127.0.0.1:50001", token: "old"}
+	svc.bootstrap = &gatewayBootstrapper{
+		managedProcess: &os.Process{Pid: 1234},
+		managedOwned:   true,
+		stopProcess: func(*os.Process) error {
+			stopCalled = true
+			return nil
+		},
+	}
+
+	status, err := svc.StopGateway(context.Background())
+	if err != nil {
+		t.Fatalf("StopGateway returned error: %v", err)
+	}
+	if !stopCalled {
+		t.Fatal("expected managed gateway process to be stopped")
+	}
+	if svc.gateway != nil {
+		t.Fatal("expected gateway proxy to be cleared")
+	}
+	if status.Status != GatewayStatusFailed {
+		t.Fatalf("expected status %q, got %q", GatewayStatusFailed, status.Status)
+	}
+	if status.Summary != "网关已关闭" {
+		t.Fatalf("expected summary 网关已关闭, got %q", status.Summary)
+	}
+}
+
+func TestStopGateway_ReturnsErrorWhenStopFails(t *testing.T) {
+	t.Parallel()
+
+	svc := NewAgentService()
+	svc.bootstrap = &gatewayBootstrapper{
+		managedProcess: &os.Process{Pid: 1234},
+		managedOwned:   true,
+		stopProcess: func(*os.Process) error {
+			return errors.New("access denied")
+		},
+	}
+
+	_, err := svc.StopGateway(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	bridgeErr, ok := err.(*BridgeError)
+	if !ok {
+		t.Fatalf("expected *BridgeError, got %T", err)
+	}
+	if bridgeErr.Code != ErrorCodeGatewayBootstrap {
+		t.Fatalf("expected %s, got %s", ErrorCodeGatewayBootstrap, bridgeErr.Code)
+	}
+}

@@ -143,6 +143,15 @@ export function RestartGateway() {
 }
 
 /**
+ * @returns {$CancellablePromise<$models.GatewayStatus>}
+ */
+export function StopGateway() {
+    return $Call.ByID(916278236).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType3($result);
+    }));
+}
+
+/**
  * @param {$models.AppSettings} $in
  * @returns {$CancellablePromise<$models.AppSettings>}
  */

@@ -1,6 +1,7 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { Power, RefreshCcw, RotateCcw, Save } from 'lucide-vue-next'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Power, PowerOff, RefreshCcw, RotateCcw, Save } from 'lucide-vue-next'
+import ContextDropdown from '@/components/ui/ContextDropdown.vue'
 import { useAppStore } from '@/stores/app'
 
 const app = useAppStore()
@@ -16,6 +17,25 @@ const gatewayPort = ref(17889)
 const logLevel = ref('info')
 const logFormat = ref('text')
 const logFilePath = ref('logs/agent_chat.log')
+const confirmDialogOpen = ref(false)
+const confirmDialogTitle = ref('')
+const confirmDialogLines = ref([])
+const confirmDialogConfirmLabel = ref('确认')
+const confirmDialogCancelLabel = ref('取消')
+
+const logLevelOptions = [
+  { id: 'debug', label: 'debug' },
+  { id: 'info', label: 'info' },
+  { id: 'warn', label: 'warn' },
+  { id: 'error', label: 'error' },
+]
+
+const logFormatOptions = [
+  { id: 'text', label: 'text' },
+  { id: 'json', label: 'json' },
+]
+
+let confirmDialogResolver = null
 
 onMounted(async () => {
   await app.loadAppSettings()
@@ -46,6 +66,33 @@ const statusClass = computed(() => {
     gateway_failed: 'is-failed',
   }
   return mapping[app.gatewayStatus] ?? 'is-connecting'
+})
+
+function requestGatewayConfirmation({ title, lines, confirmLabel, cancelLabel }) {
+  confirmDialogTitle.value = title
+  confirmDialogLines.value = Array.isArray(lines) ? lines : []
+  confirmDialogConfirmLabel.value = confirmLabel || '确认'
+  confirmDialogCancelLabel.value = cancelLabel || '取消'
+  confirmDialogOpen.value = true
+  return new Promise((resolve) => {
+    confirmDialogResolver = resolve
+  })
+}
+
+function resolveGatewayConfirmation(confirmed) {
+  confirmDialogOpen.value = false
+  if (typeof confirmDialogResolver === 'function') {
+    const resolver = confirmDialogResolver
+    confirmDialogResolver = null
+    resolver(Boolean(confirmed))
+  }
+}
+
+onBeforeUnmount(() => {
+  if (typeof confirmDialogResolver === 'function') {
+    confirmDialogResolver(false)
+    confirmDialogResolver = null
+  }
 })
 
 async function saveSettings() {
@@ -79,7 +126,12 @@ async function saveSettings() {
     })
 
     if (settingsChanged) {
-      const shouldRestart = globalThis?.confirm?.('配置已保存。是否立即重启网关以应用新配置？')
+      const shouldRestart = await requestGatewayConfirmation({
+        title: '配置已保存',
+        lines: ['检测到网关或日志配置变更。', '是否立即重启网关以应用新配置？'],
+        confirmLabel: '立即重启',
+        cancelLabel: '稍后重启',
+      })
       if (shouldRestart) {
         await app.restartGateway()
         app.pushToast({ type: 'success', message: '配置保存并已重启网关' })
@@ -108,10 +160,33 @@ async function refreshGatewayStatus() {
 
 async function restartGateway() {
   try {
+    const confirmed = await requestGatewayConfirmation({
+      title: '重启网关',
+      lines: ['将停止当前网关并重新拉起。', '是否继续重启？'],
+      confirmLabel: '确认重启',
+      cancelLabel: '取消',
+    })
+    if (!confirmed) return
     await app.restartGateway()
     app.pushToast({ type: 'success', message: '网关重启完成' })
   } catch {
     app.pushToast({ type: 'error', message: app.gatewaySummary || '网关重启失败' })
+  }
+}
+
+async function stopGateway() {
+  try {
+    const confirmed = await requestGatewayConfirmation({
+      title: '关闭网关',
+      lines: ['关闭后将中断当前网关连接。', '是否确认关闭网关服务？'],
+      confirmLabel: '确认关闭',
+      cancelLabel: '取消',
+    })
+    if (!confirmed) return
+    await app.stopGateway()
+    app.pushToast({ type: 'success', message: '网关已关闭' })
+  } catch {
+    app.pushToast({ type: 'error', message: app.gatewaySummary || '网关关闭失败' })
   }
 }
 
@@ -164,17 +239,21 @@ function resetToDefault() {
           placeholder="17889"
         />
         <label class="qq-settings-label" for="logLevel">日志级别</label>
-        <select id="logLevel" v-model="logLevel" class="qq-settings-input">
-          <option value="debug">debug</option>
-          <option value="info">info</option>
-          <option value="warn">warn</option>
-          <option value="error">error</option>
-        </select>
+        <ContextDropdown
+          id="logLevel"
+          v-model="logLevel"
+          class="qq-settings-dropdown"
+          label="级别"
+          :options="logLevelOptions"
+        />
         <label class="qq-settings-label" for="logFormat">日志格式</label>
-        <select id="logFormat" v-model="logFormat" class="qq-settings-input">
-          <option value="text">text</option>
-          <option value="json">json</option>
-        </select>
+        <ContextDropdown
+          id="logFormat"
+          v-model="logFormat"
+          class="qq-settings-dropdown"
+          label="格式"
+          :options="logFormatOptions"
+        />
         <label class="qq-settings-label" for="logFilePath">日志文件路径</label>
         <input
           id="logFilePath"
@@ -190,6 +269,9 @@ function resetToDefault() {
           <button class="qq-icon-button" :disabled="disabled" aria-label="重启网关服务" @click="restartGateway">
             <Power class="h-4 w-4" />
           </button>
+          <button class="qq-icon-button" :disabled="disabled" aria-label="关闭网关服务" @click="stopGateway">
+            <PowerOff class="h-4 w-4" />
+          </button>
           <button class="qq-icon-button" :disabled="disabled" aria-label="刷新网关状态" @click="refreshGatewayStatus">
             <RefreshCcw class="h-4 w-4" />
           </button>
@@ -198,6 +280,22 @@ function resetToDefault() {
             <span>{{ app.settingsSaving ? '保存中' : '保存配置' }}</span>
           </button>
           <span v-if="app.settingsError" class="qq-settings-error">{{ app.settingsError }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="confirmDialogOpen" class="qq-modal-backdrop" @click.self="resolveGatewayConfirmation(false)">
+      <div class="qq-modal" role="dialog" aria-modal="true" aria-labelledby="gatewayConfirmTitle">
+        <div class="qq-modal-header">
+          <h3 id="gatewayConfirmTitle" class="qq-modal-title">{{ confirmDialogTitle }}</h3>
+          <button class="qq-icon-button" type="button" aria-label="关闭弹窗" @click="resolveGatewayConfirmation(false)">×</button>
+        </div>
+        <div class="qq-modal-body">
+          <p v-for="(line, index) in confirmDialogLines" :key="`${line}_${index}`" class="qq-modal-summary">{{ line }}</p>
+        </div>
+        <div class="qq-modal-actions">
+          <button class="qq-secondary-action h-8 px-3 text-sm" type="button" @click="resolveGatewayConfirmation(false)">{{ confirmDialogCancelLabel }}</button>
+          <button class="qq-primary-action h-8 px-3 text-sm" type="button" @click="resolveGatewayConfirmation(true)">{{ confirmDialogConfirmLabel }}</button>
         </div>
       </div>
     </div>

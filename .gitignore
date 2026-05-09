@@ -3,3 +3,4 @@ agent_chat/.task/*
 *.log
 agent/*
 dist/*
+agent_chat/chat.toml

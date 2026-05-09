@@ -51,6 +51,22 @@ export const useAppStore = defineStore('app', {
         throw error
       }
     },
+    async stopGateway() {
+      this.settingsError = null
+      try {
+        const status = await agentBridge.stopGateway()
+        this.gatewayStatus = status?.status || 'gateway_failed'
+        this.gatewaySummary = status?.summary || '网关已关闭'
+        this.gatewayUpdatedAt = status?.updatedAt || null
+        this.bridgeStatus = this.gatewayStatus === 'gateway_ready' ? 'gateway' : 'degraded'
+        return status
+      } catch (error) {
+        this.gatewayStatus = 'gateway_failed'
+        this.gatewaySummary = error?.message || '网关关闭失败'
+        this.bridgeStatus = 'degraded'
+        throw error
+      }
+    },
     async loadAppSettings() {
       this.settingsError = null
       try {
