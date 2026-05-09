@@ -13,31 +13,12 @@ type AppSettings struct {
 	GatewayBinaryPath string `json:"gatewayBinaryPath,omitempty"`
 }
 
-func (s *AgentService) settingsFilePath() (string, error) {
-	return settingsFilePath()
-}
-
 func settingsFilePath() (string, error) {
-	if exe, err := os.Executable(); err == nil && strings.TrimSpace(exe) != "" {
-		exeDir := filepath.Dir(exe)
-		if !isTemporaryRuntimeDir(exeDir) {
-			return filepath.Join(exeDir, "chat.toml"), nil
-		}
-	}
 	wd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("resolve settings directory: %w", err)
 	}
 	return filepath.Join(wd, "chat.toml"), nil
-}
-
-func isTemporaryRuntimeDir(dir string) bool {
-	cleanDir := strings.ToLower(filepath.Clean(dir))
-	cleanTemp := strings.ToLower(filepath.Clean(os.TempDir()))
-	if cleanTemp != "" && strings.HasPrefix(cleanDir, cleanTemp) {
-		return true
-	}
-	return strings.Contains(cleanDir, string(filepath.Separator)+"go-build"+string(filepath.Separator))
 }
 
 func (s *AgentService) GetAppSettings() (AppSettings, error) {
