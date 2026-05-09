@@ -45,13 +45,34 @@ const statusClass = computed(() => {
 async function saveSettings() {
   try {
     const normalizedPort = Number(gatewayPort.value)
+    const normalizedHost = gatewayHost.value.trim() || '127.0.0.1'
+    const normalizedBinaryPath = gatewayPath.value.trim()
+    const normalizedGatewayPort = Number.isFinite(normalizedPort) ? normalizedPort : 17889
+    const settingsChanged =
+      normalizedBinaryPath !== (app.gatewayBinaryPath || '') ||
+      normalizedHost !== (app.gatewayHost || '127.0.0.1') ||
+      normalizedGatewayPort !== Number(app.gatewayPort || 17889)
+
     await app.saveAppSettings({
-      gatewayBinaryPath: gatewayPath.value.trim(),
-      gatewayHost: gatewayHost.value.trim() || '127.0.0.1',
-      gatewayPort: Number.isFinite(normalizedPort) ? normalizedPort : 17889,
+      gatewayBinaryPath: normalizedBinaryPath,
+      gatewayHost: normalizedHost,
+      gatewayPort: normalizedGatewayPort,
     })
+
+    if (settingsChanged) {
+      const shouldRestart = globalThis?.confirm?.('配置已保存。是否立即重启网关以应用新配置？')
+      if (shouldRestart) {
+        await app.restartGateway()
+        app.pushToast({ type: 'success', message: '配置保存并已重启网关' })
+      } else {
+        await app.refreshGatewayStatus()
+        app.pushToast({ type: 'info', message: '配置已保存，未重启网关' })
+      }
+      return
+    }
+
     await app.refreshGatewayStatus()
-    app.pushToast({ type: 'success', message: '配置保存成功' })
+    app.pushToast({ type: 'success', message: '配置保存成功（无变更）' })
   } catch {
     app.pushToast({ type: 'error', message: app.settingsError || '配置保存失败' })
   }
