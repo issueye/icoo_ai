@@ -140,6 +140,12 @@ type AuditEvent struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+type GatewayStatus struct {
+	Status    string    `json:"status"`
+	Summary   string    `json:"summary,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
 type GatewayEventEnvelope struct {
 	ID        string          `json:"id"`
 	Type      string          `json:"type"`

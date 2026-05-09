@@ -21,6 +21,7 @@ function navigate(item) {
   if (item.key === 'chats') router.push(`/chats/${conversations.activeSessionId}`)
   else if (item.key === 'skills') router.push('/skills')
   else if (item.key === 'audit') router.push('/audit')
+  else if (item.key === 'settings') router.push('/settings')
 }
 </script>
 
@@ -37,7 +38,7 @@ function navigate(item) {
       <CheckSquare class="h-5 w-5" />
       <span v-if="approvals.pendingCount" class="qq-dot" />
     </button>
-    <button class="qq-nav-button mt-2" aria-label="设置">
+    <button class="qq-nav-button mt-2" :class="{ 'is-active': app.activeNav === 'settings' }" aria-label="设置" @click="navigate({ key: 'settings' })">
       <Settings class="h-5 w-5" />
     </button>
   </aside>

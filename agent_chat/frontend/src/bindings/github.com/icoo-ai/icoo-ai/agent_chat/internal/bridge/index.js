@@ -8,10 +8,12 @@ export {
 };
 
 export {
+    AppSettings,
     ApprovalDecision,
     ApprovalDecisionRequest,
     AuditEvent,
     Conversation,
+    GatewayStatus,
     MessageEvent,
     NewSessionRequest,
     PromptRequest,

@@ -185,6 +185,72 @@
       var(--qq-bg);
   }
 
+  .qq-global-footer {
+    display: flex;
+    height: 32px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid var(--qq-border);
+    background: rgba(255, 255, 255, 0.68);
+    padding: 0 12px;
+    color: var(--qq-text-soft);
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .qq-footer-left {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .qq-footer-label {
+    color: var(--qq-text-muted);
+  }
+
+  .qq-footer-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 2px 8px;
+    background: rgba(255, 255, 255, 0.6);
+  }
+
+  .qq-footer-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--qq-warning);
+  }
+
+  .qq-footer-status.is-ready .qq-footer-dot {
+    background: var(--qq-success);
+  }
+
+  .qq-footer-status.is-failed .qq-footer-dot {
+    background: var(--qq-danger);
+  }
+
+  .qq-footer-status.is-reconnecting .qq-footer-dot {
+    background: var(--qq-warning);
+  }
+
+  .qq-footer-status.is-connecting .qq-footer-dot {
+    background: var(--qq-warning);
+  }
+
+  .qq-footer-summary {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--qq-text-muted);
+    text-align: right;
+  }
+
   .qq-nav-rail {
     display: flex;
     width: var(--nav-rail-width);
@@ -246,6 +312,12 @@
     border-right: 1px solid var(--qq-border);
     background: var(--qq-sidebar);
     padding: 14px 12px;
+  }
+
+  .qq-settings-sidebar-placeholder {
+    width: var(--conversation-sidebar-width);
+    border-right: 1px solid var(--qq-border);
+    background: var(--qq-sidebar);
   }
 
   .qq-sidebar-title {
@@ -630,6 +702,129 @@
 
   .qq-textarea:focus {
     box-shadow: 0 0 0 2px rgba(19, 174, 228, 0.18);
+  }
+
+  .qq-settings-body {
+    flex: 1;
+    overflow: auto;
+    padding: 16px clamp(24px, 4vw, 72px) 20px;
+  }
+
+  .qq-settings-card {
+    width: min(100%, 920px);
+    border: 1px solid var(--qq-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.84);
+    padding: 16px;
+    box-shadow: 0 1px 2px rgba(8, 32, 51, 0.05);
+  }
+
+  .qq-settings-header {
+    height: auto;
+    min-height: 92px;
+    align-items: center;
+  }
+
+  .qq-settings-status-card {
+    display: flex;
+    width: min(48%, 520px);
+    min-width: 260px;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid var(--qq-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.74);
+    padding: 10px 12px;
+  }
+
+  .qq-settings-status-icon {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    place-items: center;
+    border-radius: 8px;
+    background: rgba(19, 174, 228, 0.14);
+    color: #0b88b5;
+    flex-shrink: 0;
+  }
+
+  .qq-settings-status-title {
+    color: var(--qq-text);
+    font-size: 12px;
+    line-height: 17px;
+    font-weight: 700;
+  }
+
+  .qq-settings-status-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .qq-settings-status-summary {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--qq-text-muted);
+    font-size: 12px;
+    line-height: 17px;
+  }
+
+  .qq-settings-card-title {
+    margin-bottom: 10px;
+    color: var(--qq-text);
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 700;
+  }
+
+  .qq-settings-label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--qq-text);
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 600;
+  }
+
+  .qq-settings-input {
+    width: 100%;
+    height: 38px;
+    border: 1px solid var(--qq-border-strong);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.88);
+    padding: 0 10px;
+    color: var(--qq-text);
+    font-size: 13px;
+    line-height: 18px;
+    outline: none;
+  }
+
+  .qq-settings-input:focus {
+    border-color: rgba(19, 174, 228, 0.46);
+    box-shadow: 0 0 0 2px rgba(19, 174, 228, 0.16);
+  }
+
+  .qq-settings-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 10px;
+  }
+
+  .qq-settings-success {
+    color: #118a4e;
+    font-size: 12px;
+    line-height: 17px;
+  }
+
+  .qq-settings-error {
+    color: var(--qq-danger);
+    font-size: 12px;
+    line-height: 17px;
   }
 }
 

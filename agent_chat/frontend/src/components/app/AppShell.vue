@@ -1,11 +1,14 @@
 <script setup>
-import { onMounted, watch } from 'vue'
+import { onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppGlobalHeader from './AppGlobalHeader.vue'
 import AppNavRail from './AppNavRail.vue'
+import AppFooter from './AppFooter.vue'
 import ConversationSidebar from '@/components/conversation/ConversationSidebar.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
+import SettingsWorkspace from '@/components/settings/SettingsWorkspace.vue'
 import { useApprovalsStore } from '@/stores/approvals'
+import { useAppStore } from '@/stores/app'
 import { useAuditStore } from '@/stores/audit'
 import { useConversationsStore } from '@/stores/conversations'
 import { useMessagesStore } from '@/stores/messages'
@@ -14,14 +17,21 @@ import { useSkillsStore } from '@/stores/skills'
 
 const route = useRoute()
 const router = useRouter()
+const app = useAppStore()
 const conversations = useConversationsStore()
 const messages = useMessagesStore()
 const runs = useRunsStore()
 const approvals = useApprovalsStore()
 const skills = useSkillsStore()
 const audit = useAuditStore()
+let statusTimer = null
+const isSettingsRoute = () => route.name === 'settings'
 
 onMounted(async () => {
+  await app.refreshGatewayStatus()
+  statusTimer = setInterval(() => {
+    app.refreshGatewayStatus()
+  }, 3000)
   await Promise.all([
     conversations.loadConversations(),
     runs.loadRuns(),
@@ -37,13 +47,29 @@ onMounted(async () => {
   }
 })
 
+onBeforeUnmount(() => {
+  if (statusTimer) {
+    clearInterval(statusTimer)
+    statusTimer = null
+  }
+})
+
 watch(() => route.params.sessionId, async (sessionId) => {
+  if (isSettingsRoute()) return
   if (!sessionId) return
   conversations.setActiveSession(String(sessionId))
   await messages.loadMessages(String(sessionId))
 })
 
+watch(() => route.name, (name) => {
+  if (name === 'settings') app.setActiveNav('settings')
+  else if (name === 'audit') app.setActiveNav('audit')
+  else if (name === 'skills') app.setActiveNav('skills')
+  else app.setActiveNav('chats')
+}, { immediate: true })
+
 watch(() => conversations.activeSessionId, async (sessionId) => {
+  if (isSettingsRoute()) return
   if (!sessionId) return
   if (route.params.sessionId !== sessionId) router.push(`/chats/${sessionId}`)
   await messages.loadMessages(sessionId)
@@ -55,8 +81,15 @@ watch(() => conversations.activeSessionId, async (sessionId) => {
     <AppGlobalHeader />
     <div class="qq-shell">
       <AppNavRail />
-      <ConversationSidebar />
-      <ChatWorkspace />
+      <template v-if="route.name === 'settings'">
+        <div class="qq-settings-sidebar-placeholder" />
+        <SettingsWorkspace />
+      </template>
+      <template v-else>
+        <ConversationSidebar />
+        <ChatWorkspace />
+      </template>
     </div>
+    <AppFooter />
   </main>
 </template>

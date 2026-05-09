@@ -10,6 +10,34 @@ import { Create as $Create } from "@wailsio/runtime";
 // @ts-ignore: Unused imports
 import * as time$0 from "../../../../../../time/models.js";
 
+export class AppSettings {
+    /**
+     * Creates a new AppSettings instance.
+     * @param {Partial<AppSettings>} [$$source = {}] - The source object to create the AppSettings.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["gatewayBinaryPath"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AppSettings instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AppSettings}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AppSettings(/** @type {Partial<AppSettings>} */($$parsedSource));
+    }
+}
+
 export class ApprovalDecision {
     /**
      * Creates a new ApprovalDecision instance.
@@ -287,6 +315,48 @@ export class Conversation {
     static createFrom($$source = {}) {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new Conversation(/** @type {Partial<Conversation>} */($$parsedSource));
+    }
+}
+
+export class GatewayStatus {
+    /**
+     * Creates a new GatewayStatus instance.
+     * @param {Partial<GatewayStatus>} [$$source = {}] - The source object to create the GatewayStatus.
+     */
+    constructor($$source = {}) {
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["status"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["summary"] = undefined;
+        }
+        if (!("updatedAt" in $$source)) {
+            /**
+             * @member
+             * @type {time$0.Time}
+             */
+            this["updatedAt"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GatewayStatus instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {GatewayStatus}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GatewayStatus(/** @type {Partial<GatewayStatus>} */($$parsedSource));
     }
 }
 

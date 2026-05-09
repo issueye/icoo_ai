@@ -2,13 +2,16 @@
 
 Independent local gateway service for `icoo-ai` agent clients.
 
-Current P1 scope:
+Current scope:
 
 - bind to `127.0.0.1` by default
 - choose a random port by default
 - expose `GET /health`
 - generate a local bearer token
 - write `endpoint.json` and `token` under the gateway data directory
+- expose `/v1/sessions|runs|approvals|events/stream`
+- support ACP connector-backed prompt/cancel path when ACP is enabled
+- project async gateway events to local store for history query/recovery
 
 Run:
 
@@ -20,4 +23,22 @@ Smoke check with a temporary data directory:
 
 ```powershell
 go run ./cmd/agent-gateway -data-dir ./.tmp-gateway -once
+```
+
+Build binary:
+
+```powershell
+..\scripts\build.ps1 -Target gateway
+```
+
+End-to-end smoke:
+
+```powershell
+..\scripts\smoke-gateway-chat.ps1
+```
+
+Use go-run fallback in smoke:
+
+```powershell
+..\scripts\smoke-gateway-chat.ps1 -UseGoRun
 ```

@@ -38,6 +38,8 @@ type AgentService struct {
 	activeSessions   map[string]struct{}
 	eventSink        func(MessageEvent)
 	gatewayStatus    string
+	gatewaySummary   string
+	gatewayUpdatedAt time.Time
 }
 
 func NewAgentService() *AgentService {
@@ -387,6 +389,21 @@ func (s *AgentService) ListAuditEvents(ctx context.Context) ([]AuditEvent, error
 	return append([]AuditEvent(nil), s.auditEvents...), nil
 }
 
+func (s *AgentService) GetGatewayStatus(ctx context.Context) (GatewayStatus, error) {
+	_ = ctx
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	status := strings.TrimSpace(s.gatewayStatus)
+	if status == "" {
+		status = GatewayStatusConnecting
+	}
+	return GatewayStatus{
+		Status:    status,
+		Summary:   s.gatewaySummary,
+		UpdatedAt: s.gatewayUpdatedAt,
+	}, nil
+}
+
 func (s *AgentService) touchConversation(sessionID string, subtitle string, status string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -466,17 +483,19 @@ func (s *AgentService) emitGatewayStatus(status, summary string, meta map[string
 		return
 	}
 	s.mu.Lock()
-	if s.gatewayStatus == status {
+	if s.gatewayStatus == status && s.gatewaySummary == summary {
 		s.mu.Unlock()
 		return
 	}
 	s.gatewayStatus = status
+	s.gatewaySummary = summary
+	s.gatewayUpdatedAt = time.Now()
 	event := MessageEvent{
 		ID:        fmt.Sprintf("gateway_status_%d", time.Now().UnixNano()),
 		Kind:      BridgeEventKindGateway,
 		Status:    status,
 		Summary:   summary,
-		CreatedAt: time.Now(),
+		CreatedAt: s.gatewayUpdatedAt,
 		SafeMeta:  map[string]any{"gatewayStatus": status},
 	}
 	if meta != nil {

@@ -10,7 +10,8 @@
 - 使用无边框桌面窗口，并提供全局 header 承载拖拽、品牌、当前模块和窗口操作。
 - 工具结果只展示安全摘要字段，例如输出大小、摘要 hash、是否落盘，不保存完整大输出。
 - 前端 store 统一通过 `agentBridge` 读写；浏览器开发态 fallback 到 mock，Wails 打包态可使用生成 bindings。
-- Go bridge 已提供 `NewSession`、`Prompt`、`Cancel`、`LoadSession`、列表查询和审批决策的 mock 方法边界，后续可接入 `agent_server` Runtime。
+- Go bridge 已优先对接本地 `agent_gateway`（HTTP + SSE），并在启动阶段自动尝试唤醒 gateway。
+- `Prompt` 已兼容 gateway 结构化响应（`run/messages/approval`）并标准化为前端 `MessageEvent`。
 - 已沉淀 QQ 桌面端风格 UED 规范，并在 `frontend/src/styles/globals.css` 中提供统一 `qq-*` CSS token 和组件类。
 
 ## 本地运行
@@ -18,6 +19,19 @@
 ```bash
 wails3 dev
 ```
+
+如果需要显式指定 gateway 可执行文件路径：
+
+```powershell
+$env:ICOO_GATEWAY_BIN="E:\codes\icoo_ai\agent_gateway\dist\agent-gateway.exe"
+wails3 dev
+```
+
+可选环境变量：
+
+- `ICOO_GATEWAY_DISCOVERY_PATH`：自定义 endpoint/token 发现目录或 endpoint 文件路径。
+- `ICOO_GATEWAY_TOKEN`：覆盖 discovery 读到的 token。
+- `ICOO_BRIDGE_DEV_FALLBACK=false`：开发环境禁用 mock fallback（建议联调时开启此开关）。
 
 前端单独调试时可在 `frontend/` 目录运行 `npm run dev`。
 
@@ -48,6 +62,16 @@ go test ./...
 ```
 
 说明：Go 命令仅用于测试；桌面应用统一使用 `wails3 build` 构建。`wails3 build` 会先生成 Wails bindings，再构建前端并产出 `bin/agent_chat.exe`。
+
+## 联调冒烟
+
+仓库根目录执行：
+
+```powershell
+.\scripts\smoke-gateway-chat.ps1
+```
+
+该脚本会自动拉起 gateway、完成 session/prompt/cancel 闭环验证并回收进程。
 
 构建脚本参数：
 
