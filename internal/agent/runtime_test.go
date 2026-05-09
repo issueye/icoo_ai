@@ -41,6 +41,16 @@ func TestRuntimePromptRunsLoop(t *testing.T) {
 	if got[len(got)-1].Type != EventRunCompleted {
 		t.Fatalf("last event = %s", got[len(got)-1].Type)
 	}
+	saved, err := runtime.LoadSession(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatalf("LoadSession() error = %v", err)
+	}
+	if len(saved.Messages) != 2 || saved.Messages[1].Content != "hello" {
+		t.Fatalf("saved messages = %+v", saved.Messages)
+	}
+	if len(saved.Events) == 0 || saved.Events[len(saved.Events)-1].Type != EventRunCompleted {
+		t.Fatalf("saved events = %+v", saved.Events)
+	}
 }
 
 type memorySessionStore struct {

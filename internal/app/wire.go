@@ -10,6 +10,7 @@ import (
 	"github.com/icoo-ai/icoo-ai/internal/agent"
 	"github.com/icoo-ai/icoo-ai/internal/audit"
 	"github.com/icoo-ai/icoo-ai/internal/config"
+	"github.com/icoo-ai/icoo-ai/internal/hooks"
 	"github.com/icoo-ai/icoo-ai/internal/llm"
 	"github.com/icoo-ai/icoo-ai/internal/mcp"
 	"github.com/icoo-ai/icoo-ai/internal/netutil"
@@ -31,6 +32,7 @@ type BuildOptions struct {
 	Stderr   *os.File
 	Provider llm.Provider
 	Approver agent.Approver
+	Hooks    hooks.Dispatcher
 }
 
 type Components struct {
@@ -84,7 +86,7 @@ func Build(ctx context.Context, opts BuildOptions) (Components, error) {
 			return Components{}, err
 		}
 	}
-	registeredTools, err := buildTools(cwd, home, opts.Config, p, auditLogger, provider, opts.Approver)
+	registeredTools, err := buildTools(cwd, home, opts.Config, p, auditLogger, provider, opts.Approver, opts.Hooks)
 	if err != nil {
 		return Components{}, err
 	}
@@ -103,6 +105,8 @@ func Build(ctx context.Context, opts BuildOptions) (Components, error) {
 		CWD:      cwd,
 		Model:    opts.Config.Model,
 		Approver: opts.Approver,
+		Hooks:    opts.Hooks,
+		Audit:    auditLogger,
 	})
 	if err != nil {
 		return Components{}, err
@@ -149,11 +153,12 @@ func buildProvider(cfg config.Config) (llm.Provider, error) {
 	})
 }
 
-func buildTools(cwd, home string, cfg config.Config, p policy.Policy, auditLogger audit.Logger, provider llm.Provider, approver agent.Approver) ([]tools.Tool, error) {
+func buildTools(cwd, home string, cfg config.Config, p policy.Policy, auditLogger audit.Logger, provider llm.Provider, approver agent.Approver, hookDispatcher hooks.Dispatcher) ([]tools.Tool, error) {
 	var baseTools []tools.Tool
 	fileTools, err := tools.NewFileTools(tools.FileToolOptions{
 		WorkspaceRoot: cwd,
 		Policy:        p,
+		Hooks:         hookDispatcher,
 	})
 	if err != nil {
 		return nil, err
@@ -164,6 +169,7 @@ func buildTools(cwd, home string, cfg config.Config, p policy.Policy, auditLogge
 		WorkspaceRoot:  cwd,
 		DefaultTimeout: timeout,
 		Policy:         p,
+		Hooks:          hookDispatcher,
 	}))
 	baseTools = append(baseTools, tools.NewGitTools(tools.GitToolOptions{
 		WorkspaceRoot:  cwd,
@@ -199,6 +205,8 @@ func buildTools(cwd, home string, cfg config.Config, p policy.Policy, auditLogge
 			Model:         cfg.Model,
 			MaxToolRounds: 6,
 			Approver:      approver,
+			Hooks:         hookDispatcher,
+			AuditLogger:   auditLogger,
 		})
 		if err != nil {
 			return nil, err

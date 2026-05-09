@@ -80,6 +80,17 @@ func TestDoctorRedactsConfigAPIKey(t *testing.T) {
 	}
 }
 
+func TestParseExplicitSkillPrompt(t *testing.T) {
+	name, task, ok := parseExplicitSkillPrompt("/skill go-review review internal/agent")
+	if !ok || name != "go-review" || task != "review internal/agent" {
+		t.Fatalf("parse = %q %q %v", name, task, ok)
+	}
+	_, _, ok = parseExplicitSkillPrompt("plain prompt")
+	if ok {
+		t.Fatal("plain prompt should not be parsed as skill")
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	old := os.Stdout

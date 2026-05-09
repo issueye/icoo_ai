@@ -103,6 +103,55 @@ func TestDuckDuckGoSearchClientUsesNetworkPolicy(t *testing.T) {
 	}
 }
 
+func TestDuckDuckGoSearchClientRetries429UntilSuccess(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests < 3 {
+			http.Error(w, "retry later", http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`<a class="result-link" href="https://example.com/a">Example A</a><td class="result-snippet">Snippet</td>`))
+	}))
+	defer server.Close()
+
+	client := NewDuckDuckGoSearchClient(DuckDuckGoSearchOptions{
+		BaseURL: server.URL + "/lite/",
+		Client:  server.Client(),
+		Policy:  allowPolicy{},
+		Now:     fixedNow,
+	})
+	resp, err := client.Search(context.Background(), SearchRequest{Query: "golang"})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if requests != 3 || len(resp.Results) != 1 {
+		t.Fatalf("requests=%d response=%+v", requests, resp)
+	}
+}
+
+func TestDuckDuckGoSearchClientDoesNotRetry400(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "bad request", http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	client := NewDuckDuckGoSearchClient(DuckDuckGoSearchOptions{
+		BaseURL: server.URL + "/lite/",
+		Client:  server.Client(),
+		Policy:  allowPolicy{},
+	})
+	_, err := client.Search(context.Background(), SearchRequest{Query: "golang"})
+	if err == nil || !strings.Contains(err.Error(), "status 400") {
+		t.Fatalf("err = %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
+	}
+}
+
 type mockSearchClient struct {
 	response SearchResponse
 	err      error

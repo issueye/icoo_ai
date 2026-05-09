@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/icoo-ai/icoo-ai/internal/hooks"
 )
 
 func TestFileToolsListSearchReadRespectWorkspaceAndIgnore(t *testing.T) {
@@ -85,6 +87,37 @@ func TestWriteFileCreatesInsideWorkspaceOnly(t *testing.T) {
 	})
 	if outside.OK || outside.Data["code"] != "outside_workspace" {
 		t.Fatalf("outside write = %+v, want outside_workspace error", outside)
+	}
+}
+
+func TestWriteFileHookBlockPreventsWrite(t *testing.T) {
+	root := t.TempDir()
+	tools, err := NewFileTools(FileToolOptions{
+		WorkspaceRoot: root,
+		Hooks: hooks.NewDispatcher(hooks.TypedHook{
+			HookName: "block-write",
+			Events:   []hooks.EventType{hooks.EventBeforeFileWrite},
+			Func: func(ctx context.Context, event hooks.Event) (hooks.Result, error) {
+				return hooks.Block("blocked by file hook"), nil
+			},
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewFileTools() error = %v", err)
+	}
+	byName := map[string]Tool{}
+	for _, tool := range tools {
+		byName[tool.Name()] = tool
+	}
+	result := runTool(t, byName["write_file"], map[string]any{
+		"path":    "blocked.txt",
+		"content": "hello",
+	})
+	if result.OK || result.Error != "blocked by file hook" {
+		t.Fatalf("result = %+v", result)
+	}
+	if _, err := os.Stat(filepath.Join(root, "blocked.txt")); !os.IsNotExist(err) {
+		t.Fatalf("blocked file exists or stat failed: %v", err)
 	}
 }
 

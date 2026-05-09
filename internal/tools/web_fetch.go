@@ -122,7 +122,7 @@ func (t webFetchTool) Execute(ctx context.Context, input json.RawMessage) (ToolR
 	defer cancel()
 
 	if decision := authorizeNetwork(fetchCtx, t.policy, req.URL, http.MethodGet); decision.Action == policy.DecisionBlock {
-		_ = t.logNetwork(fetchCtx, req.URL, "", startedAt, 0, "", false, decision.Reason, decision)
+		_ = t.logNetwork(fetchCtx, req.URL, "", startedAt, 0, "", false, decision.Reason, 0, decision)
 		return toolError("policy_blocked", decision.Reason, decision.Details), nil
 	}
 
@@ -136,19 +136,30 @@ func (t webFetchTool) Execute(ctx context.Context, input json.RawMessage) (ToolR
 	}
 	httpReq.Header.Set("User-Agent", "icoo-ai/0.1 web_fetch")
 
-	resp, err := client.Do(httpReq)
+	resp, attempts, err := retryHTTP(fetchCtx, 0, func() (*http.Response, error) {
+		reqCopy := httpReq.Clone(fetchCtx)
+		return client.Do(reqCopy)
+	})
 	if err != nil {
-		_ = t.logNetwork(fetchCtx, req.URL, "", startedAt, 0, "", false, err.Error(), policy.Decision{})
+		_ = t.logNetwork(fetchCtx, req.URL, "", startedAt, 0, "", false, err.Error(), attempts, policy.Decision{})
 		if errors.Is(fetchCtx.Err(), context.DeadlineExceeded) {
 			return toolError("timeout", "web fetch timed out", map[string]any{"url": req.URL}), nil
 		}
 		return toolError("fetch_failed", err.Error(), map[string]any{"url": req.URL}), nil
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_ = t.logNetwork(fetchCtx, req.URL, resp.Request.URL.String(), startedAt, resp.StatusCode, resp.Header.Get("Content-Type"), false, fmt.Sprintf("unexpected status %d", resp.StatusCode), attempts, policy.Decision{})
+		return toolError("fetch_failed", fmt.Sprintf("unexpected status %d", resp.StatusCode), map[string]any{
+			"url":            req.URL,
+			"status_code":    resp.StatusCode,
+			"retry_attempts": attempts,
+		}), nil
+	}
 
 	body, truncated, err := readLimited(resp.Body, maxBytes)
 	if err != nil {
-		_ = t.logNetwork(fetchCtx, req.URL, resp.Request.URL.String(), startedAt, resp.StatusCode, resp.Header.Get("Content-Type"), false, err.Error(), policy.Decision{})
+		_ = t.logNetwork(fetchCtx, req.URL, resp.Request.URL.String(), startedAt, resp.StatusCode, resp.Header.Get("Content-Type"), false, err.Error(), attempts, policy.Decision{})
 		return toolError("read_failed", err.Error(), map[string]any{"url": req.URL}), nil
 	}
 
@@ -156,18 +167,19 @@ func (t webFetchTool) Execute(ctx context.Context, input json.RawMessage) (ToolR
 	contentType := resp.Header.Get("Content-Type")
 	finalURL := resp.Request.URL.String()
 	data := map[string]any{
-		"source_url":   req.URL,
-		"final_url":    finalURL,
-		"fetched_at":   fetchedAt.Format(time.RFC3339Nano),
-		"status_code":  resp.StatusCode,
-		"content_type": contentType,
-		"bytes":        len(body),
-		"truncated":    truncated,
+		"source_url":     req.URL,
+		"final_url":      finalURL,
+		"fetched_at":     fetchedAt.Format(time.RFC3339Nano),
+		"status_code":    resp.StatusCode,
+		"content_type":   contentType,
+		"bytes":          len(body),
+		"truncated":      truncated,
+		"retry_attempts": attempts,
 	}
 	if title := extractHTMLTitle(string(body), contentType); title != "" {
 		data["title"] = title
 	}
-	_ = t.logNetwork(fetchCtx, req.URL, finalURL, fetchedAt, resp.StatusCode, contentType, true, "", policy.Decision{})
+	_ = t.logNetwork(fetchCtx, req.URL, finalURL, fetchedAt, resp.StatusCode, contentType, true, "", attempts, policy.Decision{})
 
 	return ToolResult{
 		OK:      true,
@@ -183,17 +195,18 @@ func (t webFetchTool) Execute(ctx context.Context, input json.RawMessage) (ToolR
 	}, nil
 }
 
-func (t webFetchTool) logNetwork(ctx context.Context, sourceURL, finalURL string, at time.Time, statusCode int, contentType string, ok bool, errText string, decision policy.Decision) error {
+func (t webFetchTool) logNetwork(ctx context.Context, sourceURL, finalURL string, at time.Time, statusCode int, contentType string, ok bool, errText string, attempts int, decision policy.Decision) error {
 	if t.auditLogger == nil {
 		return nil
 	}
 	data := map[string]any{
-		"url":          sourceURL,
-		"final_url":    finalURL,
-		"fetched_at":   at.UTC().Format(time.RFC3339Nano),
-		"status_code":  statusCode,
-		"content_type": contentType,
-		"ok":           ok,
+		"url":            sourceURL,
+		"final_url":      finalURL,
+		"fetched_at":     at.UTC().Format(time.RFC3339Nano),
+		"status_code":    statusCode,
+		"content_type":   contentType,
+		"ok":             ok,
+		"retry_attempts": attempts,
 	}
 	if errText != "" {
 		data["error"] = errText

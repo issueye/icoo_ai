@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/icoo-ai/icoo-ai/internal/hooks"
 	"github.com/icoo-ai/icoo-ai/internal/policy"
 )
 
@@ -167,6 +168,26 @@ func TestRunShellBlocksCriticalCommand(t *testing.T) {
 	}
 	if len(fake.Calls()) != 0 {
 		t.Fatalf("blocked command executed: %+v", fake.Calls())
+	}
+}
+
+func TestRunShellHookBlockPreventsExecution(t *testing.T) {
+	fake := newRecordingShellRunner(shellResponse{result: ShellResult{Stdout: "should not run"}})
+	dispatcher := hooks.NewDispatcher(hooks.TypedHook{
+		HookName: "block-shell",
+		Events:   []hooks.EventType{hooks.EventBeforeShellCommand},
+		Func: func(ctx context.Context, event hooks.Event) (hooks.Result, error) {
+			return hooks.Block("blocked by shell hook"), nil
+		},
+	})
+	tool := NewShellTool(ShellToolOptions{Runner: fake, Hooks: dispatcher})
+
+	result := runTool(t, tool, map[string]any{"command": "go test"})
+	if result.OK || result.Error != "blocked by shell hook" {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(fake.Calls()) != 0 {
+		t.Fatalf("shell hook should prevent execution, calls = %+v", fake.Calls())
 	}
 }
 

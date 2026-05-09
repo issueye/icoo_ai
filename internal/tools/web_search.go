@@ -31,6 +31,7 @@ type SearchResponse struct {
 	Provider  string
 	FetchedAt time.Time
 	Results   []SearchResult
+	Attempts  int
 }
 
 type SearchResult struct {
@@ -118,7 +119,7 @@ func (t webSearchTool) Execute(ctx context.Context, input json.RawMessage) (Tool
 	defer cancel()
 	resp, err := t.client.Search(searchCtx, SearchRequest{Query: req.Query, MaxResults: maxResults})
 	if err != nil {
-		_ = t.logSearch(searchCtx, req.Query, nil, false, err.Error())
+		_ = t.logSearch(searchCtx, req.Query, nil, 0, false, err.Error())
 		return toolError("search_failed", err.Error(), map[string]any{"query": req.Query}), nil
 	}
 	fetchedAt := resp.FetchedAt.UTC()
@@ -133,7 +134,7 @@ func (t webSearchTool) Execute(ctx context.Context, input json.RawMessage) (Tool
 		resp.Results[i].Snippet = strings.TrimSpace(resp.Results[i].Snippet)
 		resp.Results[i].URL = strings.TrimSpace(resp.Results[i].URL)
 	}
-	_ = t.logSearch(searchCtx, req.Query, resp.Results, true, "")
+	_ = t.logSearch(searchCtx, req.Query, resp.Results, resp.Attempts, true, "")
 
 	lines := make([]string, 0, len(resp.Results))
 	for i, result := range resp.Results {
@@ -148,10 +149,11 @@ func (t webSearchTool) Execute(ctx context.Context, input json.RawMessage) (Tool
 		provider = "duckduckgo"
 	}
 	data := map[string]any{
-		"provider":   provider,
-		"query":      req.Query,
-		"fetched_at": fetchedAt.Format(time.RFC3339Nano),
-		"results":    resp.Results,
+		"provider":       provider,
+		"query":          req.Query,
+		"fetched_at":     fetchedAt.Format(time.RFC3339Nano),
+		"results":        resp.Results,
+		"retry_attempts": resp.Attempts,
 	}
 	sourceURLs := make([]string, 0, len(resp.Results))
 	for _, result := range resp.Results {
@@ -172,7 +174,7 @@ func (t webSearchTool) Execute(ctx context.Context, input json.RawMessage) (Tool
 	}, nil
 }
 
-func (t webSearchTool) logSearch(ctx context.Context, query string, results []SearchResult, ok bool, errText string) error {
+func (t webSearchTool) logSearch(ctx context.Context, query string, results []SearchResult, attempts int, ok bool, errText string) error {
 	if t.auditLogger == nil {
 		return nil
 	}
@@ -183,10 +185,11 @@ func (t webSearchTool) logSearch(ctx context.Context, query string, results []Se
 		}
 	}
 	data := map[string]any{
-		"query":        query,
-		"source_urls":  sourceURLs,
-		"result_count": len(results),
-		"ok":           ok,
+		"query":          query,
+		"source_urls":    sourceURLs,
+		"result_count":   len(results),
+		"retry_attempts": attempts,
+		"ok":             ok,
 	}
 	if errText != "" {
 		data["error"] = errText
@@ -277,7 +280,10 @@ func (c duckDuckGoSearchClient) Search(ctx context.Context, req SearchRequest) (
 		return SearchResponse{}, err
 	}
 	httpReq.Header.Set("User-Agent", "icoo-ai/0.1 web_search")
-	resp, err := c.client.Do(httpReq)
+	resp, attempts, err := retryHTTP(searchCtx, 0, func() (*http.Response, error) {
+		reqCopy := httpReq.Clone(searchCtx)
+		return c.client.Do(reqCopy)
+	})
 	if err != nil {
 		return SearchResponse{}, err
 	}
@@ -294,6 +300,7 @@ func (c duckDuckGoSearchClient) Search(ctx context.Context, req SearchRequest) (
 		Provider:  "duckduckgo",
 		FetchedAt: c.now().UTC(),
 		Results:   results,
+		Attempts:  attempts,
 	}, nil
 }
 

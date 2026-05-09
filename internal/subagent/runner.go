@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/icoo-ai/icoo-ai/internal/agent"
+	"github.com/icoo-ai/icoo-ai/internal/audit"
+	"github.com/icoo-ai/icoo-ai/internal/hooks"
 	"github.com/icoo-ai/icoo-ai/internal/llm"
 	"github.com/icoo-ai/icoo-ai/internal/tools"
 )
@@ -38,6 +40,8 @@ type LocalRunnerOptions struct {
 	Model         string
 	MaxToolRounds int
 	Approver      agent.Approver
+	Hooks         hooks.Dispatcher
+	AuditLogger   audit.Logger
 }
 
 type LocalRunner struct {
@@ -46,6 +50,8 @@ type LocalRunner struct {
 	model         string
 	maxToolRounds int
 	approver      agent.Approver
+	hooks         hooks.Dispatcher
+	auditLogger   audit.Logger
 }
 
 func NewLocalRunner(opts LocalRunnerOptions) (*LocalRunner, error) {
@@ -62,6 +68,8 @@ func NewLocalRunner(opts LocalRunnerOptions) (*LocalRunner, error) {
 		model:         opts.Model,
 		maxToolRounds: maxToolRounds,
 		approver:      opts.Approver,
+		hooks:         opts.Hooks,
+		auditLogger:   opts.AuditLogger,
 	}, nil
 }
 
@@ -97,9 +105,11 @@ func (r *LocalRunner) Run(ctx context.Context, req Request) (Result, error) {
 		},
 		Context: agent.WorkspaceContext{Root: cwd},
 		Options: agent.RunOptions{
-			Model:    model,
-			Approver: firstApprover(req.Approver, r.approver),
-			Metadata: req.Metadata,
+			Model:       model,
+			Approver:    firstApprover(req.Approver, r.approver),
+			Hooks:       r.hooks,
+			AuditLogger: r.auditLogger,
+			Metadata:    req.Metadata,
 		},
 	})
 	if err != nil {

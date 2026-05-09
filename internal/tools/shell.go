@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/icoo-ai/icoo-ai/internal/hooks"
 	"github.com/icoo-ai/icoo-ai/internal/policy"
 )
 
@@ -26,6 +27,7 @@ type ShellToolOptions struct {
 	MaxTimeout     time.Duration
 	Policy         policy.Policy
 	Runner         ShellRunner
+	Hooks          hooks.Dispatcher
 }
 
 type ShellRunner interface {
@@ -56,6 +58,7 @@ type shellToolBase struct {
 	maxTimeout     time.Duration
 	policy         policy.Policy
 	runner         ShellRunner
+	hooks          hooks.Dispatcher
 }
 
 type runShellTool struct{ base shellToolBase }
@@ -92,6 +95,7 @@ func newShellToolBase(opts ShellToolOptions) shellToolBase {
 		maxTimeout:     maxTimeout,
 		policy:         p,
 		runner:         runner,
+		hooks:          opts.Hooks,
 	}
 }
 
@@ -169,6 +173,12 @@ func (t runShellTool) executeParsed(ctx context.Context, req shellRequest, appro
 	if approval != "" {
 		data["approval"] = approval
 	}
+	if result, blocked, err := t.base.beforeShellCommand(ctx, req, timeout); blocked || err != nil {
+		if err != nil {
+			return ToolResult{}, err
+		}
+		return result, nil
+	}
 
 	start := time.Now()
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -202,12 +212,19 @@ func (t runShellTool) executeParsed(ctx context.Context, req shellRequest, appro
 	data["stdout"] = result.Stdout
 	data["stderr"] = result.Stderr
 	data["exit_code"] = result.ExitCode
-	return ToolResult{
+	toolResult := ToolResult{
 		OK:      result.ExitCode == 0,
 		Content: shellContent(result),
 		Error:   shellError(result),
 		Data:    data,
-	}, nil
+	}
+	if updated, blocked, err := t.base.afterShellCommand(ctx, req, timeout, toolResult); blocked || err != nil {
+		if err != nil {
+			return ToolResult{}, err
+		}
+		return updated, nil
+	}
+	return toolResult, nil
 }
 
 func (b shellToolBase) resolveWorkingDir(dir string) (string, error) {
@@ -317,4 +334,53 @@ func exitCode(err error) int {
 		return exitErr.ExitCode()
 	}
 	return -1
+}
+
+func (b shellToolBase) beforeShellCommand(ctx context.Context, req shellRequest, timeout time.Duration) (ToolResult, bool, error) {
+	if b.hooks == nil {
+		return ToolResult{}, false, nil
+	}
+	dispatch, err := b.hooks.Dispatch(ctx, hooks.Event{
+		Type: hooks.EventBeforeShellCommand,
+		CWD:  b.workspaceRoot,
+		Name: "run_shell",
+		Data: map[string]any{
+			"command":         req.Command,
+			"working_dir":     req.WorkingDir,
+			"timeout_seconds": int(timeout.Seconds()),
+		},
+	})
+	if err != nil {
+		return ToolResult{}, false, err
+	}
+	if dispatch.Action == hooks.ActionBlock || dispatch.Action == hooks.ActionRequestApproval {
+		return toolError("hook_blocked", dispatch.Reason, map[string]any{"hook_results": dispatch.Results}), true, nil
+	}
+	return ToolResult{}, false, nil
+}
+
+func (b shellToolBase) afterShellCommand(ctx context.Context, req shellRequest, timeout time.Duration, result ToolResult) (ToolResult, bool, error) {
+	if b.hooks == nil {
+		return result, false, nil
+	}
+	dispatch, err := b.hooks.Dispatch(ctx, hooks.Event{
+		Type: hooks.EventAfterShellCommand,
+		CWD:  b.workspaceRoot,
+		Name: "run_shell",
+		Data: map[string]any{
+			"command":         req.Command,
+			"working_dir":     req.WorkingDir,
+			"timeout_seconds": int(timeout.Seconds()),
+			"ok":              result.OK,
+			"result":          result.Data,
+			"error":           result.Error,
+		},
+	})
+	if err != nil {
+		return ToolResult{}, false, err
+	}
+	if dispatch.Action == hooks.ActionBlock {
+		return toolError("hook_blocked", dispatch.Reason, map[string]any{"hook_results": dispatch.Results}), true, nil
+	}
+	return result, false, nil
 }

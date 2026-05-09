@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/icoo-ai/icoo-ai/internal/audit"
+	"github.com/icoo-ai/icoo-ai/internal/hooks"
 	"github.com/icoo-ai/icoo-ai/internal/llm"
 	"github.com/icoo-ai/icoo-ai/internal/tools"
 )
@@ -120,6 +122,22 @@ func (l *ReactLoop) run(ctx context.Context, req RunRequest, out chan<- Event) {
 }
 
 func (l *ReactLoop) executeTool(ctx context.Context, req RunRequest, call tools.ToolCall, out chan<- Event) (tools.ToolResult, bool) {
+	call, hookResult, blocked := l.beforeToolCall(ctx, req, call, out)
+	if blocked {
+		emit(ctx, out, Event{
+			Type:      EventToolCallCompleted,
+			SessionID: req.SessionID,
+			Error:     hookResult.Error,
+			Data: map[string]any{
+				"id":     call.ID,
+				"name":   call.Name,
+				"ok":     hookResult.OK,
+				"result": hookResult.Data,
+			},
+		})
+		return hookResult, true
+	}
+
 	emit(ctx, out, Event{
 		Type:      EventToolCallStarted,
 		SessionID: req.SessionID,
@@ -140,6 +158,7 @@ func (l *ReactLoop) executeTool(ctx context.Context, req RunRequest, call tools.
 	if err != nil {
 		result = tools.ToolResult{OK: false, Error: err.Error()}
 	}
+	result = l.afterToolCall(ctx, req, call, result)
 	emit(ctx, out, Event{
 		Type:      EventToolCallCompleted,
 		SessionID: req.SessionID,
@@ -153,6 +172,106 @@ func (l *ReactLoop) executeTool(ctx context.Context, req RunRequest, call tools.
 		},
 	})
 	return result, true
+}
+
+func (l *ReactLoop) beforeToolCall(ctx context.Context, req RunRequest, call tools.ToolCall, out chan<- Event) (tools.ToolCall, tools.ToolResult, bool) {
+	if req.Options.Hooks == nil {
+		return call, tools.ToolResult{}, false
+	}
+	dispatch, err := req.Options.Hooks.Dispatch(ctx, hooks.Event{
+		Type:      hooks.EventBeforeToolCall,
+		SessionID: req.SessionID,
+		Name:      call.Name,
+		CWD:       req.CWD,
+		Data: map[string]any{
+			"id":        call.ID,
+			"arguments": hookArguments(call.Arguments),
+		},
+	})
+	if err != nil {
+		return call, tools.ToolResult{OK: false, Error: err.Error(), Data: map[string]any{"code": "hook_failed"}}, true
+	}
+	logHookDispatch(ctx, req.Options.AuditLogger, req.SessionID, dispatch)
+	call.Name = dispatch.Event.Name
+	if raw, ok := jsonFromHookArguments(dispatch.Event.Data["arguments"]); ok {
+		call.Arguments = raw
+	}
+	switch dispatch.Action {
+	case hooks.ActionBlock:
+		return call, hookBlockedResult("hook_blocked", dispatch), true
+	case hooks.ActionRequestApproval:
+		result, allowed := l.approveHookDecision(ctx, req, call, dispatch, out)
+		return call, result, !allowed
+	default:
+		return call, tools.ToolResult{}, false
+	}
+}
+
+func (l *ReactLoop) afterToolCall(ctx context.Context, req RunRequest, call tools.ToolCall, result tools.ToolResult) tools.ToolResult {
+	if req.Options.Hooks == nil {
+		return result
+	}
+	dispatch, err := req.Options.Hooks.Dispatch(ctx, hooks.Event{
+		Type:      hooks.EventAfterToolCall,
+		SessionID: req.SessionID,
+		Name:      call.Name,
+		CWD:       req.CWD,
+		Data: map[string]any{
+			"id":      call.ID,
+			"ok":      result.OK,
+			"content": result.Content,
+			"error":   result.Error,
+			"result":  result.Data,
+		},
+	})
+	if err != nil {
+		return tools.ToolResult{OK: false, Error: err.Error(), Data: map[string]any{"code": "hook_failed"}}
+	}
+	logHookDispatch(ctx, req.Options.AuditLogger, req.SessionID, dispatch)
+	if value, ok := dispatch.Event.Data["ok"].(bool); ok {
+		result.OK = value
+	}
+	if value, ok := dispatch.Event.Data["content"].(string); ok {
+		result.Content = value
+	}
+	if value, ok := dispatch.Event.Data["error"].(string); ok {
+		result.Error = value
+	}
+	if value, ok := dispatch.Event.Data["result"].(map[string]any); ok {
+		result.Data = value
+	}
+	if dispatch.Action == hooks.ActionBlock {
+		return hookBlockedResult("hook_blocked", dispatch)
+	}
+	return result
+}
+
+func (l *ReactLoop) approveHookDecision(ctx context.Context, req RunRequest, call tools.ToolCall, dispatch hooks.DispatchResult, out chan<- Event) (tools.ToolResult, bool) {
+	if req.Options.Approver == nil {
+		return hookBlockedResult("approval_required", dispatch), false
+	}
+	emit(ctx, out, Event{
+		Type:      EventApprovalRequested,
+		SessionID: req.SessionID,
+		Content:   dispatch.Reason,
+		Data: map[string]any{
+			"id":     call.ID,
+			"name":   call.Name,
+			"reason": dispatch.Reason,
+			"data":   dispatch.Data,
+		},
+	})
+	decision, err := req.Options.Approver.Approve(ctx, ApprovalRequest{
+		SessionID: req.SessionID,
+		ToolName:  call.Name,
+		ToolCall:  string(call.Arguments),
+		Reason:    dispatch.Reason,
+		Data:      dispatch.Data,
+	})
+	if err != nil || decision == ApprovalDecisionDeny {
+		return hookBlockedResult("approval_denied", dispatch), false
+	}
+	return tools.ToolResult{}, true
 }
 
 func (l *ReactLoop) executeWithApproval(ctx context.Context, req RunRequest, tool tools.Tool, call tools.ToolCall, out chan<- Event) (tools.ToolResult, error) {
@@ -234,4 +353,60 @@ func emit(ctx context.Context, out chan<- Event, event Event) bool {
 	case out <- event:
 		return true
 	}
+}
+
+func hookArguments(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return map[string]any{}
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return map[string]any{"raw": string(raw)}
+	}
+	return decoded
+}
+
+func jsonFromHookArguments(value any) (json.RawMessage, bool) {
+	if value == nil {
+		return nil, false
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, false
+	}
+	return json.RawMessage(data), true
+}
+
+func hookBlockedResult(code string, dispatch hooks.DispatchResult) tools.ToolResult {
+	data := map[string]any{
+		"code":    code,
+		"action":  string(dispatch.Action),
+		"results": dispatch.Results,
+	}
+	if dispatch.Data != nil {
+		data["hook_data"] = dispatch.Data
+	}
+	return tools.ToolResult{OK: false, Error: dispatch.Reason, Data: data}
+}
+
+func logHookDispatch(ctx context.Context, logger audit.Logger, sessionID string, dispatch hooks.DispatchResult) {
+	if logger == nil {
+		return
+	}
+	data := map[string]any{
+		"event_type": dispatch.Event.Type,
+		"event_name": dispatch.Event.Name,
+		"action":     dispatch.Action,
+		"results":    dispatch.Results,
+	}
+	if dispatch.Reason != "" {
+		data["reason"] = dispatch.Reason
+	}
+	_ = logger.Log(ctx, audit.Event{
+		Type:      audit.EventHookUse,
+		SessionID: sessionID,
+		Timestamp: time.Now().UTC(),
+		Summary:   "hook " + string(dispatch.Event.Type) + " " + dispatch.Event.Name,
+		Data:      data,
+	})
 }

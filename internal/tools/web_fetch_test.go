@@ -112,6 +112,46 @@ func TestWebFetchUsesConfiguredHTTPProxy(t *testing.T) {
 	}
 }
 
+func TestWebFetchRetries429UntilSuccess(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests < 3 {
+			http.Error(w, "retry later", http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	tool := NewWebFetchTool(WebFetchOptions{Policy: allowPolicy{}})
+	result := runTool(t, tool, map[string]any{"url": server.URL})
+	if !result.OK || result.Content != "ok" {
+		t.Fatalf("result = %+v", result)
+	}
+	if requests != 3 {
+		t.Fatalf("requests = %d, want 3", requests)
+	}
+}
+
+func TestWebFetchDoesNotRetry400(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "bad request", http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	tool := NewWebFetchTool(WebFetchOptions{Policy: allowPolicy{}})
+	result := runTool(t, tool, map[string]any{"url": server.URL})
+	if result.OK || !strings.Contains(result.Error, "unexpected status 400") {
+		t.Fatalf("result = %+v", result)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
+	}
+}
+
 type allowPolicy struct{}
 
 func (allowPolicy) EvaluateCommand(policy.CommandRequest) policy.Decision {

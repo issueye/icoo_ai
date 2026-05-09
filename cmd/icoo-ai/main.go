@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/icoo-ai/icoo-ai/internal/agent"
 	"github.com/icoo-ai/icoo-ai/internal/app"
 	"github.com/icoo-ai/icoo-ai/internal/config"
+	"github.com/icoo-ai/icoo-ai/internal/tools"
 )
 
 var (
@@ -95,6 +97,9 @@ func runPrompt(ctx context.Context, prompt string) error {
 	if err != nil {
 		return err
 	}
+	if skillName, task, ok := parseExplicitSkillPrompt(prompt); ok {
+		return executeExplicitSkill(ctx, components.Tools, skillName, task)
+	}
 	session, err := components.Runtime.NewSession(ctx, agent.NewSessionRequest{})
 	if err != nil {
 		return err
@@ -125,6 +130,54 @@ func runPrompt(ctx context.Context, prompt string) error {
 		}
 	}
 	fmt.Println()
+	return nil
+}
+
+func parseExplicitSkillPrompt(prompt string) (string, string, bool) {
+	prompt = strings.TrimSpace(prompt)
+	if !strings.HasPrefix(prompt, "/skill ") {
+		return "", "", false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(prompt, "/skill"))
+	if rest == "" {
+		return "", "", true
+	}
+	name, task, found := strings.Cut(rest, " ")
+	if !found {
+		return strings.TrimSpace(rest), "", true
+	}
+	return strings.TrimSpace(name), strings.TrimSpace(task), true
+}
+
+func executeExplicitSkill(ctx context.Context, toolset []tools.Tool, skillName, task string) error {
+	if skillName == "" || task == "" {
+		return fmt.Errorf("usage: /skill <name> <task>")
+	}
+	var executeTool tools.Tool
+	for _, tool := range toolset {
+		if tool.Name() == "skill_execute" {
+			executeTool = tool
+			break
+		}
+	}
+	if executeTool == nil {
+		return fmt.Errorf("skill_execute tool is not available")
+	}
+	input, err := json.Marshal(map[string]any{
+		"name": skillName,
+		"task": task,
+	})
+	if err != nil {
+		return err
+	}
+	result, err := executeTool.Execute(ctx, input)
+	if err != nil {
+		return err
+	}
+	if !result.OK {
+		return errors.New(result.Error)
+	}
+	fmt.Println(result.Content)
 	return nil
 }
 

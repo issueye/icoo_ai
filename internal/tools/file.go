@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/icoo-ai/icoo-ai/internal/hooks"
 	"github.com/icoo-ai/icoo-ai/internal/policy"
 	"github.com/icoo-ai/icoo-ai/internal/workspace"
 )
@@ -28,6 +29,7 @@ type FileToolOptions struct {
 	MaxReadBytes  int64
 	MaxSearchSize int64
 	Policy        policy.Policy
+	Hooks         hooks.Dispatcher
 }
 
 func NewFileTools(opts FileToolOptions) ([]Tool, error) {
@@ -40,6 +42,7 @@ func NewFileTools(opts FileToolOptions) ([]Tool, error) {
 		maxReadBytes:  valueOrDefault(opts.MaxReadBytes, defaultMaxReadBytes),
 		maxSearchSize: valueOrDefault(opts.MaxSearchSize, defaultMaxSearchBytes),
 		policy:        opts.Policy,
+		hooks:         opts.Hooks,
 	}
 	if base.policy == nil {
 		base.policy = policy.New(policy.DefaultPermissionMode)
@@ -58,6 +61,7 @@ type fileToolBase struct {
 	maxReadBytes  int64
 	maxSearchSize int64
 	policy        policy.Policy
+	hooks         hooks.Dispatcher
 }
 
 type listFilesTool struct{ base fileToolBase }
@@ -320,6 +324,17 @@ func (t writeFileTool) Execute(ctx context.Context, input json.RawMessage) (Tool
 		return ToolResult{}, ctx.Err()
 	default:
 	}
+	if result, blocked, err := t.base.beforeFileWrite(ctx, resolved.Abs, map[string]any{
+		"path":           resolved.Abs,
+		"workspace_root": t.base.workspace.Root,
+		"create_dirs":    req.CreateDirs,
+		"bytes":          len(req.Content),
+	}); blocked || err != nil {
+		if err != nil {
+			return ToolResult{}, err
+		}
+		return result, nil
+	}
 	if req.CreateDirs {
 		if err := os.MkdirAll(filepath.Dir(resolved.Abs), 0o755); err != nil {
 			return pathError(err, req.Path), nil
@@ -328,14 +343,18 @@ func (t writeFileTool) Execute(ctx context.Context, input json.RawMessage) (Tool
 	if err := atomicWriteFile(resolved.Abs, []byte(req.Content), 0o644); err != nil {
 		return pathError(err, req.Path), nil
 	}
-	return ToolResult{
+	result := ToolResult{
 		OK:      true,
 		Content: "wrote " + resolved.Rel,
 		Data: map[string]any{
 			"path":  resolved.Rel,
 			"bytes": len(req.Content),
 		},
-	}, nil
+	}
+	if _, _, err := t.base.afterFileWrite(ctx, resolved.Abs, result); err != nil {
+		return ToolResult{}, err
+	}
+	return result, nil
 }
 
 func (t applyPatchTool) Name() string { return "apply_patch" }
@@ -389,17 +408,31 @@ func (t applyPatchTool) Execute(ctx context.Context, input json.RawMessage) (Too
 		return ToolResult{}, ctx.Err()
 	default:
 	}
+	if result, blocked, err := t.base.beforeFileWrite(ctx, resolved.Abs, map[string]any{
+		"path":           resolved.Abs,
+		"workspace_root": t.base.workspace.Root,
+		"bytes":          len(req.New),
+	}); blocked || err != nil {
+		if err != nil {
+			return ToolResult{}, err
+		}
+		return result, nil
+	}
 	updated := bytes.Replace(content, []byte(req.Old), []byte(req.New), 1)
 	if err := atomicWriteFile(resolved.Abs, updated, 0o644); err != nil {
 		return pathError(err, req.Path), nil
 	}
-	return ToolResult{
+	result := ToolResult{
 		OK:      true,
 		Content: "patched " + resolved.Rel,
 		Data: map[string]any{
 			"path": resolved.Rel,
 		},
-	}, nil
+	}
+	if _, _, err := t.base.afterFileWrite(ctx, resolved.Abs, result); err != nil {
+		return ToolResult{}, err
+	}
+	return result, nil
 }
 
 func (b fileToolBase) resolveForRead(path string) (workspace.ResolvedPath, error) {
@@ -445,6 +478,49 @@ func atomicWriteFile(path string, content []byte, mode os.FileMode) error {
 	}
 	cleanup = false
 	return nil
+}
+
+func (b fileToolBase) beforeFileWrite(ctx context.Context, path string, data map[string]any) (ToolResult, bool, error) {
+	if b.hooks == nil {
+		return ToolResult{}, false, nil
+	}
+	dispatch, err := b.hooks.Dispatch(ctx, hooks.Event{
+		Type: hooks.EventBeforeFileWrite,
+		CWD:  b.workspace.Root,
+		Name: "write_file",
+		Data: data,
+	})
+	if err != nil {
+		return ToolResult{}, false, err
+	}
+	if dispatch.Action == hooks.ActionBlock || dispatch.Action == hooks.ActionRequestApproval {
+		return toolError("hook_blocked", dispatch.Reason, map[string]any{"path": path, "hook_results": dispatch.Results}), true, nil
+	}
+	return ToolResult{}, false, nil
+}
+
+func (b fileToolBase) afterFileWrite(ctx context.Context, path string, result ToolResult) (ToolResult, bool, error) {
+	if b.hooks == nil {
+		return result, false, nil
+	}
+	dispatch, err := b.hooks.Dispatch(ctx, hooks.Event{
+		Type: hooks.EventAfterFileWrite,
+		CWD:  b.workspace.Root,
+		Name: "write_file",
+		Data: map[string]any{
+			"path":   path,
+			"ok":     result.OK,
+			"result": result.Data,
+			"error":  result.Error,
+		},
+	})
+	if err != nil {
+		return ToolResult{}, false, err
+	}
+	if dispatch.Action == hooks.ActionBlock {
+		return toolError("hook_blocked", dispatch.Reason, map[string]any{"path": path, "hook_results": dispatch.Results}), true, nil
+	}
+	return result, false, nil
 }
 
 func definition(name, description, schema string) ToolDefinition {

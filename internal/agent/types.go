@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/icoo-ai/icoo-ai/internal/audit"
+	"github.com/icoo-ai/icoo-ai/internal/hooks"
 	"github.com/icoo-ai/icoo-ai/internal/llm"
 	"github.com/icoo-ai/icoo-ai/internal/policy"
 	"github.com/icoo-ai/icoo-ai/internal/tools"
@@ -48,6 +50,8 @@ type RunOptions struct {
 	PermissionMode policy.PermissionMode `json:"permission_mode,omitempty"`
 	MaxToolRounds  int                   `json:"max_tool_rounds,omitempty"`
 	Approver       Approver              `json:"-"`
+	Hooks          hooks.Dispatcher      `json:"-"`
+	AuditLogger    audit.Logger          `json:"-"`
 	Metadata       map[string]any        `json:"metadata,omitempty"`
 }
 
@@ -118,10 +122,19 @@ type Event struct {
 }
 
 type Session struct {
-	ID        string        `json:"id"`
-	CWD       string        `json:"cwd"`
-	Model     string        `json:"model,omitempty"`
-	Messages  []llm.Message `json:"messages,omitempty"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
+	ID        string                `json:"id"`
+	CWD       string                `json:"cwd"`
+	Model     string                `json:"model,omitempty"`
+	Messages  []llm.Message         `json:"messages,omitempty"`
+	Events    []SessionEventSummary `json:"events,omitempty"`
+	CreatedAt time.Time             `json:"created_at"`
+	UpdatedAt time.Time             `json:"updated_at"`
+}
+
+type SessionEventSummary struct {
+	Type      EventType      `json:"type"`
+	Content   string         `json:"content,omitempty"`
+	Error     string         `json:"error,omitempty"`
+	Data      map[string]any `json:"data,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
 }
