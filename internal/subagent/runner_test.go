@@ -2,6 +2,7 @@ package subagent
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/icoo-ai/icoo-ai/internal/agent"
@@ -67,5 +68,8 @@ func TestLocalRunnerGeneratesUniqueDefaultSessionIDs(t *testing.T) {
 	secondID := second.Events[0].SessionID
 	if firstID == "" || secondID == "" || firstID == secondID {
 		t.Fatalf("session ids = %q and %q, want unique non-empty ids", firstID, secondID)
+	}
+	if !strings.HasPrefix(firstID, "subsess_") || !strings.HasPrefix(secondID, "subsess_") {
+		t.Fatalf("session ids = %q and %q, want subagent prefix", firstID, secondID)
 	}
 }

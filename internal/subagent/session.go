@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const sessionIDPrefix = "subsess"
+
 var sessionCounter uint64
 
 func NewSessionID(prefix string) string {
@@ -14,7 +16,7 @@ func NewSessionID(prefix string) string {
 	if prefix == "" {
 		prefix = "subagent"
 	}
-	return fmt.Sprintf("%s_%d_%d", safeSessionPrefix(prefix), time.Now().UTC().UnixNano(), atomic.AddUint64(&sessionCounter, 1))
+	return fmt.Sprintf("%s_%s_%d_%d", sessionIDPrefix, safeSessionPrefix(prefix), time.Now().UTC().UnixNano(), atomic.AddUint64(&sessionCounter, 1))
 }
 
 func safeSessionPrefix(prefix string) string {

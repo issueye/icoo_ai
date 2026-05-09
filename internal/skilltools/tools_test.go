@@ -99,7 +99,7 @@ func TestSkillExecuteDelegatesToSubagent(t *testing.T) {
 	if req.Task != "summarize README" || req.Model != "gpt-test" {
 		t.Fatalf("runner request = %+v", req)
 	}
-	if req.SessionID == "" || !strings.HasPrefix(req.SessionID, "skill_summarize_") {
+	if req.SessionID == "" || !strings.HasPrefix(req.SessionID, "subsess_skill_summarize_") {
 		t.Fatalf("runner session id = %q, want unique skill-prefixed id", req.SessionID)
 	}
 	if result.Data["session_id"] != req.SessionID {

@@ -3,6 +3,7 @@ package subagent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/icoo-ai/icoo-ai/internal/tools"
@@ -46,6 +47,9 @@ func TestToolGeneratesUniqueSessionIDPerRun(t *testing.T) {
 	secondID := runner.requests[1].SessionID
 	if firstID == "" || secondID == "" || firstID == secondID {
 		t.Fatalf("session ids = %q and %q, want unique non-empty ids", firstID, secondID)
+	}
+	if !strings.HasPrefix(firstID, "subsess_subagent_tool_") || !strings.HasPrefix(secondID, "subsess_subagent_tool_") {
+		t.Fatalf("session ids = %q and %q, want subagent tool prefix", firstID, secondID)
 	}
 	if first.Data["session_id"] != firstID || second.Data["session_id"] != secondID {
 		t.Fatalf("result session ids = %+v %+v", first.Data, second.Data)
