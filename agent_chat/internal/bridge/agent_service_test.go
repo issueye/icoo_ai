@@ -562,3 +562,62 @@ func TestServiceShutdown_DoesNotStopWhenNoManagedProcess(t *testing.T) {
 		t.Fatalf("expected stop calls = 0, got %d", stopCalls)
 	}
 }
+
+func TestRestartGateway_StopsManagedProcessAndReconnects(t *testing.T) {
+	t.Parallel()
+
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	managedProcess := &os.Process{Pid: 4242}
+	stopCalled := false
+	svc := NewAgentService()
+	svc.serviceCtx = cancelledCtx
+	svc.gateway = &gatewayProxy{baseURL: "http://127.0.0.1:50001", token: "old"}
+	svc.bootstrap = &gatewayBootstrapper{
+		managedProcess: managedProcess,
+		discover: func(string) (gatewayclient.Endpoint, string, error) {
+			return gatewayclient.Endpoint{BaseURL: "http://127.0.0.1:60001", PID: 9999}, "new-token", nil
+		},
+		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
+			return nil
+		},
+		startProcess: func(context.Context) (*os.Process, error) {
+			return nil, nil
+		},
+		stopProcess: func(p *os.Process) error {
+			if p != managedProcess {
+				t.Fatalf("unexpected process to stop: %#v", p)
+			}
+			stopCalled = true
+			return nil
+		},
+		stopProcessByPID: func(pid int) error {
+			if pid != managedProcess.Pid {
+				t.Fatalf("unexpected pid to stop: %d", pid)
+			}
+			stopCalled = true
+			return nil
+		},
+	}
+
+	status, err := svc.RestartGateway(context.Background())
+	if err != nil {
+		t.Fatalf("RestartGateway returned error: %v", err)
+	}
+	if !stopCalled {
+		t.Fatal("expected managed gateway process to be stopped")
+	}
+	if svc.gateway == nil {
+		t.Fatal("expected gateway proxy to be reloaded")
+	}
+	if svc.gateway.baseURL != "http://127.0.0.1:60001" {
+		t.Fatalf("unexpected gateway baseURL: %s", svc.gateway.baseURL)
+	}
+	if svc.gateway.token != "new-token" {
+		t.Fatalf("unexpected gateway token: %s", svc.gateway.token)
+	}
+	if status.Status != GatewayStatusReady {
+		t.Fatalf("expected status %q, got %q", GatewayStatusReady, status.Status)
+	}
+}

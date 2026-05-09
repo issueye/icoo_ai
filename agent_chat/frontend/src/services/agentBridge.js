@@ -28,6 +28,7 @@ export const agentBridge = {
   listSkills: () => getBridgeMethod('ListSkills')(),
   listAuditEvents: () => getBridgeMethod('ListAuditEvents')(),
   getGatewayStatus: () => getBridgeMethod('GetGatewayStatus')(),
+  restartGateway: () => getBridgeMethod('RestartGateway')(),
   getAppSettings: () => getBridgeMethod('GetAppSettings')(),
   updateAppSettings: (payload = {}) => getBridgeMethod('UpdateAppSettings')(payload),
   newSession: (payload = {}) => getBridgeMethod('NewSession')(payload),

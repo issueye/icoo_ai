@@ -31,11 +31,29 @@ export function DecideApproval(req) {
 }
 
 /**
+ * @returns {$CancellablePromise<$models.AppSettings>}
+ */
+export function GetAppSettings() {
+    return $Call.ByID(1058365984).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType2($result);
+    }));
+}
+
+/**
+ * @returns {$CancellablePromise<$models.GatewayStatus>}
+ */
+export function GetGatewayStatus() {
+    return $Call.ByID(2913885770).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType3($result);
+    }));
+}
+
+/**
  * @returns {$CancellablePromise<$models.ApprovalDecision[]>}
  */
 export function ListApprovals() {
     return $Call.ByID(1954958298).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType2($result);
+        return $$createType4($result);
     }));
 }
 
@@ -44,7 +62,7 @@ export function ListApprovals() {
  */
 export function ListAuditEvents() {
     return $Call.ByID(2019736616).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType4($result);
+        return $$createType6($result);
     }));
 }
 
@@ -53,7 +71,7 @@ export function ListAuditEvents() {
  */
 export function ListConversations() {
     return $Call.ByID(3580566090).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType8($result);
     }));
 }
 
@@ -63,7 +81,7 @@ export function ListConversations() {
  */
 export function ListMessages(sessionID) {
     return $Call.ByID(1810703410, sessionID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType8($result);
+        return $$createType10($result);
     }));
 }
 
@@ -72,7 +90,7 @@ export function ListMessages(sessionID) {
  */
 export function ListRuns() {
     return $Call.ByID(1709216948).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType9($result);
+        return $$createType11($result);
     }));
 }
 
@@ -81,7 +99,7 @@ export function ListRuns() {
  */
 export function ListSkills() {
     return $Call.ByID(2497812148).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType11($result);
+        return $$createType13($result);
     }));
 }
 
@@ -91,7 +109,7 @@ export function ListSkills() {
  */
 export function LoadSession(sessionID) {
     return $Call.ByID(2360595638, sessionID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType5($result);
+        return $$createType7($result);
     }));
 }
 
@@ -101,7 +119,7 @@ export function LoadSession(sessionID) {
  */
 export function NewSession(req) {
     return $Call.ByID(2559977568, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType5($result);
+        return $$createType7($result);
     }));
 }
 
@@ -111,20 +129,41 @@ export function NewSession(req) {
  */
 export function Prompt(req) {
     return $Call.ByID(123951944, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType8($result);
+        return $$createType10($result);
+    }));
+}
+
+/**
+ * @returns {$CancellablePromise<$models.GatewayStatus>}
+ */
+export function RestartGateway() {
+    return $Call.ByID(577559681).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType3($result);
+    }));
+}
+
+/**
+ * @param {$models.AppSettings} $in
+ * @returns {$CancellablePromise<$models.AppSettings>}
+ */
+export function UpdateAppSettings($in) {
+    return $Call.ByID(3859046515, $in).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType2($result);
     }));
 }
 
 // Private type creation functions
 const $$createType0 = $models.RunSummary.createFrom;
 const $$createType1 = $models.ApprovalDecision.createFrom;
-const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = $models.AuditEvent.createFrom;
-const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = $models.Conversation.createFrom;
+const $$createType2 = $models.AppSettings.createFrom;
+const $$createType3 = $models.GatewayStatus.createFrom;
+const $$createType4 = $Create.Array($$createType1);
+const $$createType5 = $models.AuditEvent.createFrom;
 const $$createType6 = $Create.Array($$createType5);
-const $$createType7 = $models.MessageEvent.createFrom;
+const $$createType7 = $models.Conversation.createFrom;
 const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = $Create.Array($$createType0);
-const $$createType10 = $models.SkillInfo.createFrom;
-const $$createType11 = $Create.Array($$createType10);
+const $$createType9 = $models.MessageEvent.createFrom;
+const $$createType10 = $Create.Array($$createType9);
+const $$createType11 = $Create.Array($$createType0);
+const $$createType12 = $models.SkillInfo.createFrom;
+const $$createType13 = $Create.Array($$createType12);

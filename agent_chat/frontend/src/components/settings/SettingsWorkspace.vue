@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { RefreshCcw, RotateCcw, Save } from 'lucide-vue-next'
+import { Power, RefreshCcw, RotateCcw, Save } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 
 const app = useAppStore()
@@ -66,6 +66,15 @@ async function refreshGatewayStatus() {
   })
 }
 
+async function restartGateway() {
+  try {
+    await app.restartGateway()
+    app.pushToast({ type: 'success', message: '网关重启完成' })
+  } catch {
+    app.pushToast({ type: 'error', message: app.gatewaySummary || '网关重启失败' })
+  }
+}
+
 function resetToDefault() {
   gatewayPath.value = './runtime/gateway/agent-gateway.exe'
   gatewayHost.value = '127.0.0.1'
@@ -114,6 +123,9 @@ function resetToDefault() {
         <div class="qq-settings-actions">
           <button class="qq-icon-button" :disabled="disabled" aria-label="恢复默认路径" @click="resetToDefault">
             <RotateCcw class="h-4 w-4" />
+          </button>
+          <button class="qq-icon-button" :disabled="disabled" aria-label="重启网关服务" @click="restartGateway">
+            <Power class="h-4 w-4" />
           </button>
           <button class="qq-icon-button" :disabled="disabled" aria-label="刷新网关状态" @click="refreshGatewayStatus">
             <RefreshCcw class="h-4 w-4" />

@@ -35,6 +35,9 @@ type AgentService struct {
 	gatewayStatus    string
 	gatewaySummary   string
 	gatewayUpdatedAt time.Time
+	serviceCtx       context.Context
+	streamMu         sync.Mutex
+	streamCancel     context.CancelFunc
 }
 
 func NewAgentService() *AgentService {
@@ -48,6 +51,7 @@ func NewAgentService() *AgentService {
 }
 
 func (s *AgentService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
+	s.serviceCtx = ctx
 	if s.eventSink == nil {
 		s.eventSink = func(event MessageEvent) {
 			app := application.Get()
@@ -72,15 +76,48 @@ func (s *AgentService) ServiceStartup(ctx context.Context, _ application.Service
 		}
 	}
 	s.emitGatewayStatus(GatewayStatusReady, "网关连接已就绪", nil)
-	go s.streamGatewayEvents(ctx)
+	s.startGatewayEventStream(ctx)
 	return nil
 }
 
 func (s *AgentService) ServiceShutdown() error {
+	s.stopGatewayEventStream()
 	if s.bootstrap == nil {
 		return nil
 	}
 	return s.bootstrap.StopManagedProcess()
+}
+
+func (s *AgentService) RestartGateway(ctx context.Context) (GatewayStatus, error) {
+	s.emitGatewayStatus(GatewayStatusReconnecting, "正在重启网关服务", nil)
+	s.stopGatewayEventStream()
+	if s.bootstrap != nil {
+		if err := s.bootstrap.StopManagedProcess(); err != nil {
+			return GatewayStatus{}, &BridgeError{
+				Code:      ErrorCodeGatewayBootstrap,
+				Message:   fmt.Sprintf("stop managed gateway process failed: %v", err),
+				Retryable: true,
+			}
+		}
+	}
+	s.mu.Lock()
+	s.gateway = nil
+	s.mu.Unlock()
+	if err := s.ensureGatewayRunning(ctx); err != nil {
+		s.emitGatewayStatus(GatewayStatusFailed, "网关重启失败", map[string]any{
+			"error": err.Error(),
+		})
+		return GatewayStatus{}, err
+	}
+	s.emitGatewayStatus(GatewayStatusReady, "网关重启完成", nil)
+	baseCtx := s.serviceCtx
+	if baseCtx == nil {
+		baseCtx = ctx
+	}
+	if baseCtx != nil {
+		s.startGatewayEventStream(baseCtx)
+	}
+	return s.GetGatewayStatus(ctx)
 }
 
 func (s *AgentService) ensureGatewayRunning(ctx context.Context) error {
@@ -306,6 +343,31 @@ func (s *AgentService) streamGatewayEvents(ctx context.Context) {
 				backoff = 10 * time.Second
 			}
 		}
+	}
+}
+
+func (s *AgentService) startGatewayEventStream(baseCtx context.Context) {
+	if baseCtx == nil {
+		return
+	}
+	s.streamMu.Lock()
+	if s.streamCancel != nil {
+		s.streamCancel()
+		s.streamCancel = nil
+	}
+	streamCtx, cancel := context.WithCancel(baseCtx)
+	s.streamCancel = cancel
+	s.streamMu.Unlock()
+	go s.streamGatewayEvents(streamCtx)
+}
+
+func (s *AgentService) stopGatewayEventStream() {
+	s.streamMu.Lock()
+	cancel := s.streamCancel
+	s.streamCancel = nil
+	s.streamMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 

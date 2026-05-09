@@ -134,6 +134,15 @@ export function Prompt(req) {
 }
 
 /**
+ * @returns {$CancellablePromise<$models.GatewayStatus>}
+ */
+export function RestartGateway() {
+    return $Call.ByID(577559681).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType3($result);
+    }));
+}
+
+/**
  * @param {$models.AppSettings} $in
  * @returns {$CancellablePromise<$models.AppSettings>}
  */
