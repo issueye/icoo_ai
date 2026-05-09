@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"github.com/icoo-ai/icoo-ai/agent_chat/internal/gatewayclient"
 )
 
 type AppSettings struct {
@@ -16,51 +14,57 @@ type AppSettings struct {
 }
 
 func (s *AgentService) settingsFilePath() (string, error) {
-	dir, err := gatewayclient.DefaultDataDir()
-	if err != nil {
-		return "", err
+	return settingsFilePath()
+}
+
+func settingsFilePath() (string, error) {
+	if exe, err := os.Executable(); err == nil && strings.TrimSpace(exe) != "" {
+		return filepath.Join(filepath.Dir(exe), "chat.toml"), nil
 	}
-	return filepath.Join(dir, "chat.toml"), nil
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("resolve settings directory: %w", err)
+	}
+	return filepath.Join(wd, "chat.toml"), nil
 }
 
 func (s *AgentService) GetAppSettings() (AppSettings, error) {
-	path, err := s.settingsFilePath()
+	return loadAppSettings()
+}
+
+func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
+	path, err := settingsFilePath()
+	if err != nil {
+		return AppSettings{}, err
+	}
+	settings := AppSettings{
+		GatewayBinaryPath: strings.TrimSpace(in.GatewayBinaryPath),
+	}
+	if err := writeSettingsFile(path, settings); err != nil {
+		return AppSettings{}, err
+	}
+	return settings, nil
+}
+
+func loadAppSettings() (AppSettings, error) {
+	path, err := settingsFilePath()
 	if err != nil {
 		return AppSettings{}, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return AppSettings{}, nil
+			settings := AppSettings{}
+			if writeErr := writeSettingsFile(path, settings); writeErr != nil {
+				return AppSettings{}, writeErr
+			}
+			return settings, nil
 		}
 		return AppSettings{}, fmt.Errorf("read app settings: %w", err)
 	}
 	settings, err := decodeSettingsTOML(data)
 	if err != nil {
 		return AppSettings{}, fmt.Errorf("decode app settings: %w", err)
-	}
-	return settings, nil
-}
-
-func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
-	path, err := s.settingsFilePath()
-	if err != nil {
-		return AppSettings{}, err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return AppSettings{}, fmt.Errorf("create settings dir: %w", err)
-	}
-	settings := AppSettings{
-		GatewayBinaryPath: strings.TrimSpace(in.GatewayBinaryPath),
-	}
-	data := encodeSettingsTOML(settings)
-	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
-		return AppSettings{}, fmt.Errorf("write app settings: %w", err)
-	}
-	if settings.GatewayBinaryPath == "" {
-		_ = os.Unsetenv("ICOO_GATEWAY_BIN")
-	} else {
-		_ = os.Setenv("ICOO_GATEWAY_BIN", settings.GatewayBinaryPath)
 	}
 	return settings, nil
 }
@@ -103,4 +107,15 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 
 func encodeSettingsTOML(settings AppSettings) []byte {
 	return []byte(fmt.Sprintf("gateway_binary_path = %s", strconv.Quote(settings.GatewayBinaryPath)))
+}
+
+func writeSettingsFile(path string, settings AppSettings) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create settings dir: %w", err)
+	}
+	data := encodeSettingsTOML(settings)
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		return fmt.Errorf("write app settings: %w", err)
+	}
+	return nil
 }

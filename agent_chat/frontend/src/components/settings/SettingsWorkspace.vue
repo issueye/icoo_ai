@@ -73,9 +73,6 @@ function resetToDefault() {
           class="qq-settings-input"
           placeholder="例如：E:/codes/icoo_ai/agent_gateway/dist/agent-gateway.exe"
         />
-        <p class="qq-sidebar-subtitle">
-          保存后会写入本地配置，并在当前进程更新网关启动路径（`ICOO_GATEWAY_BIN`）。
-        </p>
         <div class="qq-settings-actions">
           <button class="qq-icon-button" :disabled="disabled" aria-label="恢复默认路径" @click="resetToDefault">
             <RotateCcw class="h-4 w-4" />

@@ -133,7 +133,8 @@ func defaultStartGatewayProcess(ctx context.Context, devMode bool) error {
 }
 
 func resolveGatewayCommand(devMode bool) (gatewayCommandSpec, error) {
-	if bin := strings.TrimSpace(os.Getenv("ICOO_GATEWAY_BIN")); bin != "" {
+	if settings, err := loadAppSettings(); err == nil && strings.TrimSpace(settings.GatewayBinaryPath) != "" {
+		bin := strings.TrimSpace(settings.GatewayBinaryPath)
 		return gatewayCommandSpec{command: bin}, nil
 	}
 
@@ -165,7 +166,7 @@ func resolveGatewayCommand(devMode bool) (gatewayCommandSpec, error) {
 	}
 
 	if !devMode {
-		return gatewayCommandSpec{}, fmt.Errorf("agent_gateway binary not found; set ICOO_GATEWAY_BIN")
+		return gatewayCommandSpec{}, fmt.Errorf("agent_gateway binary not found")
 	}
 
 	if _, err := exec.LookPath("go"); err != nil {
