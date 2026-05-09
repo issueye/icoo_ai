@@ -1,10 +1,11 @@
 package bridge
 
 import (
-	"encoding/json"
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/icoo-ai/icoo-ai/agent_chat/internal/gatewayclient"
@@ -19,7 +20,7 @@ func (s *AgentService) settingsFilePath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "agent_chat.settings.json"), nil
+	return filepath.Join(dir, "chat.toml"), nil
 }
 
 func (s *AgentService) GetAppSettings() (AppSettings, error) {
@@ -34,8 +35,8 @@ func (s *AgentService) GetAppSettings() (AppSettings, error) {
 		}
 		return AppSettings{}, fmt.Errorf("read app settings: %w", err)
 	}
-	var settings AppSettings
-	if err := json.Unmarshal(data, &settings); err != nil {
+	settings, err := decodeSettingsTOML(data)
+	if err != nil {
 		return AppSettings{}, fmt.Errorf("decode app settings: %w", err)
 	}
 	return settings, nil
@@ -52,10 +53,7 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 	settings := AppSettings{
 		GatewayBinaryPath: strings.TrimSpace(in.GatewayBinaryPath),
 	}
-	data, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return AppSettings{}, fmt.Errorf("encode app settings: %w", err)
-	}
+	data := encodeSettingsTOML(settings)
 	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 		return AppSettings{}, fmt.Errorf("write app settings: %w", err)
 	}
@@ -65,4 +63,44 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 		_ = os.Setenv("ICOO_GATEWAY_BIN", settings.GatewayBinaryPath)
 	}
 	return settings, nil
+}
+
+func decodeSettingsTOML(data []byte) (AppSettings, error) {
+	settings := AppSettings{}
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		commentIndex := strings.Index(line, "#")
+		if commentIndex >= 0 {
+			line = strings.TrimSpace(line[:commentIndex])
+			if line == "" {
+				continue
+			}
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key != "gateway_binary_path" {
+			continue
+		}
+		unquoted, err := strconv.Unquote(value)
+		if err != nil {
+			return AppSettings{}, err
+		}
+		settings.GatewayBinaryPath = strings.TrimSpace(unquoted)
+	}
+	if err := scanner.Err(); err != nil {
+		return AppSettings{}, err
+	}
+	return settings, nil
+}
+
+func encodeSettingsTOML(settings AppSettings) []byte {
+	return []byte(fmt.Sprintf("gateway_binary_path = %s", strconv.Quote(settings.GatewayBinaryPath)))
 }
