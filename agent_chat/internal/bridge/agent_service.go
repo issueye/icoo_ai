@@ -2,9 +2,17 @@ package bridge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path"
 	"strings"
 	"time"
+
+	"github.com/icoo-ai/icoo-ai/agent_chat/internal/gatewayclient"
 )
 
 type AgentService struct {
@@ -14,6 +22,8 @@ type AgentService struct {
 	runs          []RunSummary
 	approvals     []ApprovalDecision
 	auditEvents   []AuditEvent
+	gateway       *gatewayProxy
+	devFallback   bool
 }
 
 func NewAgentService() *AgentService {
@@ -46,10 +56,22 @@ func NewAgentService() *AgentService {
 			{ID: "audit_1", SessionID: "sess_main_20260509_001", Type: "tool_result_summary", Level: "info", Summary: "只保存 outputBytes/outputHash/persistedOutput=false。", CreatedAt: now},
 			{ID: "audit_2", SessionID: "sess_main_20260509_001", Type: "approval_requested", Level: "notice", Summary: "等待用户审批写入运行摘要。", CreatedAt: now},
 		},
+		gateway:     loadGatewayProxy(),
+		devFallback: shouldEnableDevFallback(),
 	}
 }
 
 func (s *AgentService) NewSession(ctx context.Context, req NewSessionRequest) (Conversation, error) {
+	if s.gateway != nil {
+		var out Conversation
+		err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions", req, &out)
+		if err == nil {
+			return out, nil
+		}
+		if !s.shouldFallback(err) {
+			return Conversation{}, err
+		}
+	}
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
 		title = "新的 Agent 会话"
@@ -72,6 +94,16 @@ func (s *AgentService) NewSession(ctx context.Context, req NewSessionRequest) (C
 }
 
 func (s *AgentService) LoadSession(ctx context.Context, sessionID string) (Conversation, error) {
+	if s.gateway != nil {
+		var out Conversation
+		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID), nil, &out)
+		if err == nil {
+			return out, nil
+		}
+		if !s.shouldFallback(err) {
+			return Conversation{}, err
+		}
+	}
 	for _, conversation := range s.conversations {
 		if conversation.ID == sessionID {
 			return conversation, nil
@@ -81,13 +113,33 @@ func (s *AgentService) LoadSession(ctx context.Context, sessionID string) (Conve
 }
 
 func (s *AgentService) ListConversations(ctx context.Context) ([]Conversation, error) {
+	if s.gateway != nil {
+		var out []Conversation
+		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions", nil, &out)
+		if err == nil {
+			return out, nil
+		}
+		if !s.shouldFallback(err) {
+			return nil, err
+		}
+	}
 	return append([]Conversation(nil), s.conversations...), nil
 }
 
 func (s *AgentService) Prompt(ctx context.Context, req PromptRequest) ([]MessageEvent, error) {
+	if s.gateway != nil {
+		var out []MessageEvent
+		err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(req.SessionID)+"/prompt", req, &out)
+		if err == nil {
+			return out, nil
+		}
+		if !s.shouldFallback(err) {
+			return nil, err
+		}
+	}
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
-		return nil, fmt.Errorf("prompt is required")
+		return nil, &BridgeError{Code: ErrorCodeInvalidArgument, Message: "prompt is required", Retryable: false}
 	}
 	createdAt := s.now.Add(time.Duration(len(s.messages)) * time.Second)
 	userMessage := MessageEvent{
@@ -113,6 +165,16 @@ func (s *AgentService) Prompt(ctx context.Context, req PromptRequest) ([]Message
 }
 
 func (s *AgentService) Cancel(ctx context.Context, sessionID string) (RunSummary, error) {
+	if s.gateway != nil {
+		var out RunSummary
+		err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/cancel", nil, &out)
+		if err == nil {
+			return out, nil
+		}
+		if !s.shouldFallback(err) {
+			return RunSummary{}, err
+		}
+	}
 	s.touchConversation(sessionID, "运行已取消", "cancelled")
 	run := RunSummary{ID: fmt.Sprintf("run_cancel_%d", len(s.runs)+1), SessionID: sessionID, Status: "cancelled", Label: "运行已取消", StartedAt: s.now, CompletedAt: &s.now}
 	s.runs = append(s.runs, run)
@@ -120,6 +182,16 @@ func (s *AgentService) Cancel(ctx context.Context, sessionID string) (RunSummary
 }
 
 func (s *AgentService) ListMessages(ctx context.Context, sessionID string) ([]MessageEvent, error) {
+	if s.gateway != nil {
+		var out []MessageEvent
+		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID)+"/messages", nil, &out)
+		if err == nil {
+			return out, nil
+		}
+		if !s.shouldFallback(err) {
+			return nil, err
+		}
+	}
 	filtered := make([]MessageEvent, 0, len(s.messages))
 	for _, item := range s.messages {
 		if item.SessionID == sessionID {
@@ -130,14 +202,44 @@ func (s *AgentService) ListMessages(ctx context.Context, sessionID string) ([]Me
 }
 
 func (s *AgentService) ListRuns(ctx context.Context) ([]RunSummary, error) {
+	if s.gateway != nil {
+		var out []RunSummary
+		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/runs", nil, &out)
+		if err == nil {
+			return out, nil
+		}
+		if !s.shouldFallback(err) {
+			return nil, err
+		}
+	}
 	return append([]RunSummary(nil), s.runs...), nil
 }
 
 func (s *AgentService) ListApprovals(ctx context.Context) ([]ApprovalDecision, error) {
+	if s.gateway != nil {
+		var out []ApprovalDecision
+		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/approvals", nil, &out)
+		if err == nil {
+			return out, nil
+		}
+		if !s.shouldFallback(err) {
+			return nil, err
+		}
+	}
 	return append([]ApprovalDecision(nil), s.approvals...), nil
 }
 
 func (s *AgentService) DecideApproval(ctx context.Context, req ApprovalDecisionRequest) (ApprovalDecision, error) {
+	if s.gateway != nil {
+		var out ApprovalDecision
+		err := s.gatewayJSON(ctx, http.MethodPost, "/v1/approvals/"+url.PathEscape(req.ID)+"/decision", req, &out)
+		if err == nil {
+			return out, nil
+		}
+		if !s.shouldFallback(err) {
+			return ApprovalDecision{}, err
+		}
+	}
 	decision := ApprovalDecision{ID: req.ID, SessionID: req.SessionID, Decision: req.Decision, Actor: "user", Summary: "用户已处理审批请求", CreatedAt: s.now}
 	for i := range s.approvals {
 		if s.approvals[i].ID == req.ID {
@@ -156,6 +258,16 @@ func (s *AgentService) DecideApproval(ctx context.Context, req ApprovalDecisionR
 }
 
 func (s *AgentService) ListSkills(ctx context.Context) ([]SkillInfo, error) {
+	if s.gateway != nil {
+		var out []SkillInfo
+		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/skills", nil, &out)
+		if err == nil {
+			return out, nil
+		}
+		if !s.shouldFallback(err) {
+			return nil, err
+		}
+	}
 	return []SkillInfo{{ID: "security-auditor", Name: "security-auditor", Description: "审查敏感输出与权限边界。"}}, nil
 }
 
@@ -179,4 +291,98 @@ func fallbackString(value string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+type gatewayProxy struct {
+	client  *http.Client
+	baseURL string
+	token   string
+}
+
+func loadGatewayProxy() *gatewayProxy {
+	discoveryPath := strings.TrimSpace(os.Getenv("ICOO_GATEWAY_DISCOVERY_PATH"))
+	endpoint, token, err := gatewayclient.DiscoverFromPath(discoveryPath)
+	if err != nil {
+		return nil
+	}
+	if override := strings.TrimSpace(os.Getenv("ICOO_GATEWAY_TOKEN")); override != "" {
+		token = override
+	}
+	return &gatewayProxy{
+		client:  http.DefaultClient,
+		baseURL: strings.TrimRight(endpoint.BaseURL, "/"),
+		token:   strings.TrimSpace(token),
+	}
+}
+
+func shouldEnableDevFallback() bool {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ICOO_BRIDGE_DEV_FALLBACK")), "false") {
+		return false
+	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("ICOO_BRIDGE_ENV")))
+	return env == "" || env == "dev" || env == "development"
+}
+
+func (s *AgentService) gatewayJSON(ctx context.Context, method, rawPath string, payload any, out any) error {
+	if s.gateway == nil {
+		return &BridgeError{Code: ErrorCodeGatewayUnavailable, Message: "gateway client is not configured", Retryable: true}
+	}
+	u, err := url.Parse(s.gateway.baseURL)
+	if err != nil {
+		return &BridgeError{Code: ErrorCodeGatewayUnavailable, Message: "gateway base URL is invalid", Retryable: false}
+	}
+	u.Path = path.Join(u.Path, rawPath)
+	var body io.Reader
+	if payload != nil {
+		data, marshalErr := json.Marshal(payload)
+		if marshalErr != nil {
+			return &BridgeError{Code: ErrorCodeGatewayRequest, Message: "encode gateway request failed", Retryable: false}
+		}
+		body = strings.NewReader(string(data))
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
+	if err != nil {
+		return &BridgeError{Code: ErrorCodeGatewayRequest, Message: "build gateway request failed", Retryable: false}
+	}
+	req.Header.Set("Accept", "application/json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if s.gateway.token != "" {
+		req.Header.Set("Authorization", "Bearer "+s.gateway.token)
+	}
+	resp, err := s.gateway.client.Do(req)
+	if err != nil {
+		return &BridgeError{Code: ErrorCodeGatewayUnavailable, Message: "gateway is unreachable", Retryable: true}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return &BridgeError{Code: ErrorCodeGatewayAuthFailed, Message: "gateway token is invalid or expired", StatusCode: resp.StatusCode, Retryable: false}
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		message := strings.TrimSpace(string(detail))
+		if message == "" {
+			message = fmt.Sprintf("gateway request failed with status %d", resp.StatusCode)
+		}
+		return &BridgeError{Code: ErrorCodeGatewayRequest, Message: message, StatusCode: resp.StatusCode, Retryable: resp.StatusCode >= 500}
+	}
+	if out == nil {
+		return nil
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return &BridgeError{Code: ErrorCodeGatewayRequest, Message: "decode gateway response failed", Retryable: false}
+	}
+	return nil
+}
+
+func (s *AgentService) shouldFallback(err error) bool {
+	if !s.devFallback {
+		return false
+	}
+	bridgeErr, ok := err.(*BridgeError)
+	if !ok {
+		return false
+	}
+	return bridgeErr.Code == ErrorCodeGatewayUnavailable
 }

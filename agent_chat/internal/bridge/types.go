@@ -2,6 +2,29 @@ package bridge
 
 import "time"
 
+type ErrorCode string
+
+const (
+	ErrorCodeGatewayUnavailable ErrorCode = "gateway_unavailable"
+	ErrorCodeGatewayAuthFailed  ErrorCode = "gateway_auth_failed"
+	ErrorCodeGatewayRequest     ErrorCode = "gateway_request_failed"
+	ErrorCodeInvalidArgument    ErrorCode = "invalid_argument"
+)
+
+type BridgeError struct {
+	Code       ErrorCode `json:"code"`
+	Message    string    `json:"message"`
+	StatusCode int       `json:"statusCode,omitempty"`
+	Retryable  bool      `json:"retryable"`
+}
+
+func (e *BridgeError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return string(e.Code) + ": " + e.Message
+}
+
 type Conversation struct {
 	ID              string    `json:"id"`
 	Type            string    `json:"type"`

@@ -6,6 +6,7 @@ import (
 )
 
 var ErrMissingID = errors.New("store: missing required id")
+var ErrInvalidConfig = errors.New("store: invalid config")
 
 type Store interface {
 	UpsertConversation(ctx context.Context, conversation Conversation) error
@@ -19,4 +20,8 @@ type Store interface {
 	ListApprovals(ctx context.Context) ([]ApprovalDecision, error)
 	AppendAudit(ctx context.Context, event AuditEvent) error
 	ListAuditEvents(ctx context.Context) ([]AuditEvent, error)
+}
+
+type JSONLConfig struct {
+	Dir string
 }

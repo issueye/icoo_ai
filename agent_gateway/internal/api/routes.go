@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
 )
 
 type Handler struct {
 	service service.GatewayService
+	bus     *events.Bus
 }
 
 type ErrorResponse struct {
@@ -20,7 +22,10 @@ type ErrorResponse struct {
 }
 
 func NewRouter(gateway service.GatewayService) http.Handler {
-	h := &Handler{service: gateway}
+	h := &Handler{
+		service: gateway,
+		bus:     events.DefaultBus(),
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/agents", h.handleAgents)
 	mux.HandleFunc("/v1/sessions", h.handleSessions)
@@ -28,6 +33,7 @@ func NewRouter(gateway service.GatewayService) http.Handler {
 	mux.HandleFunc("/v1/runs", h.handleRuns)
 	mux.HandleFunc("/v1/approvals", h.handleApprovals)
 	mux.HandleFunc("/v1/approvals/", h.handleApprovalAction)
+	mux.HandleFunc("/v1/events/stream", h.handleEventStream)
 	return mux
 }
 
