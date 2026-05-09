@@ -30,7 +30,7 @@
     --nav-rail-width: 64px;
     --conversation-sidebar-width: 288px;
     --global-header-height: 40px;
-    --chat-header-height: 64px;
+    --chat-header-height: 104px;
     --composer-height: 168px;
     --chat-content-max-width: 1180px;
     --message-max-width: 680px;
@@ -397,11 +397,12 @@
   .qq-chat-header {
     display: flex;
     height: var(--chat-header-height);
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     border-bottom: 1px solid var(--qq-border);
     background: rgba(247, 252, 255, 0.72);
-    padding: 0 20px;
+    gap: 14px;
+    padding: 12px 20px;
   }
 
   .qq-chat-title {
@@ -418,6 +419,114 @@
     color: #16864a;
     font-size: 12px;
     line-height: 17px;
+  }
+
+  .qq-context-bar {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 9px;
+  }
+
+  .qq-context-dropdown {
+    position: relative;
+    max-width: 230px;
+  }
+
+  .qq-context-trigger {
+    display: inline-flex;
+    height: 30px;
+    width: 100%;
+    max-width: 230px;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid rgba(83, 151, 181, 0.16);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.62);
+    padding: 0 8px;
+    color: var(--qq-text-soft);
+    font-size: 12px;
+    line-height: 18px;
+    transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  .qq-context-trigger:hover,
+  .qq-context-trigger:focus-visible,
+  .qq-context-dropdown.is-open .qq-context-trigger {
+    border-color: rgba(19, 174, 228, 0.36);
+    background: rgba(255, 255, 255, 0.88);
+    box-shadow: 0 0 0 2px rgba(19, 174, 228, 0.12);
+    outline: none;
+  }
+
+  .qq-context-label {
+    flex-shrink: 0;
+    color: var(--qq-text-muted);
+  }
+
+  .qq-context-value {
+    min-width: 58px;
+    max-width: 122px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--qq-text);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 18px;
+  }
+
+  .qq-context-chevron {
+    flex-shrink: 0;
+    color: var(--qq-text-muted);
+    transition: transform 160ms ease;
+  }
+
+  .qq-context-dropdown.is-open .qq-context-chevron {
+    transform: rotate(180deg);
+  }
+
+  .qq-context-menu {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 6px);
+    left: 0;
+    width: max(100%, 180px);
+    max-height: 210px;
+    overflow-y: auto;
+    border: 1px solid var(--qq-border-strong);
+    border-radius: 8px;
+    background: rgba(249, 253, 255, 0.98);
+    padding: 5px;
+    box-shadow: var(--qq-shadow-float);
+    outline: none;
+  }
+
+  .qq-context-option {
+    display: flex;
+    width: 100%;
+    height: 30px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border-radius: 6px;
+    padding: 0 8px;
+    color: var(--qq-text-soft);
+    font-size: 12px;
+    line-height: 18px;
+    text-align: left;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .qq-context-option.is-active {
+    background: rgba(19, 174, 228, 0.10);
+    color: var(--qq-text);
+  }
+
+  .qq-context-option.is-selected {
+    color: #04749c;
+    font-weight: 700;
   }
 
   .qq-message-timeline {

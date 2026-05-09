@@ -57,7 +57,10 @@ export const agentBridge = {
       status: 'idle',
       updatedAt: new Date().toISOString(),
       avatar: 'agent',
-      model: 'gpt-5.4',
+      workspaceId: payload.workspaceId ?? 'workspace_current',
+      cwd: payload.cwd ?? 'E:/code/issueye/icoo_ai',
+      mode: payload.mode ?? 'agent',
+      model: payload.model ?? 'gpt-5.4',
     }
     const result = await callOrMock('NewSession', conversation, payload)
     if (!mockState.conversations.some((item) => item.id === result.id)) {

@@ -22,9 +22,9 @@ func NewAgentService() *AgentService {
 	return &AgentService{
 		now: now,
 		conversations: []Conversation{
-			{ID: "sess_main_20260509_001", Type: "main", Title: "session 事件持久化", Subtitle: "记录 tool call / result / approval 摘要", Status: "waiting_approval", UnreadCount: 2, UpdatedAt: now, Model: "gpt-5.4"},
-			{ID: "subsess_review_20260509_001", Type: "subagent", Title: "Review Worker", Subtitle: "检查持久化边界与敏感输出策略", Status: "completed", UpdatedAt: now, ParentSessionID: "sess_main_20260509_001", Skill: "security-auditor"},
-			{ID: "sess_ui_20260509_002", Type: "main", Title: "桌面聊天 UI", Subtitle: "Wails + Vue + Pinia 初版骨架", Status: "running", UpdatedAt: now, Model: "gpt-5.4"},
+			{ID: "sess_main_20260509_001", Type: "main", Title: "session 事件持久化", Subtitle: "记录 tool call / result / approval 摘要", Status: "waiting_approval", UnreadCount: 2, UpdatedAt: now, WorkspaceID: "workspace_current", CWD: "E:/code/issueye/icoo_ai", Mode: "agent", Model: "gpt-5.4"},
+			{ID: "subsess_review_20260509_001", Type: "subagent", Title: "Review Worker", Subtitle: "检查持久化边界与敏感输出策略", Status: "completed", UpdatedAt: now, ParentSessionID: "sess_main_20260509_001", Skill: "security-auditor", WorkspaceID: "workspace_current", CWD: "E:/code/issueye/icoo_ai", Mode: "review", Model: "gpt-5.3-codex"},
+			{ID: "sess_ui_20260509_002", Type: "main", Title: "桌面聊天 UI", Subtitle: "Wails + Vue + Pinia 初版骨架", Status: "running", UpdatedAt: now, WorkspaceID: "workspace_agent_chat", CWD: "E:/code/issueye/icoo_ai/agent_chat", Mode: "chat", Model: "gpt-5.4"},
 		},
 		messages: []MessageEvent{
 			{ID: "msg_1", SessionID: "sess_main_20260509_001", Kind: "message", Role: "user", Content: "为 session 增加最小可用的事件/运行摘要持久化能力。", CreatedAt: now},
@@ -56,13 +56,16 @@ func (s *AgentService) NewSession(ctx context.Context, req NewSessionRequest) (C
 	}
 	sessionID := fmt.Sprintf("sess_mock_%d", len(s.conversations)+1)
 	conversation := Conversation{
-		ID:        sessionID,
-		Type:      "main",
-		Title:     title,
-		Subtitle:  "已创建 mock 会话，等待输入",
-		Status:    "idle",
-		UpdatedAt: s.now,
-		Model:     "gpt-5.4",
+		ID:          sessionID,
+		Type:        "main",
+		Title:       title,
+		Subtitle:    "已创建 mock 会话，等待输入",
+		Status:      "idle",
+		UpdatedAt:   s.now,
+		WorkspaceID: fallbackString(req.WorkspaceID, "workspace_current"),
+		CWD:         fallbackString(req.Cwd, "E:/code/issueye/icoo_ai"),
+		Mode:        fallbackString(req.Mode, "agent"),
+		Model:       fallbackString(req.Model, "gpt-5.4"),
 	}
 	s.conversations = append([]Conversation{conversation}, s.conversations...)
 	return conversation, nil
@@ -169,4 +172,11 @@ func (s *AgentService) touchConversation(sessionID string, subtitle string, stat
 			return
 		}
 	}
+}
+
+func fallbackString(value string, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }

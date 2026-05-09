@@ -12,17 +12,27 @@ type Conversation struct {
 	UpdatedAt       time.Time `json:"updatedAt"`
 	ParentSessionID string    `json:"parentSessionId,omitempty"`
 	Skill           string    `json:"skill,omitempty"`
+	WorkspaceID     string    `json:"workspaceId,omitempty"`
+	CWD             string    `json:"cwd,omitempty"`
+	Mode            string    `json:"mode,omitempty"`
 	Model           string    `json:"model,omitempty"`
 }
 
 type NewSessionRequest struct {
-	Title string `json:"title"`
-	Cwd   string `json:"cwd,omitempty"`
+	Title       string `json:"title"`
+	Cwd         string `json:"cwd,omitempty"`
+	WorkspaceID string `json:"workspaceId,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+	Model       string `json:"model,omitempty"`
 }
 
 type PromptRequest struct {
-	SessionID string `json:"sessionId"`
-	Prompt    string `json:"prompt"`
+	SessionID   string `json:"sessionId"`
+	Prompt      string `json:"prompt"`
+	Cwd         string `json:"cwd,omitempty"`
+	WorkspaceID string `json:"workspaceId,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+	Model       string `json:"model,omitempty"`
 }
 
 type ApprovalDecisionRequest struct {

@@ -1,9 +1,9 @@
 ﻿const now = new Date('2026-05-09T10:30:00+08:00').toISOString()
 
 export const mockConversations = [
-  { id: 'sess_main_20260509_001', type: 'main', title: 'session 事件持久化', subtitle: '记录 tool call / result / approval 摘要', unreadCount: 2, status: 'waiting_approval', updatedAt: now, avatar: 'agent', model: 'gpt-5.4' },
-  { id: 'subsess_review_20260509_001', type: 'subagent', title: 'Review Worker', subtitle: '检查持久化边界与敏感输出策略', unreadCount: 0, status: 'completed', updatedAt: now, avatar: 'subagent', parentSessionId: 'sess_main_20260509_001', skill: 'security-auditor' },
-  { id: 'sess_ui_20260509_002', type: 'main', title: '桌面聊天 UI', subtitle: 'Wails + Vue + Pinia 初版骨架', unreadCount: 0, status: 'running', updatedAt: now, avatar: 'workspace', model: 'gpt-5.4' },
+  { id: 'sess_main_20260509_001', type: 'main', title: 'session 事件持久化', subtitle: '记录 tool call / result / approval 摘要', unreadCount: 2, status: 'waiting_approval', updatedAt: now, avatar: 'agent', workspaceId: 'workspace_current', cwd: 'E:/code/issueye/icoo_ai', mode: 'agent', model: 'gpt-5.4' },
+  { id: 'subsess_review_20260509_001', type: 'subagent', title: 'Review Worker', subtitle: '检查持久化边界与敏感输出策略', unreadCount: 0, status: 'completed', updatedAt: now, avatar: 'subagent', parentSessionId: 'sess_main_20260509_001', skill: 'security-auditor', workspaceId: 'workspace_current', cwd: 'E:/code/issueye/icoo_ai', mode: 'review', model: 'gpt-5.3-codex' },
+  { id: 'sess_ui_20260509_002', type: 'main', title: '桌面聊天 UI', subtitle: 'Wails + Vue + Pinia 初版骨架', unreadCount: 0, status: 'running', updatedAt: now, avatar: 'workspace', workspaceId: 'workspace_agent_chat', cwd: 'E:/code/issueye/icoo_ai/agent_chat', mode: 'chat', model: 'gpt-5.4' },
 ]
 
 export const mockMessages = [

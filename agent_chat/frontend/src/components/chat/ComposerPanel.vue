@@ -11,12 +11,18 @@ const messages = useMessagesStore()
 const runs = useRunsStore()
 const activeSessionId = computed(() => conversations.activeSessionId)
 const sending = computed(() => Boolean(messages.sendingBySessionId[activeSessionId.value]))
+const activeContextText = computed(() => `${conversations.activeWorkspace.label} · ${conversations.activeMode.label} · ${conversations.activeModel.label}`)
 
 async function sendPrompt() {
   if (!activeSessionId.value || sending.value || !draft.value.trim()) return
   const prompt = draft.value
   draft.value = ''
-  await messages.sendPrompt(activeSessionId.value, prompt)
+  await messages.sendPrompt(activeSessionId.value, prompt, {
+    workspaceId: conversations.activeWorkspace.id,
+    cwd: conversations.activeWorkspace.path,
+    mode: conversations.activeMode.id,
+    model: conversations.activeModel.id,
+  })
   await conversations.loadConversations()
 }
 
@@ -39,7 +45,7 @@ function handleKeydown(event) {
     <div class="qq-composer-inner">
       <textarea v-model="draft" class="qq-textarea" placeholder="输入消息，或使用 /skill 启动 subagent..." @keydown="handleKeydown" />
       <div class="mt-3 flex items-center justify-between gap-3 text-xs text-[color:var(--qq-text-muted)]">
-        <span>Enter 发送 · Shift+Enter 换行 · 工具大输出仅保存摘要</span>
+        <span class="min-w-0 truncate">Enter 发送 · Shift+Enter 换行 · {{ activeContextText }}</span>
         <div class="flex items-center gap-2">
           <button class="qq-icon-button px-3 text-sm font-medium" aria-label="停止运行" @click="cancelRun">
             <Square class="h-4 w-4" />

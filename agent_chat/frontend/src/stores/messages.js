@@ -31,13 +31,13 @@ export const useMessagesStore = defineStore('messages', {
         else this.items.push(item)
       }
     },
-    async sendPrompt(sessionId, prompt) {
+    async sendPrompt(sessionId, prompt, context = {}) {
       const content = prompt.trim()
       if (!sessionId || !content) return []
       this.sendingBySessionId = { ...this.sendingBySessionId, [sessionId]: true }
       this.error = null
       try {
-        const events = await agentBridge.prompt({ sessionId, prompt: content })
+        const events = await agentBridge.prompt({ sessionId, prompt: content, ...context })
         this.appendItems(events)
         return events
       } catch (error) {
