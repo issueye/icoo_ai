@@ -10,7 +10,7 @@ export const mockMessages = [
   { id: 'msg_1', sessionId: 'sess_main_20260509_001', role: 'user', kind: 'message', content: '为 session 增加最小可用的事件/运行摘要持久化能力。', createdAt: now },
   { id: 'msg_2', sessionId: 'sess_main_20260509_001', role: 'assistant', kind: 'message', content: '我会先记录必要元信息，避免把敏感大输出落盘。', createdAt: now },
   { id: 'tool_1', sessionId: 'sess_main_20260509_001', kind: 'tool_call', toolName: 'shell', status: 'completed', durationMs: 86, summary: '读取 session store 相关文件', safeMeta: { command: 'rg session', outputBytes: 18432, outputHash: 'sha256:4b7c...91af', persistedOutput: false }, createdAt: now },
-  { id: 'approval_1', sessionId: 'sess_main_20260509_001', kind: 'approval', title: '写入 session summary', decision: 'approved', summary: '允许写入摘要索引，不允许保存完整 tool result。', createdAt: now },
+  { id: 'approval_1', sessionId: 'sess_main_20260509_001', kind: 'approval', title: '写入 session summary', status: 'pending', decision: 'pending', summary: '允许写入摘要索引，不允许保存完整 tool result。', createdAt: now },
   { id: 'run_1', sessionId: 'sess_main_20260509_001', kind: 'subagent_run', subSessionId: 'subsess_review_20260509_001', parentSessionId: 'sess_main_20260509_001', task: '安全审查事件持久化方案', status: 'completed', summary: '未发现敏感大输出落盘路径。', eventCount: 12, createdAt: now },
   { id: 'msg_sub_1', sessionId: 'subsess_review_20260509_001', role: 'assistant', kind: 'message', content: 'subagent 使用独立会话 ID：subsess_review_20260509_001。', createdAt: now },
   { id: 'msg_ui_1', sessionId: 'sess_ui_20260509_002', role: 'assistant', kind: 'message', content: '正在生成三栏桌面聊天布局。', createdAt: now },
@@ -22,7 +22,7 @@ export const mockRuns = [
 ]
 
 export const mockApprovals = [
-  { id: 'approval_1', sessionId: 'sess_main_20260509_001', decision: 'approved', actor: 'user', summary: '允许保存摘要元信息', createdAt: now },
+  { id: 'approval_1', sessionId: 'sess_main_20260509_001', decision: 'pending', actor: 'user', summary: '允许保存摘要元信息', createdAt: now },
 ]
 
 export const mockSkills = [
@@ -32,5 +32,5 @@ export const mockSkills = [
 
 export const mockAuditEvents = [
   { id: 'audit_1', sessionId: 'sess_main_20260509_001', type: 'tool_result_summary', level: 'info', summary: '仅保存 outputBytes/outputHash/persistedOutput=false。', createdAt: now },
-  { id: 'audit_2', sessionId: 'sess_main_20260509_001', type: 'approval_decision', level: 'notice', summary: '用户批准写入运行摘要。', createdAt: now },
+  { id: 'audit_2', sessionId: 'sess_main_20260509_001', type: 'approval_requested', level: 'notice', summary: '等待用户审批写入运行摘要。', createdAt: now },
 ]

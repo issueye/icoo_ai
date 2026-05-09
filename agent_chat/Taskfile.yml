@@ -1,0 +1,44 @@
+version: '3'
+
+vars:
+  APP_NAME: agent_chat
+  BIN_DIR: bin
+
+tasks:
+  build:
+    summary: Builds the Wails desktop shell with the Vite frontend embedded.
+    cmds:
+      - task: windows:build
+
+  windows:build:
+    summary: Builds the Wails desktop shell for Windows.
+    cmds:
+      - npm install
+      - wails3 generate bindings -d src/bindings -clean=true
+      - npm run build
+      - go build -tags production -trimpath -buildvcs=false -ldflags="-w -s" -o {{.BIN_DIR}}/{{.APP_NAME}}.exe .
+
+  windows:package:
+    summary: Builds the Windows binary package placeholder.
+    cmds:
+      - task: windows:build
+
+  windows:run:
+    summary: Runs the built Windows desktop shell.
+    deps:
+      - windows:build
+    cmds:
+      - ./{{.BIN_DIR}}/{{.APP_NAME}}.exe
+
+  run:
+    summary: Runs the built desktop shell.
+    deps:
+      - build
+    cmds:
+      - ./{{.BIN_DIR}}/{{.APP_NAME}}.exe
+
+  dev:
+    summary: Runs the frontend dev server for UI iteration.
+    cmds:
+      - npm install
+      - npm run dev

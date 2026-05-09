@@ -11,6 +11,24 @@ type Conversation struct {
 	UnreadCount     int       `json:"unreadCount"`
 	UpdatedAt       time.Time `json:"updatedAt"`
 	ParentSessionID string    `json:"parentSessionId,omitempty"`
+	Skill           string    `json:"skill,omitempty"`
+	Model           string    `json:"model,omitempty"`
+}
+
+type NewSessionRequest struct {
+	Title string `json:"title"`
+	Cwd   string `json:"cwd,omitempty"`
+}
+
+type PromptRequest struct {
+	SessionID string `json:"sessionId"`
+	Prompt    string `json:"prompt"`
+}
+
+type ApprovalDecisionRequest struct {
+	ID        string `json:"id"`
+	SessionID string `json:"sessionId"`
+	Decision  string `json:"decision"`
 }
 
 type MessageEvent struct {

@@ -1,6 +1,7 @@
 ﻿<script setup>
 import { GitBranch } from 'lucide-vue-next'
 defineProps({ event: { type: Object, required: true } })
+defineEmits(['open-session'])
 </script>
 
 <template>
@@ -12,5 +13,6 @@ defineProps({ event: { type: Object, required: true } })
     <p class="mt-2">{{ event.task }}</p>
     <p class="mt-1 text-xs text-violet-700">{{ event.subSessionId }} · 父会话 {{ event.parentSessionId }} · {{ event.eventCount }} events</p>
     <p class="mt-2 text-slate-700">{{ event.summary }}</p>
+    <button class="mt-3 rounded-xl bg-white px-3 py-1.5 text-xs font-medium text-violet-700 ring-1 ring-violet-200" @click="$emit('open-session', event.subSessionId)">打开子会话</button>
   </article>
 </template>

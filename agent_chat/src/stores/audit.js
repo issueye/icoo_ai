@@ -1,4 +1,16 @@
 import { defineStore } from 'pinia'
-import { mockAuditEvents } from '@/services/mockData'
+import { agentBridge } from '@/services/agentBridge'
 
-export const useAuditStore = defineStore('audit', { state: () => ({ items: mockAuditEvents }) })
+export const useAuditStore = defineStore('audit', {
+  state: () => ({ items: [], loading: false }),
+  actions: {
+    async loadAuditEvents() {
+      this.loading = true
+      try {
+        this.items = await agentBridge.listAuditEvents()
+      } finally {
+        this.loading = false
+      }
+    },
+  },
+})

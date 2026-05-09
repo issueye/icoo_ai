@@ -2,3 +2,6 @@
 dist/
 .vite/
 .DS_Store
+
+bin/
+*.log
