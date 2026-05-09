@@ -1,44 +1,40 @@
 version: '3'
 
+includes:
+  common: ./build/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+  darwin: ./build/darwin/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
+  ios: ./build/ios/Taskfile.yml
+  android: ./build/android/Taskfile.yml
+
 vars:
-  APP_NAME: agent_chat
-  BIN_DIR: bin
+  APP_NAME: "agent_chat"
+  BIN_DIR: "bin"
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
 
 tasks:
   build:
-    summary: Builds the Wails desktop shell with the Vite frontend embedded.
+    summary: Builds the application
     cmds:
-      - task: windows:build
+      - task: "{{OS}}:build"
 
-  windows:build:
-    summary: Builds the Wails desktop shell for Windows.
+  package:
+    summary: Packages a production build of the application
     cmds:
-      - npm install
-      - wails3 generate bindings -d src/bindings -clean=true
-      - npm run build:frontend
-      - go build -tags production -trimpath -buildvcs=false -ldflags="-w -s" -o {{.BIN_DIR}}/{{.APP_NAME}}.exe .
-
-  windows:package:
-    summary: Builds the Windows binary package placeholder.
-    cmds:
-      - task: windows:build
-
-  windows:run:
-    summary: Runs the built Windows desktop shell.
-    deps:
-      - windows:build
-    cmds:
-      - ./{{.BIN_DIR}}/{{.APP_NAME}}.exe
+      - task: "{{OS}}:package"
 
   run:
-    summary: Runs the built desktop shell.
-    deps:
-      - build
+    summary: Runs the application
     cmds:
-      - ./{{.BIN_DIR}}/{{.APP_NAME}}.exe
+      - task: "{{OS}}:run"
 
   dev:
-    summary: Runs the frontend dev server for UI iteration.
+    summary: Runs the application in development mode
     cmds:
-      - npm install
-      - npm run dev
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  setup:docker:
+    summary: Builds Docker image for cross-compilation (~800MB download)
+    cmds:
+      - task: common:setup:docker
