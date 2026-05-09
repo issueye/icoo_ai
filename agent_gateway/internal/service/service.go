@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
@@ -37,11 +38,13 @@ func NewError(code, message string) *Error {
 }
 
 type MockGatewayService struct {
-	mu     sync.Mutex
-	now    func() time.Time
-	nextID int
-	agents []AgentProfile
-	store  store.Store
+	mu             sync.Mutex
+	now            func() time.Time
+	nextID         int
+	agents         []AgentProfile
+	store          store.Store
+	connector      connector.AgentConnector
+	approvalBroker *ApprovalBroker
 }
 
 func NewMockGatewayService() *MockGatewayService {
@@ -57,11 +60,18 @@ func NewMockGatewayServiceWithAgentsAndStore(agents []AgentProfile, st store.Sto
 		agents = defaultAgents()
 	}
 	return &MockGatewayService{
-		now:    time.Now,
-		nextID: 1,
-		agents: agents,
-		store: st,
+		now:            time.Now,
+		nextID:         1,
+		agents:         agents,
+		store:          st,
+		approvalBroker: NewApprovalBroker(),
 	}
+}
+
+func NewConnectorGatewayServiceWithAgentsAndStore(agents []AgentProfile, st store.Store, conn connector.AgentConnector) *MockGatewayService {
+	svc := NewMockGatewayServiceWithAgentsAndStore(agents, st)
+	svc.connector = conn
+	return svc
 }
 
 func defaultAgents() []AgentProfile {
@@ -108,8 +118,22 @@ func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessio
 	if title == "" {
 		title = "New Agent Session"
 	}
+	sessionID := s.idLocked("sess")
+	if s.connector != nil {
+		connResp, err := s.connector.NewSession(ctx, connector.NewSessionRequest{
+			AgentID: agentID,
+			Model:   req.Model,
+			CWD:     req.CWD,
+		})
+		if err != nil {
+			return Session{}, NewError("connector_request_failed", fmt.Sprintf("connector newSession failed: %v", err))
+		}
+		if strings.TrimSpace(connResp.SessionID) != "" {
+			sessionID = strings.TrimSpace(connResp.SessionID)
+		}
+	}
 	session := Session{
-		ID:        s.idLocked("sess"),
+		ID:        sessionID,
 		Title:     title,
 		CWD:       req.CWD,
 		AgentID:   agentID,
@@ -183,11 +207,120 @@ func (s *MockGatewayService) Prompt(ctx context.Context, sessionID string, req P
 	}
 
 	session := fromStoreConversation(conversation)
+	if s.connector != nil {
+		return s.promptViaConnectorLocked(ctx, session, content)
+	}
+	return s.promptViaMockLocked(ctx, session, content)
+}
+
+func (s *MockGatewayService) promptViaConnectorLocked(ctx context.Context, session Session, content string) (PromptResponse, error) {
+	startedAt := s.now().UTC()
+	connReqID := s.idLocked("connreq")
+	connResp, err := s.connector.Prompt(ctx, connector.PromptRequest{
+		SessionID: session.ID,
+		Content:   content,
+		RequestID: connReqID,
+	})
+	if err != nil {
+		return PromptResponse{}, NewError("connector_request_failed", fmt.Sprintf("connector prompt failed: %v", err))
+	}
+
+	runID := strings.TrimSpace(connResp.RunID)
+	if runID == "" {
+		runID = s.idLocked("run")
+	}
+	runStatus := "completed"
+	if connResp.EndedAt == nil {
+		runStatus = "running"
+	}
+	run := Run{
+		ID:        runID,
+		SessionID: session.ID,
+		AgentID:   session.AgentID,
+		Status:    runStatus,
+		StartedAt: startedAt,
+		EndedAt:   connResp.EndedAt,
+	}
+	userMessage := Message{
+		ID:        s.idLocked("msg"),
+		SessionID: session.ID,
+		RunID:     run.ID,
+		Role:      "user",
+		Content:   content,
+		CreatedAt: startedAt,
+	}
+
+	responseMessages := []Message{userMessage}
+	if output := strings.TrimSpace(connResp.Output); output != "" {
+		assistantMessage := Message{
+			ID:        s.idLocked("msg"),
+			SessionID: session.ID,
+			RunID:     run.ID,
+			Role:      "assistant",
+			Content:   output,
+			CreatedAt: timePointerValue(connResp.EndedAt, startedAt),
+		}
+		responseMessages = append(responseMessages, assistantMessage)
+	}
+
+	if err := s.store.UpsertRun(ctx, toStoreRun(run)); err != nil {
+		return PromptResponse{}, err
+	}
+	for _, message := range responseMessages {
+		if err := s.store.AppendMessage(ctx, toStoreMessageEvent(message)); err != nil {
+			return PromptResponse{}, err
+		}
+	}
+
+	var firstApproval *Approval
+	for _, item := range connResp.Approvals {
+		requestID := strings.TrimSpace(item.RequestID)
+		if requestID == "" {
+			requestID = s.idLocked("connreq")
+		}
+		approval := Approval{
+			ID:                 s.idLocked("appr"),
+			AgentID:            session.AgentID,
+			SessionID:          session.ID,
+			RunID:              run.ID,
+			ConnectorRequestID: requestID,
+			Status:             "pending",
+			Action:             item.Action,
+			Message:            item.Message,
+			CreatedAt:          startedAt,
+		}
+		if err := s.store.UpsertApproval(ctx, toStoreApproval(approval)); err != nil {
+			return PromptResponse{}, err
+		}
+		if s.approvalBroker != nil {
+			if err := s.approvalBroker.Register(approval); err != nil {
+				return PromptResponse{}, err
+			}
+		}
+		if firstApproval == nil {
+			cp := approval
+			firstApproval = &cp
+		}
+	}
+
+	session.UpdatedAt = timePointerValue(connResp.EndedAt, startedAt)
+	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
+		return PromptResponse{}, err
+	}
+
+	return PromptResponse{
+		Run:      run,
+		Messages: responseMessages,
+		Approval: firstApproval,
+	}, nil
+}
+
+func (s *MockGatewayService) promptViaMockLocked(ctx context.Context, session Session, content string) (PromptResponse, error) {
 	startedAt := s.now()
 	endedAt := startedAt
 	run := Run{
 		ID:        s.idLocked("run"),
-		SessionID: sessionID,
+		SessionID: session.ID,
 		AgentID:   session.AgentID,
 		Status:    "completed",
 		StartedAt: startedAt,
@@ -195,7 +328,7 @@ func (s *MockGatewayService) Prompt(ctx context.Context, sessionID string, req P
 	}
 	userMessage := Message{
 		ID:        s.idLocked("msg"),
-		SessionID: sessionID,
+		SessionID: session.ID,
 		RunID:     run.ID,
 		Role:      "user",
 		Content:   content,
@@ -203,7 +336,7 @@ func (s *MockGatewayService) Prompt(ctx context.Context, sessionID string, req P
 	}
 	assistantMessage := Message{
 		ID:        s.idLocked("msg"),
-		SessionID: sessionID,
+		SessionID: session.ID,
 		RunID:     run.ID,
 		Role:      "assistant",
 		Content:   "Mock response from agent_gateway.",
@@ -212,7 +345,7 @@ func (s *MockGatewayService) Prompt(ctx context.Context, sessionID string, req P
 	approval := Approval{
 		ID:                 s.idLocked("appr"),
 		AgentID:            session.AgentID,
-		SessionID:          sessionID,
+		SessionID:          session.ID,
 		RunID:              run.ID,
 		ConnectorRequestID: s.idLocked("connreq"),
 		Status:             "pending",
@@ -232,6 +365,11 @@ func (s *MockGatewayService) Prompt(ctx context.Context, sessionID string, req P
 	}
 	if err := s.store.UpsertApproval(ctx, toStoreApproval(approval)); err != nil {
 		return PromptResponse{}, err
+	}
+	if s.approvalBroker != nil {
+		if err := s.approvalBroker.Register(approval); err != nil {
+			return PromptResponse{}, err
+		}
 	}
 	session.UpdatedAt = endedAt
 	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
@@ -261,11 +399,38 @@ func (s *MockGatewayService) Cancel(ctx context.Context, sessionID string) (Run,
 	}
 	session := fromStoreConversation(conversation)
 	now := s.now()
+	runID := s.idLocked("run")
+	status := "cancelled"
+	if s.connector != nil {
+		lastRunID, err := s.latestRunIDLocked(ctx, sessionID)
+		if err != nil {
+			return Run{}, err
+		}
+		if lastRunID == "" {
+			lastRunID = runID
+		}
+		connResp, err := s.connector.Cancel(ctx, connector.CancelRequest{
+			SessionID: sessionID,
+			RunID:     lastRunID,
+			Reason:    "user_cancelled",
+		})
+		if err != nil {
+			return Run{}, NewError("connector_request_failed", fmt.Sprintf("connector cancel failed: %v", err))
+		}
+		if strings.TrimSpace(connResp.RunID) != "" {
+			runID = strings.TrimSpace(connResp.RunID)
+		} else {
+			runID = lastRunID
+		}
+		if strings.TrimSpace(connResp.Status) != "" {
+			status = strings.TrimSpace(connResp.Status)
+		}
+	}
 	run := Run{
-		ID:        s.idLocked("run"),
+		ID:        runID,
 		SessionID: sessionID,
 		AgentID:   session.AgentID,
-		Status:    "cancelled",
+		Status:    status,
 		StartedAt: now,
 		EndedAt:   &now,
 	}
@@ -276,15 +441,31 @@ func (s *MockGatewayService) Cancel(ctx context.Context, sessionID string) (Run,
 	if err != nil {
 		return Run{}, err
 	}
+	approvalMap := make(map[string]Approval, len(storedApprovals))
 	for _, storedApproval := range storedApprovals {
-		if storedApproval.SessionID != sessionID || storedApproval.Status != "pending" {
-			continue
-		}
 		approval := fromStoreApproval(storedApproval)
-		approval.Status = "expired"
-		approval.Decision = "rejected"
-		approval.DecidedAt = &now
-		approval.Message = "Approval expired because session was cancelled."
+		approvalMap[approval.ID] = approval
+	}
+	if s.approvalBroker != nil {
+		for _, approval := range approvalMap {
+			if approval.Status == "pending" && approval.SessionID == sessionID {
+				_ = s.approvalBroker.Register(approval)
+			}
+		}
+		_ = s.approvalBroker.ExpirePendingBySession(sessionID, approvalMap, now)
+	} else {
+		for id, approval := range approvalMap {
+			if approval.SessionID != sessionID || approval.Status != "pending" {
+				continue
+			}
+			approval.Status = "expired"
+			approval.Decision = "rejected"
+			approval.DecidedAt = &now
+			approval.Message = "Approval expired because session was cancelled."
+			approvalMap[id] = approval
+		}
+	}
+	for _, approval := range approvalMap {
 		if err := s.store.UpsertApproval(ctx, toStoreApproval(approval)); err != nil {
 			return Run{}, err
 		}
@@ -346,9 +527,12 @@ func (s *MockGatewayService) DecideApproval(ctx context.Context, approvalID stri
 
 	var approval Approval
 	found := false
+	approvalMap := make(map[string]Approval, len(storedApprovals))
 	for _, storedApproval := range storedApprovals {
-		if storedApproval.ID == approvalID {
-			approval = fromStoreApproval(storedApproval)
+		current := fromStoreApproval(storedApproval)
+		approvalMap[current.ID] = current
+		if current.ID == approvalID {
+			approval = current
 			found = true
 			break
 		}
@@ -356,27 +540,32 @@ func (s *MockGatewayService) DecideApproval(ctx context.Context, approvalID stri
 	if !found {
 		return Approval{}, NewError("approval_not_found", fmt.Sprintf("approval %q was not found", approvalID))
 	}
-	if approval.Status != "pending" {
-		return Approval{}, NewError("invalid_decision", "approval is no longer pending")
-	}
-
-	decision := strings.ToLower(strings.TrimSpace(req.Decision))
-	if decision != "approved" && decision != "rejected" && decision != "allow" && decision != "deny" {
-		return Approval{}, NewError("invalid_decision", "decision must be approved, rejected, allow, or deny")
-	}
-	if decision == "allow" {
-		decision = "approved"
-	}
-	if decision == "deny" {
-		decision = "rejected"
-	}
-
 	now := s.now()
-	approval.Status = decision
-	approval.Decision = decision
-	approval.DecidedAt = &now
-	if strings.TrimSpace(req.Message) != "" {
-		approval.Message = req.Message
+	if s.approvalBroker != nil {
+		for _, item := range approvalMap {
+			if item.Status == "pending" {
+				_ = s.approvalBroker.Register(item)
+			}
+		}
+		updated, err := s.approvalBroker.Decide(approvalID, req, approvalMap, now)
+		if err != nil {
+			return Approval{}, err
+		}
+		approval = updated
+	} else {
+		if approval.Status != "pending" {
+			return Approval{}, NewError("invalid_decision", "approval is no longer pending")
+		}
+		decision, err := normalizeDecision(req.Decision)
+		if err != nil {
+			return Approval{}, err
+		}
+		approval.Status = decision
+		approval.Decision = decision
+		approval.DecidedAt = &now
+		if strings.TrimSpace(req.Message) != "" {
+			approval.Message = req.Message
+		}
 	}
 	if err := s.store.UpsertApproval(ctx, toStoreApproval(approval)); err != nil {
 		return Approval{}, err
@@ -391,6 +580,20 @@ func (s *MockGatewayService) hasAgentLocked(agentID string) bool {
 		}
 	}
 	return false
+}
+
+func (s *MockGatewayService) latestRunIDLocked(ctx context.Context, sessionID string) (string, error) {
+	runs, err := s.store.ListRuns(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	if len(runs) == 0 {
+		return "", nil
+	}
+	sort.Slice(runs, func(i, j int) bool {
+		return runs[i].CreatedAt.Before(runs[j].CreatedAt)
+	})
+	return runs[len(runs)-1].RunID, nil
 }
 
 func (s *MockGatewayService) idLocked(prefix string) string {

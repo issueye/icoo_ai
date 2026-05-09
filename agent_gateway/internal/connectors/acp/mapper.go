@@ -82,6 +82,18 @@ func mapPromptResponse(result map[string]any) connector.PromptResponse {
 			resp.EndedAt = &parsed
 		}
 	}
+	rawApprovals, _ := result["approvals"].([]any)
+	for _, raw := range rawApprovals {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		resp.Approvals = append(resp.Approvals, connector.ApprovalRequest{
+			RequestID: stringField(item, "requestId"),
+			Action:    stringField(item, "action"),
+			Message:   stringField(item, "message"),
+		})
+	}
 	return resp
 }
 

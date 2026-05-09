@@ -12,7 +12,15 @@ const (
 	ErrorCodeGatewayAuthFailed  ErrorCode = "gateway_auth_failed"
 	ErrorCodeGatewayRequest     ErrorCode = "gateway_request_failed"
 	ErrorCodeGatewayStream      ErrorCode = "gateway_stream_failed"
+	ErrorCodeGatewayBootstrap   ErrorCode = "gateway_bootstrap_failed"
 	ErrorCodeInvalidArgument    ErrorCode = "invalid_argument"
+)
+
+const (
+	GatewayStatusConnecting   = "gateway_connecting"
+	GatewayStatusReady        = "gateway_ready"
+	GatewayStatusReconnecting = "gateway_reconnecting"
+	GatewayStatusFailed       = "gateway_failed"
 )
 
 type BridgeError struct {

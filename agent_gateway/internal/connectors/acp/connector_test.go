@@ -120,7 +120,17 @@ func (f *fakeProcess) resultFor(method string) map[string]any {
 	case "newSession":
 		return map[string]any{"sessionId": "sess_fake_1"}
 	case "prompt":
-		return map[string]any{"runId": "run_fake_1", "output": "ok"}
+		return map[string]any{
+			"runId":  "run_fake_1",
+			"output": "ok",
+			"approvals": []any{
+				map[string]any{
+					"requestId": "req_approval_1",
+					"action":    "write_file",
+					"message":   "allow write",
+				},
+			},
+		}
 	case "cancel":
 		return map[string]any{"runId": "run_fake_1", "status": "cancelled"}
 	default:
@@ -172,6 +182,12 @@ func TestFakeProcessProtocolMapping(t *testing.T) {
 	}
 	if promptResp.RunID != "run_fake_1" || promptResp.Output != "ok" {
 		t.Fatalf("Prompt() response = %#v", promptResp)
+	}
+	if len(promptResp.Approvals) != 1 {
+		t.Fatalf("Prompt() approvals = %#v", promptResp.Approvals)
+	}
+	if promptResp.Approvals[0].RequestID != "req_approval_1" || promptResp.Approvals[0].Action != "write_file" {
+		t.Fatalf("Prompt() approval mapping mismatch: %#v", promptResp.Approvals[0])
 	}
 	select {
 	case evt := <-sub.Events():

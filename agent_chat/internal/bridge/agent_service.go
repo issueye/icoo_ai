@@ -18,6 +18,10 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
+const (
+	maxGatewayStreamFailures = 8
+)
+
 type AgentService struct {
 	mu               sync.RWMutex
 	now              time.Time
@@ -27,11 +31,13 @@ type AgentService struct {
 	approvals        []ApprovalDecision
 	auditEvents      []AuditEvent
 	gateway          *gatewayProxy
+	bootstrap        *gatewayBootstrapper
 	devFallback      bool
 	lastEventID      string
 	currentSessionID string
 	activeSessions   map[string]struct{}
 	eventSink        func(MessageEvent)
+	gatewayStatus    string
 }
 
 func NewAgentService() *AgentService {
@@ -64,8 +70,9 @@ func NewAgentService() *AgentService {
 			{ID: "audit_1", SessionID: "sess_main_20260509_001", Type: "tool_result_summary", Level: "info", Summary: "只保存 outputBytes/outputHash/persistedOutput=false。", CreatedAt: now},
 			{ID: "audit_2", SessionID: "sess_main_20260509_001", Type: "approval_requested", Level: "notice", Summary: "等待用户审批写入运行摘要。", CreatedAt: now},
 		},
-		gateway:     loadGatewayProxy(),
-		devFallback: shouldEnableDevFallback(),
+		gateway:        loadGatewayProxy(),
+		bootstrap:      newGatewayBootstrapper(),
+		devFallback:    shouldEnableDevFallback(),
 		activeSessions: make(map[string]struct{}),
 	}
 }
@@ -79,11 +86,59 @@ func (s *AgentService) ServiceStartup(ctx context.Context, _ application.Service
 			}
 		}
 	}
+	s.emitGatewayStatus(GatewayStatusConnecting, "正在连接网关服务", nil)
+	if err := s.ensureGatewayRunning(ctx); err != nil {
+		s.emitGatewayStatus(GatewayStatusFailed, "网关启动失败", map[string]any{
+			"error": err.Error(),
+		})
+		if s.devFallback {
+			return nil
+		}
+		return err
+	}
 	if s.gateway == nil {
+		s.emitGatewayStatus(GatewayStatusFailed, "网关未配置", nil)
 		return nil
 	}
+	s.emitGatewayStatus(GatewayStatusReady, "网关连接已就绪", nil)
 	go s.streamGatewayEvents(ctx)
 	return nil
+}
+
+func (s *AgentService) ensureGatewayRunning(ctx context.Context) error {
+	if s.gateway != nil {
+		if err := s.pingGateway(ctx, s.gateway); err == nil {
+			return nil
+		}
+		s.gateway = nil
+	}
+	if s.bootstrap == nil {
+		return &BridgeError{
+			Code:      ErrorCodeGatewayBootstrap,
+			Message:   "gateway bootstrap is not configured",
+			Retryable: true,
+		}
+	}
+	proxy, err := s.bootstrap.EnsureRunning(ctx)
+	if err != nil {
+		return &BridgeError{
+			Code:      ErrorCodeGatewayBootstrap,
+			Message:   err.Error(),
+			Retryable: s.devFallback,
+		}
+	}
+	s.gateway = proxy
+	return nil
+}
+
+func (s *AgentService) pingGateway(ctx context.Context, proxy *gatewayProxy) error {
+	if proxy == nil {
+		return fmt.Errorf("gateway proxy is nil")
+	}
+	healthCtx, cancel := context.WithTimeout(ctx, gatewayHealthTimeout)
+	defer cancel()
+	_, err := gatewayclient.New(proxy.baseURL, proxy.token).Health(healthCtx)
+	return err
 }
 
 func (s *AgentService) NewSession(ctx context.Context, req NewSessionRequest) (Conversation, error) {
@@ -161,9 +216,14 @@ func (s *AgentService) ListConversations(ctx context.Context) ([]Conversation, e
 
 func (s *AgentService) Prompt(ctx context.Context, req PromptRequest) ([]MessageEvent, error) {
 	if s.gateway != nil {
-		var out []MessageEvent
-		err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(req.SessionID)+"/prompt", req, &out)
+		var raw json.RawMessage
+		err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(req.SessionID)+"/prompt", req, &raw)
 		if err == nil {
+			out, mapErr := parseGatewayPromptResponse(raw)
+			if mapErr != nil {
+				return nil, &BridgeError{Code: ErrorCodeGatewayRequest, Message: "decode gateway prompt response failed", Retryable: false}
+			}
+			out = normalizeMessageEvents(out, req.SessionID)
 			s.setCurrentStreamSessionID(req.SessionID)
 			return out, nil
 		}
@@ -225,6 +285,7 @@ func (s *AgentService) ListMessages(ctx context.Context, sessionID string) ([]Me
 		var out []MessageEvent
 		err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID)+"/messages", nil, &out)
 		if err == nil {
+			out = normalizeMessageEvents(out, sessionID)
 			s.setCurrentStreamSessionID(sessionID)
 			return out, nil
 		}
@@ -342,12 +403,23 @@ func (s *AgentService) touchConversation(sessionID string, subtitle string, stat
 func (s *AgentService) streamGatewayEvents(ctx context.Context) {
 	client := gatewayclient.New(s.gateway.baseURL, s.gateway.token)
 	backoff := time.Second
+	failures := 0
 	for {
 		if ctx.Err() != nil {
 			return
 		}
+		if failures > 0 {
+			s.emitGatewayStatus(GatewayStatusReconnecting, "网关事件流重连中", map[string]any{
+				"attempt": failures + 1,
+			})
+		}
 		lastEventID, sessionID := s.streamSubscriptionState()
 		err := client.StreamEventsWithFilter(ctx, lastEventID, sessionID, "", func(event gatewayclient.StreamEnvelope) error {
+			if failures > 0 {
+				failures = 0
+				backoff = time.Second
+				s.emitGatewayStatus(GatewayStatusReady, "网关事件流已恢复", nil)
+			}
 			return s.forwardGatewayEvent(event)
 		})
 		if ctx.Err() != nil {
@@ -355,7 +427,24 @@ func (s *AgentService) streamGatewayEvents(ctx context.Context) {
 		}
 		bridgeErr := s.mapGatewayStreamError(err)
 		if bridgeErr != nil && bridgeErr.Code == ErrorCodeGatewayAuthFailed {
+			s.emitGatewayStatus(GatewayStatusFailed, "网关鉴权失败", map[string]any{
+				"code":   bridgeErr.Code,
+				"status": bridgeErr.StatusCode,
+				"error":  bridgeErr.Message,
+			})
 			return
+		}
+		if bridgeErr != nil {
+			failures++
+			if failures >= maxGatewayStreamFailures {
+				s.emitGatewayStatus(GatewayStatusFailed, "网关事件流重连失败", map[string]any{
+					"code":     bridgeErr.Code,
+					"status":   bridgeErr.StatusCode,
+					"error":    bridgeErr.Message,
+					"failures": failures,
+				})
+				return
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -368,6 +457,37 @@ func (s *AgentService) streamGatewayEvents(ctx context.Context) {
 				backoff = 10 * time.Second
 			}
 		}
+	}
+}
+
+func (s *AgentService) emitGatewayStatus(status, summary string, meta map[string]any) {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.gatewayStatus == status {
+		s.mu.Unlock()
+		return
+	}
+	s.gatewayStatus = status
+	event := MessageEvent{
+		ID:        fmt.Sprintf("gateway_status_%d", time.Now().UnixNano()),
+		Kind:      BridgeEventKindGateway,
+		Status:    status,
+		Summary:   summary,
+		CreatedAt: time.Now(),
+		SafeMeta:  map[string]any{"gatewayStatus": status},
+	}
+	if meta != nil {
+		for k, v := range meta {
+			event.SafeMeta[k] = v
+		}
+	}
+	s.messages = append(s.messages, event)
+	s.mu.Unlock()
+	if s.eventSink != nil {
+		s.eventSink(event)
 	}
 }
 
@@ -529,6 +649,66 @@ func fallbackString(value string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+type gatewayPromptResponse struct {
+	Run      json.RawMessage `json:"run"`
+	Messages []MessageEvent  `json:"messages"`
+	Approval *struct {
+		ID        string    `json:"id"`
+		SessionID string    `json:"sessionId"`
+		Status    string    `json:"status"`
+		Decision  string    `json:"decision"`
+		Message   string    `json:"message"`
+		CreatedAt time.Time `json:"createdAt"`
+	} `json:"approval,omitempty"`
+}
+
+func parseGatewayPromptResponse(raw json.RawMessage) ([]MessageEvent, error) {
+	var events []MessageEvent
+	if err := json.Unmarshal(raw, &events); err == nil {
+		return events, nil
+	}
+	var structured gatewayPromptResponse
+	if err := json.Unmarshal(raw, &structured); err != nil {
+		return nil, err
+	}
+	out := make([]MessageEvent, 0, len(structured.Messages)+2)
+	out = append(out, structured.Messages...)
+	if structured.Approval != nil {
+		status := structured.Approval.Status
+		if strings.TrimSpace(status) == "" {
+			status = structured.Approval.Decision
+		}
+		out = append(out, MessageEvent{
+			ID:        structured.Approval.ID,
+			SessionID: structured.Approval.SessionID,
+			Kind:      BridgeEventKindApproval,
+			Status:    status,
+			Decision:  structured.Approval.Decision,
+			Summary:   structured.Approval.Message,
+			CreatedAt: structured.Approval.CreatedAt,
+		})
+	}
+	return out, nil
+}
+
+func normalizeMessageEvents(items []MessageEvent, sessionID string) []MessageEvent {
+	normalized := make([]MessageEvent, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.SessionID) == "" {
+			item.SessionID = sessionID
+		}
+		if strings.TrimSpace(item.Kind) == "" {
+			if strings.TrimSpace(item.Role) != "" {
+				item.Kind = BridgeEventKindMessage
+			} else {
+				item.Kind = BridgeEventKindGateway
+			}
+		}
+		normalized = append(normalized, item)
+	}
+	return normalized
 }
 
 type gatewayProxy struct {

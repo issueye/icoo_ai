@@ -1,3 +1,4 @@
 agent_chat/.task/*
 *.exe
 *.log
+agent/*

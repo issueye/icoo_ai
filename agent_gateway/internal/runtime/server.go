@@ -10,6 +10,7 @@ import (
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/api"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/config"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connectors/acp"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/security"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
@@ -120,8 +121,17 @@ func (s *Server) newGatewayService() (service.GatewayService, error) {
 	if err != nil {
 		return nil, err
 	}
+	initCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := conn.Initialize(initCtx, connector.InitializeRequest{
+		ClientName:    "agent-gateway",
+		ClientVersion: s.cfg.Version,
+	}); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
 	s.acpConn = conn
-	return service.NewMockGatewayServiceWithAgentsAndStore([]service.AgentProfile{
+	return service.NewConnectorGatewayServiceWithAgentsAndStore([]service.AgentProfile{
 		{
 			ID:          "icoo-ai-acp",
 			Name:        "Icoo AI",
@@ -129,7 +139,7 @@ func (s *Server) newGatewayService() (service.GatewayService, error) {
 			Models:      []string{"mock-gpt"},
 			Description: "Default ACP connector profile.",
 		},
-	}, memStore), nil
+	}, memStore, conn), nil
 }
 
 func (s *Server) authorize(next http.Handler) http.Handler {

@@ -3,11 +3,15 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/icoo-ai/icoo-ai/agent_chat/internal/gatewayclient"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 func TestNewSession_UsesGatewayWhenAvailable(t *testing.T) {
@@ -232,5 +236,197 @@ func TestMapEnvelopeToMessageEvent_UnknownTypeFallsBackWithoutLosingType(t *test
 	}
 	if event.Content != "partial" {
 		t.Fatalf("expected payload content preserved, got %q", event.Content)
+	}
+}
+
+func TestServiceStartup_ReturnsBootstrapErrorInProdMode(t *testing.T) {
+	t.Parallel()
+
+	svc := NewAgentService()
+	svc.gateway = nil
+	svc.devFallback = false
+	svc.bootstrap = &gatewayBootstrapper{
+		discoveryPath: "",
+		waitTimeout:   time.Millisecond,
+		pollInterval:  time.Millisecond,
+		now:           time.Now,
+		sleep:         func(time.Duration) {},
+		discover: func(string) (gatewayclient.Endpoint, string, error) {
+			return gatewayclient.Endpoint{}, "", errors.New("not found")
+		},
+		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
+			return nil
+		},
+		startProcess: func(context.Context) error {
+			return errors.New("start failed")
+		},
+	}
+
+	err := svc.ServiceStartup(context.Background(), application.ServiceOptions{})
+	if err == nil {
+		t.Fatal("expected startup error, got nil")
+	}
+	bridgeErr, ok := err.(*BridgeError)
+	if !ok {
+		t.Fatalf("expected *BridgeError, got %T", err)
+	}
+	if bridgeErr.Code != ErrorCodeGatewayBootstrap {
+		t.Fatalf("expected %s, got %s", ErrorCodeGatewayBootstrap, bridgeErr.Code)
+	}
+}
+
+func TestServiceStartup_DevModeSwallowsBootstrapError(t *testing.T) {
+	t.Parallel()
+
+	svc := NewAgentService()
+	svc.gateway = nil
+	svc.devFallback = true
+	svc.bootstrap = &gatewayBootstrapper{
+		discoveryPath: "",
+		waitTimeout:   time.Millisecond,
+		pollInterval:  time.Millisecond,
+		now:           time.Now,
+		sleep:         func(time.Duration) {},
+		discover: func(string) (gatewayclient.Endpoint, string, error) {
+			return gatewayclient.Endpoint{}, "", errors.New("not found")
+		},
+		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
+			return nil
+		},
+		startProcess: func(context.Context) error {
+			return errors.New("start failed")
+		},
+	}
+
+	if err := svc.ServiceStartup(context.Background(), application.ServiceOptions{}); err != nil {
+		t.Fatalf("expected nil error in dev fallback, got %v", err)
+	}
+}
+
+func TestServiceStartup_EmitsGatewayFailedStatusOnBootstrapError(t *testing.T) {
+	t.Parallel()
+
+	svc := NewAgentService()
+	svc.gateway = nil
+	svc.devFallback = true
+	var captured []MessageEvent
+	svc.eventSink = func(event MessageEvent) {
+		captured = append(captured, event)
+	}
+	svc.bootstrap = &gatewayBootstrapper{
+		discoveryPath: "",
+		waitTimeout:   time.Millisecond,
+		pollInterval:  time.Millisecond,
+		now:           time.Now,
+		sleep:         func(time.Duration) {},
+		discover: func(string) (gatewayclient.Endpoint, string, error) {
+			return gatewayclient.Endpoint{}, "", errors.New("not found")
+		},
+		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
+			return nil
+		},
+		startProcess: func(context.Context) error {
+			return errors.New("start failed")
+		},
+	}
+
+	if err := svc.ServiceStartup(context.Background(), application.ServiceOptions{}); err != nil {
+		t.Fatalf("expected nil error in dev fallback, got %v", err)
+	}
+
+	if len(captured) < 2 {
+		t.Fatalf("expected at least 2 status events, got %d", len(captured))
+	}
+	if captured[0].Status != GatewayStatusConnecting {
+		t.Fatalf("expected first status %q, got %q", GatewayStatusConnecting, captured[0].Status)
+	}
+	if captured[len(captured)-1].Status != GatewayStatusFailed {
+		t.Fatalf("expected last status %q, got %q", GatewayStatusFailed, captured[len(captured)-1].Status)
+	}
+}
+
+func TestStreamGatewayEvents_EmitsFailedStatusOnAuthError(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/events/stream" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte("unauthorized"))
+	}))
+	defer srv.Close()
+
+	svc := NewAgentService()
+	svc.gateway = &gatewayProxy{
+		client:  srv.Client(),
+		baseURL: srv.URL,
+		token:   "bad-token",
+	}
+
+	statuses := make(chan string, 4)
+	svc.eventSink = func(event MessageEvent) {
+		if event.Kind == BridgeEventKindGateway && event.Status != "" {
+			select {
+			case statuses <- event.Status:
+			default:
+			}
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go svc.streamGatewayEvents(ctx)
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case status := <-statuses:
+			if status == GatewayStatusFailed {
+				return
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for gateway_failed status")
+		}
+	}
+}
+
+func TestParseGatewayPromptResponse_StructuredShape(t *testing.T) {
+	t.Parallel()
+
+	raw := json.RawMessage(`{
+		"run":{"id":"run_1"},
+		"messages":[{"id":"msg_1","sessionId":"sess_1","role":"assistant","content":"ok","createdAt":"2026-05-09T12:00:00Z"}],
+		"approval":{"id":"appr_1","sessionId":"sess_1","status":"pending","decision":"pending","message":"need approval","createdAt":"2026-05-09T12:00:01Z"}
+	}`)
+
+	events, err := parseGatewayPromptResponse(raw)
+	if err != nil {
+		t.Fatalf("parseGatewayPromptResponse returned error: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events (message+approval), got %d", len(events))
+	}
+	if events[0].ID != "msg_1" || events[1].Kind != BridgeEventKindApproval {
+		t.Fatalf("unexpected events: %#v", events)
+	}
+}
+
+func TestNormalizeMessageEvents_DefaultsKindToMessage(t *testing.T) {
+	t.Parallel()
+
+	in := []MessageEvent{
+		{ID: "msg_1", Role: "assistant", Content: "hello"},
+	}
+	out := normalizeMessageEvents(in, "sess_1")
+	if len(out) != 1 {
+		t.Fatalf("unexpected len: %d", len(out))
+	}
+	if out[0].SessionID != "sess_1" {
+		t.Fatalf("expected session fallback, got %q", out[0].SessionID)
+	}
+	if out[0].Kind != BridgeEventKindMessage {
+		t.Fatalf("expected kind message, got %q", out[0].Kind)
 	}
 }

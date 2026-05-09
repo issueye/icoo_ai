@@ -2,11 +2,54 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
+
+type fakeConnector struct {
+	newSessionResp connector.NewSessionResponse
+	newSessionErr  error
+
+	promptResp connector.PromptResponse
+	promptErr  error
+
+	cancelResp connector.CancelResponse
+	cancelErr  error
+
+	newSessionCalls int
+	promptCalls     int
+	cancelCalls     int
+}
+
+func (f *fakeConnector) Initialize(context.Context, connector.InitializeRequest) (connector.InitializeResponse, error) {
+	return connector.InitializeResponse{}, nil
+}
+func (f *fakeConnector) NewSession(context.Context, connector.NewSessionRequest) (connector.NewSessionResponse, error) {
+	f.newSessionCalls++
+	if f.newSessionErr != nil {
+		return connector.NewSessionResponse{}, f.newSessionErr
+	}
+	return f.newSessionResp, nil
+}
+func (f *fakeConnector) Prompt(context.Context, connector.PromptRequest) (connector.PromptResponse, error) {
+	f.promptCalls++
+	if f.promptErr != nil {
+		return connector.PromptResponse{}, f.promptErr
+	}
+	return f.promptResp, nil
+}
+func (f *fakeConnector) Cancel(context.Context, connector.CancelRequest) (connector.CancelResponse, error) {
+	f.cancelCalls++
+	if f.cancelErr != nil {
+		return connector.CancelResponse{}, f.cancelErr
+	}
+	return f.cancelResp, nil
+}
+func (f *fakeConnector) Close() error { return nil }
 
 type recordingStore struct {
 	base *store.MemoryStore
@@ -159,5 +202,86 @@ func TestMockGatewayServiceReadsThroughStore(t *testing.T) {
 
 	if rec.getConversationCalls == 0 || rec.listMessagesCalls == 0 || rec.listRunsCalls == 0 || rec.listApprovalsCalls == 0 {
 		t.Fatalf("store read calls not hit, getConv=%d listMsg=%d listRun=%d listApproval=%d", rec.getConversationCalls, rec.listMessagesCalls, rec.listRunsCalls, rec.listApprovalsCalls)
+	}
+}
+
+func TestConnectorBackedServiceUsesConnectorSessionAndPrompt(t *testing.T) {
+	ctx := context.Background()
+	rec := newRecordingStore()
+	endedAt := time.Date(2026, 5, 9, 15, 0, 0, 0, time.UTC)
+	fake := &fakeConnector{
+		newSessionResp: connector.NewSessionResponse{SessionID: "sess_conn_1"},
+		promptResp: connector.PromptResponse{
+			RunID:   "run_conn_1",
+			Output:  "connector output",
+			EndedAt: &endedAt,
+			Approvals: []connector.ApprovalRequest{
+				{RequestID: "approval_req_1", Action: "write_file", Message: "allow write"},
+			},
+		},
+		cancelResp: connector.CancelResponse{RunID: "run_conn_1", Status: "cancelled"},
+	}
+
+	svc := NewConnectorGatewayServiceWithAgentsAndStore(defaultAgents(), rec, fake)
+	session, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "connector session"})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if session.ID != "sess_conn_1" {
+		t.Fatalf("session id = %q, want sess_conn_1", session.ID)
+	}
+
+	resp, err := svc.Prompt(ctx, session.ID, PromptRequest{Content: "hello connector"})
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if resp.Run.ID != "run_conn_1" || resp.Run.Status != "completed" {
+		t.Fatalf("unexpected run: %#v", resp.Run)
+	}
+	if len(resp.Messages) != 2 {
+		t.Fatalf("expected 2 messages (user+assistant), got %d", len(resp.Messages))
+	}
+	if resp.Approval == nil || resp.Approval.ConnectorRequestID != "approval_req_1" {
+		t.Fatalf("unexpected approval: %#v", resp.Approval)
+	}
+	if fake.newSessionCalls != 1 || fake.promptCalls != 1 {
+		t.Fatalf("connector calls newSession=%d prompt=%d", fake.newSessionCalls, fake.promptCalls)
+	}
+
+	cancelled, err := svc.Cancel(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if cancelled.ID != "run_conn_1" || cancelled.Status != "cancelled" {
+		t.Fatalf("unexpected cancel result: %#v", cancelled)
+	}
+	if fake.cancelCalls != 1 {
+		t.Fatalf("expected cancel call, got %d", fake.cancelCalls)
+	}
+}
+
+func TestConnectorBackedServiceMapsConnectorPromptError(t *testing.T) {
+	ctx := context.Background()
+	rec := newRecordingStore()
+	fake := &fakeConnector{
+		newSessionResp: connector.NewSessionResponse{SessionID: "sess_conn_2"},
+		promptErr:      fmt.Errorf("connector down"),
+	}
+	svc := NewConnectorGatewayServiceWithAgentsAndStore(defaultAgents(), rec, fake)
+
+	session, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "connector error"})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	_, err = svc.Prompt(ctx, session.ID, PromptRequest{Content: "hello"})
+	if err == nil {
+		t.Fatal("expected prompt error")
+	}
+	serviceErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("expected *service.Error, got %T", err)
+	}
+	if serviceErr.Code != "connector_request_failed" {
+		t.Fatalf("unexpected error code: %s", serviceErr.Code)
 	}
 }
