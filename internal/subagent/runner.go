@@ -92,7 +92,7 @@ func (r *LocalRunner) Run(ctx context.Context, req Request) (Result, error) {
 	}
 	sessionID := strings.TrimSpace(req.SessionID)
 	if sessionID == "" {
-		sessionID = "subagent"
+		sessionID = NewSessionID("subagent")
 	}
 	cwd := strings.TrimSpace(req.CWD)
 

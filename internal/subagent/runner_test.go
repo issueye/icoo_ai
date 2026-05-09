@@ -41,3 +41,31 @@ func TestLocalRunnerCollectsAssistantOutput(t *testing.T) {
 		t.Fatalf("messages = %+v", call.Messages)
 	}
 }
+
+func TestLocalRunnerGeneratesUniqueDefaultSessionIDs(t *testing.T) {
+	provider := testutil.NewMockLLMProvider("mock",
+		[]llm.CompletionEvent{{Type: llm.CompletionEventCompleted}},
+		[]llm.CompletionEvent{{Type: llm.CompletionEventCompleted}},
+	)
+	runner, err := NewLocalRunner(LocalRunnerOptions{Provider: provider, Model: "gpt-test"})
+	if err != nil {
+		t.Fatalf("NewLocalRunner() error = %v", err)
+	}
+
+	first, err := runner.Run(context.Background(), Request{Task: "first"})
+	if err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+	second, err := runner.Run(context.Background(), Request{Task: "second"})
+	if err != nil {
+		t.Fatalf("second Run() error = %v", err)
+	}
+	if len(first.Events) == 0 || len(second.Events) == 0 {
+		t.Fatalf("missing events: first=%+v second=%+v", first.Events, second.Events)
+	}
+	firstID := first.Events[0].SessionID
+	secondID := second.Events[0].SessionID
+	if firstID == "" || secondID == "" || firstID == secondID {
+		t.Fatalf("session ids = %q and %q, want unique non-empty ids", firstID, secondID)
+	}
+}

@@ -70,8 +70,9 @@ func (t subagentTool) Execute(ctx context.Context, input json.RawMessage) (tools
 		return toolError("invalid_input", "task is required", nil), nil
 	}
 	startedAt := t.now().UTC()
+	sessionID := NewSessionID("subagent-tool")
 	result, err := t.runner.Run(ctx, Request{
-		SessionID:     "subagent-tool",
+		SessionID:     sessionID,
 		CWD:           t.cwd,
 		Task:          req.Task,
 		Context:       req.Context,
@@ -89,6 +90,7 @@ func (t subagentTool) Execute(ctx context.Context, input json.RawMessage) (tools
 		Data: map[string]any{
 			"content":     result.Content,
 			"event_count": len(result.Events),
+			"session_id":  sessionID,
 		},
 	}, nil
 }

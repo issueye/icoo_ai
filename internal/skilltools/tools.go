@@ -384,8 +384,9 @@ func (t skillExecuteTool) Execute(ctx context.Context, input json.RawMessage) (t
 	}
 	_ = skills.LogSkillUse(ctx, t.manager.auditLogger, "skill_execute", loaded)
 	startedAt := t.manager.now().UTC()
+	sessionID := subagent.NewSessionID("skill-" + loaded.Name)
 	result, err := t.manager.runner.Run(ctx, subagent.Request{
-		SessionID:     "skill-" + loaded.Name,
+		SessionID:     sessionID,
 		CWD:           t.manager.cwd,
 		Task:          req.Task,
 		Skill:         &loaded,
@@ -407,6 +408,7 @@ func (t skillExecuteTool) Execute(ctx context.Context, input json.RawMessage) (t
 			"skill":       loaded.Name,
 			"content":     result.Content,
 			"event_count": len(result.Events),
+			"session_id":  sessionID,
 		},
 	}, nil
 }
