@@ -7,6 +7,7 @@ import AppFooter from './AppFooter.vue'
 import AppToastStack from './AppToastStack.vue'
 import ConversationSidebar from '@/components/conversation/ConversationSidebar.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
+import AuditWorkspace from '@/components/audit/AuditWorkspace.vue'
 import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
 import SettingsWorkspace from '@/components/settings/SettingsWorkspace.vue'
 import { useApprovalsStore } from '@/stores/approvals'
@@ -29,7 +30,8 @@ const skills = useSkillsStore()
 const audit = useAuditStore()
 let statusTimer = null
 let unsubscribeAgentEvents = null
-const isSettingsRoute = () => route.name === 'settings'
+const isAuditRoute = () => route.name === 'audit'
+const isChatRoute = () => route.name === 'chats' || route.name === 'chat'
 const activeSettingsSection = ref('gateway')
 
 onMounted(async () => {
@@ -38,6 +40,7 @@ onMounted(async () => {
     messages,
     runs,
     approvals,
+    audit,
   })
   await app.refreshGatewayStatus()
   statusTimer = setInterval(() => {
@@ -52,10 +55,13 @@ onMounted(async () => {
     audit.loadAuditEvents(),
   ])
   const routeSessionId = route.params.sessionId
-  if (routeSessionId) conversations.setActiveSession(String(routeSessionId))
-  if (conversations.activeSessionId) {
+  if (isChatRoute() && routeSessionId) conversations.setActiveSession(String(routeSessionId))
+  if (isChatRoute() && conversations.activeSessionId) {
     await messages.loadMessages(conversations.activeSessionId)
     if (!routeSessionId) router.replace(`/chats/${conversations.activeSessionId}`)
+  }
+  if (isAuditRoute()) {
+    audit.markViewed()
   }
 })
 
@@ -71,7 +77,7 @@ onBeforeUnmount(() => {
 })
 
 watch(() => route.params.sessionId, async (sessionId) => {
-  if (isSettingsRoute()) return
+  if (!isChatRoute()) return
   if (!sessionId) return
   conversations.setActiveSession(String(sessionId))
   await messages.loadMessages(String(sessionId))
@@ -82,10 +88,13 @@ watch(() => route.name, (name) => {
   else if (name === 'audit') app.setActiveNav('audit')
   else if (name === 'skills') app.setActiveNav('skills')
   else app.setActiveNav('chats')
+  if (name === 'audit') {
+    audit.markViewed()
+  }
 }, { immediate: true })
 
 watch(() => conversations.activeSessionId, async (sessionId) => {
-  if (isSettingsRoute()) return
+  if (!isChatRoute()) return
   if (!sessionId) return
   if (route.params.sessionId !== sessionId) router.push(`/chats/${sessionId}`)
   await messages.loadMessages(sessionId)
@@ -100,6 +109,9 @@ watch(() => conversations.activeSessionId, async (sessionId) => {
       <template v-if="route.name === 'settings'">
         <SettingsSidebar v-model="activeSettingsSection" />
         <SettingsWorkspace :section="activeSettingsSection" />
+      </template>
+      <template v-else-if="route.name === 'audit'">
+        <AuditWorkspace />
       </template>
       <template v-else>
         <ConversationSidebar />

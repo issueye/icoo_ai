@@ -1302,6 +1302,243 @@
     padding-top: 10px;
   }
 
+  .qq-audit-card {
+    width: min(100%, 1180px);
+  }
+
+  .qq-audit-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .qq-audit-stat-card {
+    border: 1px solid var(--qq-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.74);
+    padding: 10px;
+  }
+
+  .qq-audit-stat-label {
+    color: var(--qq-text-muted);
+    font-size: 12px;
+    line-height: 17px;
+  }
+
+  .qq-audit-stat-value {
+    margin-top: 4px;
+    color: var(--qq-text);
+    font-size: 20px;
+    line-height: 28px;
+    font-weight: 700;
+  }
+
+  .qq-audit-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .qq-audit-search {
+    width: min(360px, 100%);
+    margin-bottom: 0;
+  }
+
+  .qq-audit-dropdown {
+    width: 180px;
+    max-width: 100%;
+  }
+
+  .qq-audit-dropdown .qq-context-trigger {
+    height: 36px;
+  }
+
+  .qq-audit-dropdown .qq-context-menu {
+    top: calc(100% + 6px);
+    bottom: auto;
+    width: 100%;
+  }
+
+  .qq-audit-dropdown .qq-context-value {
+    max-width: none;
+  }
+
+  .qq-audit-grid {
+    display: grid;
+    grid-template-columns: minmax(320px, 1.2fr) minmax(320px, 1fr);
+    gap: 12px;
+  }
+
+  .qq-audit-list-panel,
+  .qq-audit-detail-panel {
+    border: 1px solid var(--qq-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.7);
+    padding: 10px;
+  }
+
+  .qq-audit-panel-title {
+    margin-bottom: 8px;
+    color: var(--qq-text);
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 700;
+  }
+
+  .qq-audit-list {
+    display: flex;
+    max-height: 480px;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+
+  .qq-audit-row {
+    width: 100%;
+    border: 1px solid var(--qq-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.82);
+    padding: 10px;
+    text-align: left;
+    transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+  }
+
+  .qq-audit-row:hover {
+    border-color: var(--qq-active-border);
+  }
+
+  .qq-audit-row.is-active {
+    border-color: var(--qq-active-border-strong);
+    background: color-mix(in srgb, var(--qq-active) 9%, white);
+    box-shadow: 0 0 0 2px var(--qq-active-ring-soft);
+  }
+
+  .qq-audit-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .qq-audit-time {
+    color: var(--qq-text-muted);
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .qq-audit-level {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 10px;
+    line-height: 14px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .qq-audit-level.is-info {
+    background: color-mix(in srgb, var(--qq-active) 14%, transparent);
+    color: var(--qq-active);
+  }
+
+  .qq-audit-level.is-warn {
+    background: rgba(255, 244, 220, 0.96);
+    color: var(--qq-warning);
+  }
+
+  .qq-audit-level.is-error {
+    background: rgba(255, 236, 241, 0.96);
+    color: var(--qq-danger);
+  }
+
+  .qq-audit-level.is-debug {
+    background: color-mix(in srgb, var(--qq-text-muted) 20%, transparent);
+    color: var(--qq-text-soft);
+  }
+
+  .qq-audit-summary {
+    margin-top: 8px;
+    color: var(--qq-text);
+    font-size: 13px;
+    line-height: 19px;
+    word-break: break-word;
+  }
+
+  .qq-audit-meta-row {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .qq-audit-meta-chip {
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 2px 8px;
+    color: var(--qq-text-soft);
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .qq-audit-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .qq-audit-detail-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    border-bottom: 1px dashed var(--qq-border);
+    padding-bottom: 8px;
+  }
+
+  .qq-audit-detail-row.is-block {
+    display: block;
+  }
+
+  .qq-audit-detail-label {
+    flex-shrink: 0;
+    color: var(--qq-text-muted);
+    font-size: 12px;
+    line-height: 17px;
+    font-weight: 600;
+  }
+
+  .qq-audit-detail-value {
+    text-align: right;
+    color: var(--qq-text);
+    font-size: 12px;
+    line-height: 17px;
+    word-break: break-all;
+  }
+
+  .qq-audit-detail-summary {
+    margin-top: 6px;
+    color: var(--qq-text);
+    font-size: 13px;
+    line-height: 20px;
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+
+  @media (max-width: 1024px) {
+    .qq-audit-stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .qq-audit-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
   .qq-settings-helper {
     margin-bottom: 12px;
     color: var(--qq-text-muted);

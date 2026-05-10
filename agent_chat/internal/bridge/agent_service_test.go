@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -461,6 +462,71 @@ func TestMapEnvelopeToMessageEvent_UnknownTypeFallsBackWithoutLosingType(t *test
 	}
 	if event.Content != "partial" {
 		t.Fatalf("expected payload content preserved, got %q", event.Content)
+	}
+}
+
+func TestMapMessageToAuditEvent_NormalizesLevelAndSummary(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 5, 10, 10, 30, 0, 0, time.UTC)
+	audit := mapMessageToAuditEvent(
+		GatewayEventEnvelope{
+			Type: "audit.event",
+		},
+		MessageEvent{
+			ID:        "evt_audit_1",
+			SessionID: "sess_1",
+			Status:    "warning",
+			Summary:   "",
+			Content:   "fallback summary",
+			CreatedAt: createdAt,
+			SafeMeta: map[string]any{
+				"severity": "error",
+			},
+		},
+	)
+
+	if audit.Level != "warn" {
+		t.Fatalf("expected normalized warning->warn level, got %q", audit.Level)
+	}
+	if audit.Summary != "fallback summary" {
+		t.Fatalf("expected content fallback summary, got %q", audit.Summary)
+	}
+	if audit.Type != "audit.event" {
+		t.Fatalf("expected audit type from envelope, got %q", audit.Type)
+	}
+	if audit.CreatedAt != createdAt {
+		t.Fatalf("expected createdAt from message, got %v", audit.CreatedAt)
+	}
+}
+
+func TestForwardGatewayEvent_TrimsAuditEventCache(t *testing.T) {
+	t.Parallel()
+
+	svc := NewAgentService()
+	svc.eventSink = nil
+	baseTime := time.Date(2026, 5, 10, 10, 0, 0, 0, time.UTC)
+
+	for index := 0; index < maxAuditEventCacheSize+2; index++ {
+		envelopeID := fmt.Sprintf("evt_audit_%d", index)
+		payload := json.RawMessage(fmt.Sprintf("{\"id\":\"%s\",\"kind\":\"audit\",\"summary\":\"audit-%d\",\"status\":\"info\"}", envelopeID, index))
+		err := svc.forwardGatewayEvent(gatewayclient.StreamEnvelope{
+			ID:        envelopeID,
+			Type:      "audit",
+			SessionID: "sess_1",
+			Payload:   payload,
+			CreatedAt: baseTime.Add(time.Duration(index) * time.Second).Format(time.RFC3339),
+		})
+		if err != nil {
+			t.Fatalf("forwardGatewayEvent returned error at index %d: %v", index, err)
+		}
+	}
+
+	if len(svc.auditEvents) != maxAuditEventCacheSize {
+		t.Fatalf("expected cached audit events %d, got %d", maxAuditEventCacheSize, len(svc.auditEvents))
+	}
+	if svc.auditEvents[0].ID != "evt_audit_2" {
+		t.Fatalf("expected oldest cached audit id evt_audit_2, got %q", svc.auditEvents[0].ID)
 	}
 }
 

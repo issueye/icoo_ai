@@ -16,11 +16,17 @@ const navLabel = computed(() => {
     agents: 'Agent',
     skills: 'Skills',
     audit: '审计',
+    settings: '设置',
   }
   return labels[app.activeNav] ?? '消息'
 })
 
 const title = computed(() => conversations.activeConversation?.title ?? 'Agent Chat')
+const headerTitle = computed(() => {
+  if (app.activeNav === 'audit') return '审计日志'
+  if (app.activeNav === 'settings') return '系统设置'
+  return title.value
+})
 
 function safeWindowAction(action) {
   action?.().catch(() => {})
@@ -38,7 +44,7 @@ function safeWindowAction(action) {
       <div class="min-w-0">
         <div class="flex items-center gap-2">
           <span class="qq-header-section">{{ navLabel }}</span>
-          <span class="qq-header-title truncate">{{ title }}</span>
+          <span class="qq-header-title truncate">{{ headerTitle }}</span>
         </div>
       </div>
     </div>

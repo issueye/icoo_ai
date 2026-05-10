@@ -13,6 +13,7 @@ export {
     ApprovalDecision,
     ApprovalDecisionRequest,
     AuditEvent,
+    ChannelConfig,
     Conversation,
     GatewayStatus,
     MessageEvent,

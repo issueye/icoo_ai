@@ -28,6 +28,7 @@ function dispatchToStores(event, stores) {
   stores.messages?.applyGatewayEvent?.(event)
   stores.runs?.applyGatewayEvent?.(event)
   stores.approvals?.applyGatewayEvent?.(event)
+  stores.audit?.applyGatewayEvent?.(event)
   stores.app?.applyGatewayEvent?.(event)
 }
 

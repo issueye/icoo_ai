@@ -139,6 +139,13 @@ export class AppSettings {
              */
             this["logFilePath"] = undefined;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {ChannelConfig[] | undefined}
+             */
+            this["channels"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }
@@ -149,7 +156,11 @@ export class AppSettings {
      * @returns {AppSettings}
      */
     static createFrom($$source = {}) {
+        const $$createField9_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("channels" in $$parsedSource) {
+            $$parsedSource["channels"] = $$createField9_0($$parsedSource["channels"]);
+        }
         return new AppSettings(/** @type {Partial<AppSettings>} */($$parsedSource));
     }
 }
@@ -319,6 +330,83 @@ export class AuditEvent {
     static createFrom($$source = {}) {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new AuditEvent(/** @type {Partial<AuditEvent>} */($$parsedSource));
+    }
+}
+
+export class ChannelConfig {
+    /**
+     * Creates a new ChannelConfig instance.
+     * @param {Partial<ChannelConfig>} [$$source = {}] - The source object to create the ChannelConfig.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["id"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["name"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["type"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["enabled"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["appId"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["appSecret"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["botToken"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["webhookUrl"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ChannelConfig instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ChannelConfig}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ChannelConfig(/** @type {Partial<ChannelConfig>} */($$parsedSource));
     }
 }
 
@@ -611,7 +699,7 @@ export class MessageEvent {
      * @returns {MessageEvent}
      */
     static createFrom($$source = {}) {
-        const $$createField9_0 = $$createType1;
+        const $$createField9_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("safeMeta" in $$parsedSource) {
             $$parsedSource["safeMeta"] = $$createField9_0($$parsedSource["safeMeta"]);
@@ -860,4 +948,6 @@ export class SkillInfo {
 
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = $Create.Map($Create.Any, $Create.Any);
+const $$createType1 = ChannelConfig.createFrom;
+const $$createType2 = $Create.Array($$createType1);
+const $$createType3 = $Create.Map($Create.Any, $Create.Any);

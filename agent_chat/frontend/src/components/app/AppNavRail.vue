@@ -3,14 +3,16 @@ import { Bot, CheckSquare, MessageCircle, Settings, ShieldCheck, Sparkles } from
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useApprovalsStore } from '@/stores/approvals'
+import { useAuditStore } from '@/stores/audit'
 import { useConversationsStore } from '@/stores/conversations'
 
 const app = useAppStore()
 const approvals = useApprovalsStore()
+const audit = useAuditStore()
 const conversations = useConversationsStore()
 const router = useRouter()
 const navItems = [
-  { key: 'chats', label: '会话', icon: MessageCircle, badge: true },
+  { key: 'chats', label: '会话', icon: MessageCircle },
   { key: 'agents', label: 'Agent', icon: Bot },
   { key: 'skills', label: 'Skills', icon: Sparkles },
   { key: 'audit', label: '审计', icon: ShieldCheck, badge: true },
@@ -31,7 +33,7 @@ function navigate(item) {
     <nav class="flex flex-1 flex-col gap-2" aria-label="主导航">
       <button v-for="item in navItems" :key="item.key" class="qq-nav-button" :class="{ 'is-active': app.activeNav === item.key }" :aria-label="item.label" @click="navigate(item)">
         <component :is="item.icon" class="h-5 w-5" />
-        <span v-if="item.badge && (item.key !== 'audit' || approvals.pendingCount)" class="qq-dot" />
+        <span v-if="item.badge && item.key === 'audit' && audit.unreadCount > 0" class="qq-dot" />
       </button>
     </nav>
     <button class="qq-nav-button" aria-label="待办审批">

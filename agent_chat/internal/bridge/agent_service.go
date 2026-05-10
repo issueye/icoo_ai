@@ -22,6 +22,7 @@ const (
 	gatewayStreamProbeAttempts = 5
 	gatewayStreamProbeTimeout  = 1200 * time.Millisecond
 	gatewayStreamProbeBackoff  = 250 * time.Millisecond
+	maxAuditEventCacheSize     = 5000
 )
 
 type AgentService struct {
@@ -639,18 +640,11 @@ func (s *AgentService) forwardGatewayEvent(in gatewayclient.StreamEnvelope) erro
 	s.mu.Lock()
 	s.messages = append(s.messages, out)
 	if out.Kind == BridgeEventKindAudit {
-		audit := AuditEvent{
-			ID:        out.ID,
-			SessionID: out.SessionID,
-			Type:      strings.TrimSpace(envelope.Type),
-			Level:     "info",
-			Summary:   out.Summary,
-			CreatedAt: out.CreatedAt,
-		}
-		if audit.Type == "" {
-			audit.Type = "audit"
-		}
+		audit := mapMessageToAuditEvent(envelope, out)
 		s.auditEvents = append(s.auditEvents, audit)
+		if overflow := len(s.auditEvents) - maxAuditEventCacheSize; overflow > 0 {
+			s.auditEvents = append([]AuditEvent(nil), s.auditEvents[overflow:]...)
+		}
 	}
 	s.mu.Unlock()
 	s.setLastStreamEventID(envelope.ID)
@@ -658,6 +652,57 @@ func (s *AgentService) forwardGatewayEvent(in gatewayclient.StreamEnvelope) erro
 		s.eventSink(out)
 	}
 	return nil
+}
+
+func mapMessageToAuditEvent(envelope GatewayEventEnvelope, message MessageEvent) AuditEvent {
+	auditType := strings.TrimSpace(envelope.Type)
+	if auditType == "" {
+		auditType = "audit"
+	}
+	level := extractAuditLevel(message)
+	summary := strings.TrimSpace(message.Summary)
+	if summary == "" {
+		summary = strings.TrimSpace(message.Content)
+	}
+	if summary == "" {
+		summary = "审计事件"
+	}
+	return AuditEvent{
+		ID:        strings.TrimSpace(message.ID),
+		SessionID: strings.TrimSpace(message.SessionID),
+		Type:      auditType,
+		Level:     level,
+		Summary:   summary,
+		CreatedAt: message.CreatedAt,
+	}
+}
+
+func extractAuditLevel(message MessageEvent) string {
+	candidates := []string{
+		strings.TrimSpace(message.Status),
+		anyString(message.SafeMeta["level"]),
+		anyString(message.SafeMeta["severity"]),
+	}
+	for _, raw := range candidates {
+		switch strings.ToLower(strings.TrimSpace(raw)) {
+		case "debug", "info", "warn", "warning", "error":
+			if strings.EqualFold(raw, "warning") {
+				return "warn"
+			}
+			return strings.ToLower(strings.TrimSpace(raw))
+		}
+	}
+	return "info"
+}
+
+func anyString(value any) string {
+	if value == nil {
+		return ""
+	}
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text)
+	}
+	return ""
 }
 
 func (s *AgentService) mapEnvelopeToMessageEvent(envelope GatewayEventEnvelope) MessageEvent {
