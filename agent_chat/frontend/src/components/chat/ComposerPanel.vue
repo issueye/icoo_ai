@@ -12,7 +12,12 @@ const messages = useMessagesStore()
 const runs = useRunsStore()
 const activeSessionId = computed(() => conversations.activeSessionId)
 const sending = computed(() => Boolean(messages.sendingBySessionId[activeSessionId.value]))
-const activeContextText = computed(() => `${conversations.activeWorkspace.label} · ${conversations.activeMode.label} · ${conversations.activeModel.label}`)
+const activeContextText = computed(() => {
+  const workspaceLabel = conversations.activeWorkspace?.label || '未选择工作区'
+  const modeLabel = conversations.activeMode?.label || '未选择模式'
+  const modelLabel = conversations.activeModel?.label || '未选择模型'
+  return `${workspaceLabel} · ${modeLabel} · ${modelLabel}`
+})
 
 async function sendPrompt() {
   if (!activeSessionId.value || sending.value || !draft.value.trim()) return
@@ -21,8 +26,8 @@ async function sendPrompt() {
   await messages.sendPrompt(activeSessionId.value, prompt, {
     workspaceId: conversations.activeWorkspace.id,
     cwd: conversations.activeWorkspace.path,
-    mode: conversations.activeMode.id,
-    model: conversations.activeModel.id,
+    mode: conversations.activeMode?.id || '',
+    model: conversations.activeModel?.id || '',
   })
   await conversations.loadConversations()
 }
@@ -53,11 +58,11 @@ function handleKeydown(event) {
             :options="conversations.workspaceOptions"
             @update:model-value="conversations.updateActiveContext({ workspaceId: $event })" />
           <ContextDropdown label="模式" :icon="Boxes"
-            :model-value="conversations.activeConversation?.mode ?? conversations.activeMode.id"
+            :model-value="conversations.activeConversation?.mode ?? conversations.activeMode?.id ?? ''"
             :options="conversations.modeOptions"
             @update:model-value="conversations.updateActiveContext({ mode: $event })" />
           <ContextDropdown label="模型" :icon="BrainCircuit"
-            :model-value="conversations.activeConversation?.model ?? conversations.activeModel.id"
+            :model-value="conversations.activeConversation?.model ?? conversations.activeModel?.id ?? ''"
             :options="conversations.modelOptions"
             @update:model-value="conversations.updateActiveContext({ model: $event })" />
         </div>

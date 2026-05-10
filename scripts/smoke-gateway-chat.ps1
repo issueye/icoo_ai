@@ -1,6 +1,10 @@
 param(
     [switch]$UseGoRun,
-    [int]$TimeoutSeconds = 20
+    [int]$TimeoutSeconds = 20,
+    [string]$GatewayHost = "127.0.0.1",
+    [int]$GatewayPort = 17889,
+    [string]$AcpCommand = "",
+    [string]$AcpArgs = "serve --transport stdio"
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +25,29 @@ if (Test-Path $StdoutLogPath) {
 }
 if (Test-Path $StderrLogPath) {
     Remove-Item -LiteralPath $StderrLogPath -Force
+}
+
+if ($GatewayPort -lt 1 -or $GatewayPort -gt 65535) {
+    throw "invalid port: $GatewayPort"
+}
+if ([string]::IsNullOrWhiteSpace($AcpCommand)) {
+    $detected = Get-Command "icoo-ai" -ErrorAction SilentlyContinue
+    if ($null -ne $detected) {
+        $AcpCommand = $detected.Source
+    } else {
+        throw "AcpCommand is required. Example: -AcpCommand `"icoo-ai`" -AcpArgs `"serve --transport stdio`""
+    }
+}
+
+$gatewayArgs = @(
+    "-data-dir", $DataDir,
+    "-host", $GatewayHost,
+    "-port", [string]$GatewayPort,
+    "-acp-enabled",
+    "-acp-command", $AcpCommand
+)
+if (-not [string]::IsNullOrWhiteSpace($AcpArgs)) {
+    $gatewayArgs += @("-acp-args", $AcpArgs)
 }
 
 function Read-EndpointInfo {
@@ -83,13 +110,13 @@ function Invoke-Gateway {
 $proc = $null
 try {
     if ($UseGoRun) {
-        $args = @("run", "./cmd/agent-gateway", "-data-dir", $DataDir)
+        $args = @("run", "./cmd/agent-gateway") + $gatewayArgs
         $proc = Start-Process -FilePath "go" -ArgumentList $args -WorkingDirectory $GatewayDir -PassThru -WindowStyle Hidden -RedirectStandardError $StderrLogPath -RedirectStandardOutput $StdoutLogPath
     } else {
         if (-not (Test-Path $GatewayExe)) {
             throw "gateway binary not found: $GatewayExe. Run scripts/build.ps1 -Target gateway first, or pass -UseGoRun."
         }
-        $args = @("-data-dir", $DataDir)
+        $args = $gatewayArgs
         $proc = Start-Process -FilePath $GatewayExe -ArgumentList $args -WorkingDirectory $GatewayDir -PassThru -WindowStyle Hidden -RedirectStandardError $StderrLogPath -RedirectStandardOutput $StdoutLogPath
     }
 
@@ -132,6 +159,7 @@ try {
     Write-Host "  session: $($session.id)"
     Write-Host "  prompt run: $($prompt.run.id)"
     Write-Host "  cancel run: $($cancel.id)"
+    Write-Host "  acp: $AcpCommand $AcpArgs"
 }
 finally {
     if ($null -ne $proc -and -not $proc.HasExited) {

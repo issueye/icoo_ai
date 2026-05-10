@@ -25,6 +25,9 @@ wails3 dev
 gateway_binary_path = "E:/codes/icoo_ai/agent_gateway/dist/agent-gateway.exe"
 gateway_host = "127.0.0.1"
 gateway_port = 17889
+acp_enabled = true
+acp_command = "icoo-ai"
+acp_args = "serve --transport stdio"
 log_level = "info"
 log_format = "text"
 log_file_path = "logs/agent_chat.log"
@@ -32,6 +35,7 @@ log_file_path = "logs/agent_chat.log"
 
 `agent_chat` 启动时读取该文件；设置页保存后也会回写同一文件。
 其中 `gateway_binary_path` 可留空，留空时使用自动发现；如填写则必须是存在的可执行文件路径。
+`agent_gateway` 已移除 mock 回退路径，`acp_enabled=true` 且 `acp_command` 可执行是必需条件。
 日志会同时输出到终端和 `log_file_path` 指定文件（自动创建目录并追加写入）。
 
 前端单独调试时可在 `frontend/` 目录运行 `npm run dev`。
@@ -73,6 +77,11 @@ go test ./...
 ```
 
 该脚本会自动拉起 gateway、完成 session/prompt/cancel 闭环验证并回收进程。
+默认要求 ACP 模式，可通过参数指定命令：
+
+```powershell
+.\scripts\smoke-gateway-chat.ps1 -AcpCommand "icoo-ai" -AcpArgs "serve --transport stdio"
+```
 
 构建脚本参数：
 

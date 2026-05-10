@@ -1,14 +1,6 @@
 import { defineStore } from 'pinia'
 import { agentBridge } from '@/services/agentBridge'
 
-const DEFAULT_MODE_OPTIONS = [
-  { id: 'agent', label: 'Agent' },
-]
-
-const DEFAULT_MODEL_OPTIONS = [
-  { id: 'gpt-5.4', label: 'GPT-5.4' },
-]
-
 function dedupeModels(agentProfiles = []) {
   const set = new Set()
   const out = []
@@ -37,8 +29,8 @@ export const useConversationsStore = defineStore('conversations', {
       { id: 'workspace_agent_chat', label: 'agent_chat', path: 'E:/codes/icoo_ai/agent_chat' },
       { id: 'workspace_agent_server', label: 'agent_server', path: 'E:/codes/icoo_ai/agent_server' },
     ],
-    modeOptions: [...DEFAULT_MODE_OPTIONS],
-    modelOptions: [...DEFAULT_MODEL_OPTIONS],
+    modeOptions: [],
+    modelOptions: [],
   }),
   getters: {
     activeConversation: (state) => state.items.find((item) => item.id === state.activeSessionId) ?? state.items[0],
@@ -48,15 +40,21 @@ export const useConversationsStore = defineStore('conversations', {
     },
     activeMode: (state) => {
       const conversation = state.items.find((item) => item.id === state.activeSessionId) ?? state.items[0]
-      return state.modeOptions.find((item) => item.id === conversation?.mode) ?? state.modeOptions[0] ?? DEFAULT_MODE_OPTIONS[0]
+      if (conversation?.mode) {
+        const matched = state.modeOptions.find((item) => item.id === conversation.mode)
+        if (matched) return matched
+        return { id: conversation.mode, label: conversation.mode }
+      }
+      return state.modeOptions[0] ?? null
     },
     activeModel: (state) => {
       const conversation = state.items.find((item) => item.id === state.activeSessionId) ?? state.items[0]
       if (conversation?.model) {
         const matched = state.modelOptions.find((item) => item.id === conversation.model)
         if (matched) return matched
+        return { id: conversation.model, label: conversation.model }
       }
-      return state.modelOptions[0] ?? DEFAULT_MODEL_OPTIONS[0]
+      return state.modelOptions[0] ?? null
     },
     mainConversations: (state) => state.items.filter((item) => item.id.startsWith('sess_')),
     subagentConversations: (state) => state.items.filter((item) => item.id.startsWith('subsess_')),
@@ -70,13 +68,13 @@ export const useConversationsStore = defineStore('conversations', {
   actions: {
     normalizeMode(mode) {
       const normalized = String(mode || '').trim()
-      if (!normalized) return this.modeOptions[0]?.id ?? DEFAULT_MODE_OPTIONS[0].id
+      if (!normalized) return this.modeOptions[0]?.id ?? this.activeMode?.id ?? ''
       const matched = this.modeOptions.find((item) => item.id === normalized)
       return matched?.id ?? normalized
     },
     normalizeModel(model) {
       const normalized = String(model || '').trim()
-      if (!normalized) return this.modelOptions[0]?.id ?? DEFAULT_MODEL_OPTIONS[0].id
+      if (!normalized) return this.modelOptions[0]?.id ?? this.activeModel?.id ?? ''
       const matched = this.modelOptions.find((item) => item.id === normalized)
       return matched?.id ?? normalized
     },
@@ -105,15 +103,18 @@ export const useConversationsStore = defineStore('conversations', {
         id: profile.id,
         label: profile.name,
       }))
-      this.modeOptions = dynamicModeOptions.length ? dynamicModeOptions : [...DEFAULT_MODE_OPTIONS]
+      this.modeOptions = dynamicModeOptions
 
       const dynamicModelOptions = dedupeModels(normalizedProfiles)
-      this.modelOptions = dynamicModelOptions.length ? dynamicModelOptions : [...DEFAULT_MODEL_OPTIONS]
+      this.modelOptions = dynamicModelOptions
     },
     async loadAgentProfiles() {
       try {
         const profiles = await agentBridge.listAgents()
         this.applyAgentProfiles(profiles)
+        if (!this.modeOptions.length) {
+          this.error = '网关未返回可用 Agent 列表'
+        }
       } catch (error) {
         this.applyAgentProfiles([])
         this.error = error?.message ?? '加载 Agent 列表失败'
