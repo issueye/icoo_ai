@@ -23,6 +23,9 @@ func TestDecodeSettingsTOML_ReadsHostAndPort(t *testing.T) {
 	data := []byte("gateway_binary_path = \"E:/bin/agent-gateway.exe\"\n" +
 		"gateway_host = \"127.0.0.1\"\n" +
 		"gateway_port = 18080\n" +
+		"acp_enabled = true\n" +
+		"acp_command = \"npx\"\n" +
+		"acp_args = \"-y @acp/server --stdio\"\n" +
 		"log_level = \"debug\"\n" +
 		"log_format = \"json\"\n" +
 		"log_file_path = \"logs/custom.log\"\n")
@@ -38,6 +41,15 @@ func TestDecodeSettingsTOML_ReadsHostAndPort(t *testing.T) {
 	}
 	if settings.GatewayPort != 18080 {
 		t.Fatalf("unexpected port: %d", settings.GatewayPort)
+	}
+	if !settings.ACPEnabled {
+		t.Fatal("expected acp enabled true")
+	}
+	if settings.ACPCommand != "npx" {
+		t.Fatalf("unexpected acp command: %q", settings.ACPCommand)
+	}
+	if settings.ACPArgs != "-y @acp/server --stdio" {
+		t.Fatalf("unexpected acp args: %q", settings.ACPArgs)
 	}
 	if settings.LogLevel != "debug" {
 		t.Fatalf("unexpected log level: %q", settings.LogLevel)
@@ -83,11 +95,23 @@ func TestEncodeSettingsTOML_PreservesLogConfig(t *testing.T) {
 		GatewayBinaryPath: "E:/bin/agent-gateway.exe",
 		GatewayHost:       "127.0.0.1",
 		GatewayPort:       18080,
+		ACPEnabled:        true,
+		ACPCommand:        "npx",
+		ACPArgs:           "-y @acp/server --stdio",
 		LogLevel:          "debug",
 		LogFormat:         "json",
 		LogFilePath:       "logs/runtime.log",
 	})))
 
+	if !containsLine(data, "acp_enabled = true") {
+		t.Fatalf("encoded settings missing acp_enabled: %q", data)
+	}
+	if !containsLine(data, "acp_command = \"npx\"") {
+		t.Fatalf("encoded settings missing acp_command: %q", data)
+	}
+	if !containsLine(data, "acp_args = \"-y @acp/server --stdio\"") {
+		t.Fatalf("encoded settings missing acp_args: %q", data)
+	}
 	if !containsLine(data, "log_level = \"debug\"") {
 		t.Fatalf("encoded settings missing log_level: %q", data)
 	}

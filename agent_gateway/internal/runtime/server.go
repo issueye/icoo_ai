@@ -19,16 +19,17 @@ import (
 )
 
 type Server struct {
-	cfg       config.Config
-	startedAt time.Time
-	token     string
-	endpoint  Endpoint
-	http      *http.Server
-	listener  net.Listener
-	acpConn   *acp.Connector
-	store     store.Store
-	eventBus  *events.Bus
-	projector *eventProjector
+	cfg                   config.Config
+	startedAt             time.Time
+	token                 string
+	endpoint              Endpoint
+	http                  *http.Server
+	listener              net.Listener
+	acpConn               *acp.Connector
+	store                 store.Store
+	eventBus              *events.Bus
+	projector             *eventProjector
+	gatewayServiceFactory func(store.Store) (service.GatewayService, error)
 }
 
 func NewServer(cfg config.Config) (*Server, error) {
@@ -119,8 +120,14 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func (s *Server) newGatewayService() (service.GatewayService, error) {
 	memStore := store.NewMemoryStore()
 	s.store = memStore
+	if s.gatewayServiceFactory != nil {
+		return s.gatewayServiceFactory(memStore)
+	}
 	if !s.cfg.ACP.Enabled {
-		return service.NewMockGatewayServiceWithStore(memStore), nil
+		return nil, connector.NewError(
+			connector.ErrCodeInvalidConnectorConfig,
+			"acp connector is disabled; set --acp-enabled and --acp-command",
+		)
 	}
 	conn, err := acp.NewDefaultConnector(acp.DefaultConnectorOptions{
 		Command: s.cfg.ACP.Command,

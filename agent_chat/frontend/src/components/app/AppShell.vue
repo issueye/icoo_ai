@@ -16,6 +16,7 @@ import { useConversationsStore } from '@/stores/conversations'
 import { useMessagesStore } from '@/stores/messages'
 import { useRunsStore } from '@/stores/runs'
 import { useSkillsStore } from '@/stores/skills'
+import { subscribeAgentEvents } from '@/services/agentEvents'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,10 +28,17 @@ const approvals = useApprovalsStore()
 const skills = useSkillsStore()
 const audit = useAuditStore()
 let statusTimer = null
+let unsubscribeAgentEvents = null
 const isSettingsRoute = () => route.name === 'settings'
 const activeSettingsSection = ref('gateway')
 
 onMounted(async () => {
+  unsubscribeAgentEvents = subscribeAgentEvents({
+    app,
+    messages,
+    runs,
+    approvals,
+  })
   await app.refreshGatewayStatus()
   statusTimer = setInterval(() => {
     app.refreshGatewayStatus()
@@ -51,6 +59,10 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  if (typeof unsubscribeAgentEvents === 'function') {
+    unsubscribeAgentEvents()
+    unsubscribeAgentEvents = null
+  }
   if (statusTimer) {
     clearInterval(statusTimer)
     statusTimer = null

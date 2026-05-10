@@ -127,6 +127,21 @@ func TestPrompt_UsesContentFieldAndMapsStructuredResponse(t *testing.T) {
 		if got, ok := body["content"].(string); !ok || got != "hello gateway" {
 			t.Fatalf("content field mismatch: %#v", body)
 		}
+		if got, ok := body["workspaceId"].(string); !ok || got != "workspace_main" {
+			t.Fatalf("workspaceId field mismatch: %#v", body)
+		}
+		if got, ok := body["cwd"].(string); !ok || got != "E:/codes/icoo_ai/agent_chat" {
+			t.Fatalf("cwd field mismatch: %#v", body)
+		}
+		if got, ok := body["mode"].(string); !ok || got != "agent.main" {
+			t.Fatalf("mode field mismatch: %#v", body)
+		}
+		if got, ok := body["agentId"].(string); !ok || got != "agent.main" {
+			t.Fatalf("agentId field mismatch: %#v", body)
+		}
+		if got, ok := body["model"].(string); !ok || got != "gpt-5" {
+			t.Fatalf("model field mismatch: %#v", body)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"run": map[string]any{
@@ -164,8 +179,12 @@ func TestPrompt_UsesContentFieldAndMapsStructuredResponse(t *testing.T) {
 	}
 
 	events, err := svc.Prompt(context.Background(), PromptRequest{
-		SessionID: "sess_1",
-		Content:   "hello gateway",
+		SessionID:   "sess_1",
+		Content:     "hello gateway",
+		Cwd:         "E:/codes/icoo_ai/agent_chat",
+		WorkspaceID: "workspace_main",
+		Mode:        "agent.main",
+		Model:       "gpt-5",
 	})
 	if err != nil {
 		t.Fatalf("Prompt returned error: %v", err)
@@ -178,6 +197,62 @@ func TestPrompt_UsesContentFieldAndMapsStructuredResponse(t *testing.T) {
 	}
 	if events[1].Kind != BridgeEventKindApproval || events[1].Decision != "pending" {
 		t.Fatalf("unexpected approval event: %#v", events[1])
+	}
+}
+
+func TestNewSession_ForwardsWorkspaceModeModelAndAgent(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/sessions" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if got := body["workspaceId"]; got != "workspace_a" {
+			t.Fatalf("workspaceId mismatch: %#v", body)
+		}
+		if got := body["cwd"]; got != "E:/codes/icoo_ai" {
+			t.Fatalf("cwd mismatch: %#v", body)
+		}
+		if got := body["mode"]; got != "agent.main" {
+			t.Fatalf("mode mismatch: %#v", body)
+		}
+		if got := body["agentId"]; got != "agent.main" {
+			t.Fatalf("agentId mismatch: %#v", body)
+		}
+		if got := body["model"]; got != "gpt-5" {
+			t.Fatalf("model mismatch: %#v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":        "sess_1",
+			"title":     "demo",
+			"agentId":   "agent.main",
+			"status":    "idle",
+			"createdAt": "2026-05-10T00:00:00Z",
+			"updatedAt": "2026-05-10T00:00:01Z",
+		})
+	}))
+	defer srv.Close()
+
+	svc := NewAgentService()
+	svc.gateway = &gatewayProxy{
+		client:  srv.Client(),
+		baseURL: srv.URL,
+	}
+
+	_, err := svc.NewSession(context.Background(), NewSessionRequest{
+		Title:       "demo",
+		Cwd:         "E:/codes/icoo_ai",
+		WorkspaceID: "workspace_a",
+		Mode:        "agent.main",
+		Model:       "gpt-5",
+	})
+	if err != nil {
+		t.Fatalf("NewSession returned error: %v", err)
 	}
 }
 
@@ -575,6 +650,9 @@ func TestRestartGateway_StopsManagedProcessAndReconnects(t *testing.T) {
 	svc := NewAgentService()
 	svc.serviceCtx = cancelledCtx
 	svc.gateway = &gatewayProxy{baseURL: "http://127.0.0.1:50001", token: "old"}
+	svc.probeEventStream = func(context.Context, *gatewayProxy) error {
+		return nil
+	}
 	svc.bootstrap = &gatewayBootstrapper{
 		managedProcess: managedProcess,
 		managedOwned:   true,
@@ -627,8 +705,15 @@ func TestRestartGateway_StopsManagedProcessAndReconnects(t *testing.T) {
 func TestRestartGateway_ContinuesWhenStopManagedProcessFails(t *testing.T) {
 	t.Parallel()
 
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
 	svc := NewAgentService()
+	svc.serviceCtx = cancelledCtx
 	svc.gateway = &gatewayProxy{baseURL: "http://127.0.0.1:50001", token: "old"}
+	svc.probeEventStream = func(context.Context, *gatewayProxy) error {
+		return nil
+	}
 	svc.bootstrap = &gatewayBootstrapper{
 		managedProcess: &os.Process{Pid: 1234},
 		managedOwned:   true,
@@ -658,6 +743,64 @@ func TestRestartGateway_ContinuesWhenStopManagedProcessFails(t *testing.T) {
 	}
 	if status.Status != GatewayStatusReady {
 		t.Fatalf("expected status %q, got %q", GatewayStatusReady, status.Status)
+	}
+}
+
+func TestRestartGateway_ReturnsReconnectingWhenStreamProbeFails(t *testing.T) {
+	t.Parallel()
+
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	svc := NewAgentService()
+	svc.serviceCtx = cancelledCtx
+	svc.gateway = &gatewayProxy{baseURL: "http://127.0.0.1:50001", token: "old"}
+	svc.probeEventStream = func(context.Context, *gatewayProxy) error {
+		return errors.New("dial tcp 127.0.0.1:17889: connectex: target machine actively refused it")
+	}
+	svc.bootstrap = &gatewayBootstrapper{
+		managedProcess: &os.Process{Pid: 2233},
+		managedOwned:   true,
+		stopProcess: func(*os.Process) error {
+			return nil
+		},
+		discover: func(string) (gatewayclient.Endpoint, string, error) {
+			return gatewayclient.Endpoint{BaseURL: "http://127.0.0.1:60001", PID: 9999}, "new-token", nil
+		},
+		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
+			return nil
+		},
+		startProcess: func(context.Context) (*os.Process, error) {
+			return nil, nil
+		},
+	}
+
+	status, err := svc.RestartGateway(context.Background())
+	if err != nil {
+		t.Fatalf("RestartGateway returned error: %v", err)
+	}
+	if status.Status != GatewayStatusReconnecting {
+		t.Fatalf("expected status %q, got %q", GatewayStatusReconnecting, status.Status)
+	}
+	if status.Summary != "网关已重启，事件流连接中" {
+		t.Fatalf("expected reconnecting summary, got %q", status.Summary)
+	}
+}
+
+func TestResolveAgentIDFromMode_IgnoresGenericMode(t *testing.T) {
+	t.Parallel()
+
+	if got := resolveAgentIDFromMode("agent"); got != "" {
+		t.Fatalf("expected empty agent id for mode agent, got %q", got)
+	}
+	if got := resolveAgentIDFromMode("default"); got != "" {
+		t.Fatalf("expected empty agent id for mode default, got %q", got)
+	}
+	if got := resolveAgentIDFromMode("main"); got != "" {
+		t.Fatalf("expected empty agent id for mode main, got %q", got)
+	}
+	if got := resolveAgentIDFromMode("agent.main"); got != "agent.main" {
+		t.Fatalf("expected passthrough for concrete agent mode, got %q", got)
 	}
 }
 

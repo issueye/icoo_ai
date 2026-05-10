@@ -13,6 +13,8 @@ import (
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/config"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
 func TestServerStartWritesEndpointAndServesHealth(t *testing.T) {
@@ -23,6 +25,9 @@ func TestServerStartWritesEndpointAndServesHealth(t *testing.T) {
 	server, err := NewServer(cfg)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
+	}
+	server.gatewayServiceFactory = func(st store.Store) (service.GatewayService, error) {
+		return service.NewMockGatewayServiceWithStore(st), nil
 	}
 	if err := server.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -97,6 +102,26 @@ func TestServerStartWritesEndpointAndServesHealth(t *testing.T) {
 	}
 }
 
+func TestServerStartReturnsStructuredErrorWhenACPDisabled(t *testing.T) {
+	cfg := config.Default()
+
+	server, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+	err = server.Start()
+	if err == nil {
+		t.Fatal("Start() error = nil, want structured disabled connector error")
+	}
+	structured, ok := err.(*connector.Error)
+	if !ok {
+		t.Fatalf("expected *connector.Error, got %T", err)
+	}
+	if structured.Code != connector.ErrCodeInvalidConnectorConfig {
+		t.Fatalf("error code = %q, want %q", structured.Code, connector.ErrCodeInvalidConnectorConfig)
+	}
+}
+
 func TestServerStartReturnsStructuredErrorWhenACPConnectorFails(t *testing.T) {
 	cfg := config.Default()
 	cfg.ACP.Enabled = true
@@ -126,6 +151,9 @@ func TestServerProjectsPublishedEventsToStore(t *testing.T) {
 		t.Fatalf("NewServer() error = %v", err)
 	}
 	server.eventBus = events.NewBus(64)
+	server.gatewayServiceFactory = func(st store.Store) (service.GatewayService, error) {
+		return service.NewMockGatewayServiceWithStore(st), nil
+	}
 
 	if err := server.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -239,6 +267,9 @@ func TestServerShutdownStopsEventProjectionConsumption(t *testing.T) {
 		t.Fatalf("NewServer() error = %v", err)
 	}
 	server.eventBus = events.NewBus(64)
+	server.gatewayServiceFactory = func(st store.Store) (service.GatewayService, error) {
+		return service.NewMockGatewayServiceWithStore(st), nil
+	}
 
 	if err := server.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)

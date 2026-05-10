@@ -18,7 +18,10 @@ import (
 )
 
 const (
-	maxGatewayStreamFailures = 8
+	maxGatewayStreamFailures   = 8
+	gatewayStreamProbeAttempts = 5
+	gatewayStreamProbeTimeout  = 1200 * time.Millisecond
+	gatewayStreamProbeBackoff  = 250 * time.Millisecond
 )
 
 type AgentService struct {
@@ -37,6 +40,7 @@ type AgentService struct {
 	serviceCtx       context.Context
 	streamMu         sync.Mutex
 	streamCancel     context.CancelFunc
+	probeEventStream func(context.Context, *gatewayProxy) error
 }
 
 func NewAgentService() *AgentService {
@@ -47,6 +51,9 @@ func NewAgentService() *AgentService {
 		gateway:        loadGatewayProxy(),
 		bootstrap:      newGatewayBootstrapper(),
 		activeSessions: make(map[string]struct{}),
+		probeEventStream: func(ctx context.Context, proxy *gatewayProxy) error {
+			return probeGatewayEventStream(ctx, proxy)
+		},
 	}
 }
 
@@ -77,7 +84,15 @@ func (s *AgentService) ServiceStartup(ctx context.Context, _ application.Service
 			Retryable: false,
 		}
 	}
-	s.emitGatewayStatus(GatewayStatusReady, "网关连接已就绪", nil)
+	probeErr := s.waitGatewayStreamReady(ctx)
+	if probeErr != nil {
+		logger.Warn("gateway event stream is not ready at startup, continue in reconnecting state", "error", probeErr)
+		s.emitGatewayStatus(GatewayStatusReconnecting, "网关已启动，事件流连接中", map[string]any{
+			"error": probeErr.Error(),
+		})
+	} else {
+		s.emitGatewayStatus(GatewayStatusReady, "网关连接已就绪", nil)
+	}
 	s.startGatewayEventStream(ctx)
 	logger.Info("service startup complete")
 	return nil
@@ -119,7 +134,19 @@ func (s *AgentService) RestartGateway(ctx context.Context) (GatewayStatus, error
 		})
 		return GatewayStatus{}, err
 	}
-	if stopManagedErr != nil {
+	probeErr := s.waitGatewayStreamReady(ctx)
+	if probeErr != nil {
+		logger.Warn("gateway restart probe indicates event stream not ready yet", "error", probeErr)
+		meta := map[string]any{
+			"error": probeErr.Error(),
+		}
+		if stopManagedErr != nil {
+			meta["warning"] = stopManagedErr.Error()
+			s.emitGatewayStatus(GatewayStatusReconnecting, "网关已重启，事件流连接中（旧进程未强制结束）", meta)
+		} else {
+			s.emitGatewayStatus(GatewayStatusReconnecting, "网关已重启，事件流连接中", meta)
+		}
+	} else if stopManagedErr != nil {
 		s.emitGatewayStatus(GatewayStatusReady, "网关重启完成（未强制结束旧进程）", map[string]any{
 			"warning": stopManagedErr.Error(),
 		})
@@ -200,6 +227,92 @@ func (s *AgentService) pingGateway(ctx context.Context, proxy *gatewayProxy) err
 	defer cancel()
 	_, err := gatewayclient.New(proxy.baseURL, proxy.token).Health(healthCtx)
 	return err
+}
+
+func (s *AgentService) waitGatewayStreamReady(ctx context.Context) error {
+	if s == nil {
+		return fmt.Errorf("agent service is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	proxy := s.currentGatewayProxy()
+	if proxy == nil {
+		return fmt.Errorf("gateway client is not configured")
+	}
+	probe := s.probeEventStream
+	if probe == nil {
+		probe = probeGatewayEventStream
+	}
+	var lastErr error
+	for attempt := 1; attempt <= gatewayStreamProbeAttempts; attempt++ {
+		probeCtx, cancel := context.WithTimeout(ctx, gatewayStreamProbeTimeout)
+		err := probe(probeCtx, proxy)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		logger.Warn("gateway stream probe failed", "attempt", attempt, "error", err)
+		if attempt == gatewayStreamProbeAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(gatewayStreamProbeBackoff):
+		}
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("gateway stream probe failed")
+	}
+	return lastErr
+}
+
+func (s *AgentService) currentGatewayProxy() *gatewayProxy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.gateway
+}
+
+func probeGatewayEventStream(ctx context.Context, proxy *gatewayProxy) error {
+	if proxy == nil {
+		return fmt.Errorf("gateway proxy is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	u, err := url.Parse(proxy.baseURL)
+	if err != nil {
+		return fmt.Errorf("gateway base URL is invalid: %w", err)
+	}
+	u.Path = path.Join(u.Path, "/v1/events/stream")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("build gateway stream probe request failed: %w", err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	if token := strings.TrimSpace(proxy.token); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	client := proxy.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("gateway stream probe request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		message := strings.TrimSpace(string(detail))
+		if message == "" {
+			message = fmt.Sprintf("gateway stream probe returned status %d", resp.StatusCode)
+		}
+		return errors.New(message)
+	}
+	return nil
 }
 
 func (s *AgentService) NewSession(ctx context.Context, req NewSessionRequest) (Conversation, error) {
@@ -639,12 +752,20 @@ type gatewaySessionDTO struct {
 type gatewayCreateSessionRequest struct {
 	Title          string `json:"title"`
 	CWD            string `json:"cwd,omitempty"`
+	WorkspaceID    string `json:"workspaceId,omitempty"`
 	StartupCommand string `json:"startupCommand,omitempty"`
+	Mode           string `json:"mode,omitempty"`
+	AgentID        string `json:"agentId,omitempty"`
 	Model          string `json:"model,omitempty"`
 }
 
 type gatewayPromptRequest struct {
-	Content string `json:"content"`
+	Content     string `json:"content"`
+	CWD         string `json:"cwd,omitempty"`
+	WorkspaceID string `json:"workspaceId,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+	AgentID     string `json:"agentId,omitempty"`
+	Model       string `json:"model,omitempty"`
 }
 
 type gatewayMessageDTO struct {
@@ -695,17 +816,40 @@ type gatewayPromptResponse struct {
 }
 
 func mapCreateSessionRequest(in NewSessionRequest) gatewayCreateSessionRequest {
+	mode := strings.TrimSpace(in.Mode)
 	return gatewayCreateSessionRequest{
 		Title:          strings.TrimSpace(in.Title),
 		CWD:            strings.TrimSpace(in.Cwd),
+		WorkspaceID:    strings.TrimSpace(in.WorkspaceID),
 		StartupCommand: strings.TrimSpace(in.StartupCommand),
+		Mode:           mode,
+		AgentID:        resolveAgentIDFromMode(mode),
 		Model:          strings.TrimSpace(in.Model),
 	}
 }
 
 func mapPromptRequest(in PromptRequest) gatewayPromptRequest {
+	mode := strings.TrimSpace(in.Mode)
 	return gatewayPromptRequest{
-		Content: strings.TrimSpace(in.Content),
+		Content:     strings.TrimSpace(in.Content),
+		CWD:         strings.TrimSpace(in.Cwd),
+		WorkspaceID: strings.TrimSpace(in.WorkspaceID),
+		Mode:        mode,
+		AgentID:     resolveAgentIDFromMode(mode),
+		Model:       strings.TrimSpace(in.Model),
+	}
+}
+
+func resolveAgentIDFromMode(mode string) string {
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		return ""
+	}
+	switch strings.ToLower(mode) {
+	case "agent", "default", "main":
+		return ""
+	default:
+		return mode
 	}
 }
 

@@ -25,11 +25,24 @@ export const useMessagesStore = defineStore('messages', {
       }
     },
     appendItems(items) {
+      if (!Array.isArray(items) || items.length === 0) return
       for (const item of items) {
+        if (!item || typeof item !== 'object') continue
         const index = this.items.findIndex((existing) => existing.id === item.id)
         if (index >= 0) this.items[index] = { ...this.items[index], ...item }
         else this.items.push(item)
       }
+    },
+    applyGatewayEvent(event) {
+      if (!event || typeof event !== 'object') return
+      const normalized = {
+        ...event,
+        kind: typeof event.kind === 'string' && event.kind.trim() ? event.kind.trim() : 'gateway_event',
+      }
+      if (!normalized.id) {
+        normalized.id = `evt_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+      }
+      this.appendItems([normalized])
     },
     async sendPrompt(sessionId, content, context = {}) {
       const normalizedContent = content.trim()
