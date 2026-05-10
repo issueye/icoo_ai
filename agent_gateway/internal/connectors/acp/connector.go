@@ -106,6 +106,46 @@ func (c *Connector) NewSession(ctx context.Context, req connector.NewSessionRequ
 	return mapNewSessionResponse(resp), nil
 }
 
+func (c *Connector) ListSessions(ctx context.Context, req connector.ListSessionsRequest) (connector.ListSessionsResponse, error) {
+	resp, err := c.call(ctx, "session/list", listSessionsParams(req))
+	if err != nil {
+		return connector.ListSessionsResponse{}, err
+	}
+	return mapListSessionsResponse(resp), nil
+}
+
+func (c *Connector) ResumeSession(ctx context.Context, req connector.ResumeSessionRequest) (connector.ResumeSessionResponse, error) {
+	resp, err := c.call(ctx, "session/resume", resumeSessionParams(req))
+	if err != nil {
+		return connector.ResumeSessionResponse{}, err
+	}
+	return mapResumeSessionResponse(resp), nil
+}
+
+func (c *Connector) CloseSession(ctx context.Context, req connector.CloseSessionRequest) (connector.CloseSessionResponse, error) {
+	resp, err := c.call(ctx, "session/close", closeSessionParams(req))
+	if err != nil {
+		return connector.CloseSessionResponse{}, err
+	}
+	return mapCloseSessionResponse(resp), nil
+}
+
+func (c *Connector) SetSessionMode(ctx context.Context, req connector.SetSessionModeRequest) (connector.SetSessionModeResponse, error) {
+	resp, err := c.call(ctx, "session/set_mode", setSessionModeParams(req))
+	if err != nil {
+		return connector.SetSessionModeResponse{}, err
+	}
+	return mapSetSessionModeResponse(resp), nil
+}
+
+func (c *Connector) SetSessionConfigOption(ctx context.Context, req connector.SetSessionConfigOptionRequest) (connector.SetSessionConfigOptionResponse, error) {
+	resp, err := c.call(ctx, "session/set_config_option", setSessionConfigOptionParams(req))
+	if err != nil {
+		return connector.SetSessionConfigOptionResponse{}, err
+	}
+	return mapSetSessionConfigOptionResponse(resp), nil
+}
+
 func (c *Connector) Prompt(ctx context.Context, req connector.PromptRequest) (connector.PromptResponse, error) {
 	resp, err := c.call(ctx, "session/prompt", promptParams(req))
 	if err != nil {

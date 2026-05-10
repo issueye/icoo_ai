@@ -24,6 +24,26 @@ func (f *approvalBrokerFakeConnector) NewSession(context.Context, connector.NewS
 	return connector.NewSessionResponse{}, nil
 }
 
+func (f *approvalBrokerFakeConnector) ListSessions(context.Context, connector.ListSessionsRequest) (connector.ListSessionsResponse, error) {
+	return connector.ListSessionsResponse{}, nil
+}
+
+func (f *approvalBrokerFakeConnector) ResumeSession(context.Context, connector.ResumeSessionRequest) (connector.ResumeSessionResponse, error) {
+	return connector.ResumeSessionResponse{}, nil
+}
+
+func (f *approvalBrokerFakeConnector) CloseSession(context.Context, connector.CloseSessionRequest) (connector.CloseSessionResponse, error) {
+	return connector.CloseSessionResponse{}, nil
+}
+
+func (f *approvalBrokerFakeConnector) SetSessionMode(context.Context, connector.SetSessionModeRequest) (connector.SetSessionModeResponse, error) {
+	return connector.SetSessionModeResponse{}, nil
+}
+
+func (f *approvalBrokerFakeConnector) SetSessionConfigOption(context.Context, connector.SetSessionConfigOptionRequest) (connector.SetSessionConfigOptionResponse, error) {
+	return connector.SetSessionConfigOptionResponse{}, nil
+}
+
 func (f *approvalBrokerFakeConnector) Prompt(context.Context, connector.PromptRequest) (connector.PromptResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

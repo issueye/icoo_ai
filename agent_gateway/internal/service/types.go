@@ -20,27 +20,44 @@ type Skill struct {
 }
 
 type Session struct {
-	ID             string    `json:"id"`
-	Title          string    `json:"title"`
-	WorkspaceID    string    `json:"workspaceId,omitempty"`
-	CWD            string    `json:"cwd,omitempty"`
-	StartupCommand string    `json:"startupCommand,omitempty"`
-	Mode           string    `json:"mode,omitempty"`
-	AgentID        string    `json:"agentId"`
-	Model          string    `json:"model,omitempty"`
-	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID                    string    `json:"id"`
+	Title                 string    `json:"title"`
+	WorkspaceID           string    `json:"workspaceId,omitempty"`
+	CWD                   string    `json:"cwd,omitempty"`
+	AdditionalDirectories []string  `json:"additionalDirectories,omitempty"`
+	StartupCommand        string    `json:"startupCommand,omitempty"`
+	Mode                  string    `json:"mode,omitempty"`
+	AgentID               string    `json:"agentId"`
+	Model                 string    `json:"model,omitempty"`
+	Status                string    `json:"status"`
+	CreatedAt             time.Time `json:"createdAt"`
+	UpdatedAt             time.Time `json:"updatedAt"`
 }
 
 type CreateSessionRequest struct {
-	Title          string `json:"title"`
-	WorkspaceID    string `json:"workspaceId,omitempty"`
-	CWD            string `json:"cwd,omitempty"`
-	StartupCommand string `json:"startupCommand,omitempty"`
-	Mode           string `json:"mode,omitempty"`
-	AgentID        string `json:"agentId,omitempty"`
-	Model          string `json:"model,omitempty"`
+	Title                 string   `json:"title"`
+	WorkspaceID           string   `json:"workspaceId,omitempty"`
+	CWD                   string   `json:"cwd,omitempty"`
+	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
+	StartupCommand        string   `json:"startupCommand,omitempty"`
+	Mode                  string   `json:"mode,omitempty"`
+	AgentID               string   `json:"agentId,omitempty"`
+	Model                 string   `json:"model,omitempty"`
+}
+
+type ResumeSessionRequest struct {
+	CWD                   string   `json:"cwd,omitempty"`
+	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
+}
+
+type SetSessionModeRequest struct {
+	Mode string `json:"mode"`
+}
+
+type SetSessionConfigOptionRequest struct {
+	ConfigID     string `json:"configId"`
+	BooleanValue *bool  `json:"booleanValue,omitempty"`
+	ValueID      string `json:"valueId,omitempty"`
 }
 
 type Message struct {

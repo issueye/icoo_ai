@@ -63,8 +63,12 @@ func statusForServiceCode(code string) int {
 		return http.StatusNotFound
 	case "invalid_prompt", "invalid_decision":
 		return http.StatusBadRequest
+	case "invalid_session", "invalid_session_config":
+		return http.StatusBadRequest
 	case "connector_unavailable":
 		return http.StatusServiceUnavailable
+	case "connector_request_failed":
+		return http.StatusBadGateway
 	default:
 		return http.StatusInternalServerError
 	}

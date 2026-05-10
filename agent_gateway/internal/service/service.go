@@ -18,6 +18,10 @@ type GatewayService interface {
 	CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error)
 	ListSessions(ctx context.Context) ([]Session, error)
 	GetSession(ctx context.Context, sessionID string) (Session, error)
+	ResumeSession(ctx context.Context, sessionID string, req ResumeSessionRequest) (Session, error)
+	CloseSession(ctx context.Context, sessionID string) (Session, error)
+	SetSessionMode(ctx context.Context, sessionID string, req SetSessionModeRequest) (Session, error)
+	SetSessionConfigOption(ctx context.Context, sessionID string, req SetSessionConfigOptionRequest) (Session, error)
 	ListMessages(ctx context.Context, sessionID string) ([]Message, error)
 	Prompt(ctx context.Context, sessionID string, req PromptRequest) (PromptResponse, error)
 	Cancel(ctx context.Context, sessionID string) (Run, error)
@@ -146,6 +150,7 @@ func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessio
 		title = "New Agent Session"
 	}
 	workspaceID := strings.TrimSpace(req.WorkspaceID)
+	additionalDirectories := append([]string(nil), req.AdditionalDirectories...)
 	startupCommand := strings.TrimSpace(req.StartupCommand)
 	sessionID := s.idLocked("sess")
 	if s.connector != nil {
@@ -158,6 +163,9 @@ func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessio
 		}
 		if mode != "" {
 			metadata["mode"] = mode
+		}
+		if len(additionalDirectories) > 0 {
+			metadata["additional_directories"] = append([]string(nil), additionalDirectories...)
 		}
 		if len(metadata) == 0 {
 			metadata = nil
@@ -176,17 +184,18 @@ func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessio
 		}
 	}
 	session := Session{
-		ID:             sessionID,
-		Title:          title,
-		WorkspaceID:    workspaceID,
-		CWD:            req.CWD,
-		StartupCommand: startupCommand,
-		Mode:           mode,
-		AgentID:        agentID,
-		Model:          req.Model,
-		Status:         "active",
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:                    sessionID,
+		Title:                 title,
+		WorkspaceID:           workspaceID,
+		CWD:                   req.CWD,
+		AdditionalDirectories: append([]string(nil), additionalDirectories...),
+		StartupCommand:        startupCommand,
+		Mode:                  mode,
+		AgentID:               agentID,
+		Model:                 req.Model,
+		Status:                "active",
+		CreatedAt:             now,
+		UpdatedAt:             now,
 	}
 	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
 		return Session{}, err
@@ -197,6 +206,11 @@ func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessio
 func (s *MockGatewayService) ListSessions(ctx context.Context) ([]Session, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if s.connector != nil {
+		if err := s.syncSessionsFromConnector(ctx); err != nil {
+			return nil, err
+		}
 	}
 	conversations, err := s.store.ListConversations(ctx)
 	if err != nil {
@@ -224,6 +238,181 @@ func (s *MockGatewayService) GetSession(ctx context.Context, sessionID string) (
 		return Session{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
 	}
 	return fromStoreConversation(conversation), nil
+}
+
+func (s *MockGatewayService) ResumeSession(ctx context.Context, sessionID string, req ResumeSessionRequest) (Session, error) {
+	if err := ctx.Err(); err != nil {
+		return Session{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return Session{}, NewError("invalid_session", "session id is required")
+	}
+	if s.connector == nil {
+		return Session{}, NewError("connector_unavailable", "connector is not configured")
+	}
+
+	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
+	if err != nil {
+		return Session{}, err
+	}
+	var session Session
+	if ok {
+		session = fromStoreConversation(conversation)
+	} else {
+		now := s.now()
+		agentID := "icoo-ai-acp"
+		if len(s.agents) > 0 {
+			agentID = s.agents[0].ID
+		}
+		session = Session{
+			ID:        sessionID,
+			Title:     "Resumed Session",
+			AgentID:   agentID,
+			Mode:      agentID,
+			Status:    "active",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+	}
+
+	cwd := strings.TrimSpace(req.CWD)
+	if cwd == "" {
+		cwd = strings.TrimSpace(session.CWD)
+	}
+	if cwd == "" {
+		return Session{}, NewError("invalid_session_config", "cwd is required to resume session")
+	}
+	connReq := connector.ResumeSessionRequest{
+		SessionID:             sessionID,
+		CWD:                   cwd,
+		AdditionalDirectories: append([]string(nil), req.AdditionalDirectories...),
+	}
+	if _, err := s.connector.ResumeSession(ctx, connReq); err != nil {
+		return Session{}, NewError("connector_request_failed", fmt.Sprintf("connector resumeSession failed: %v", err))
+	}
+
+	session.CWD = cwd
+	if len(req.AdditionalDirectories) > 0 {
+		session.AdditionalDirectories = append([]string(nil), req.AdditionalDirectories...)
+	}
+	if session.Status == "" {
+		session.Status = "active"
+	}
+	session.UpdatedAt = s.now()
+	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
+		return Session{}, err
+	}
+	return session, nil
+}
+
+func (s *MockGatewayService) CloseSession(ctx context.Context, sessionID string) (Session, error) {
+	if err := ctx.Err(); err != nil {
+		return Session{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
+	if err != nil {
+		return Session{}, err
+	}
+	if !ok {
+		return Session{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
+	}
+	session := fromStoreConversation(conversation)
+	if s.connector != nil {
+		if _, err := s.connector.CloseSession(ctx, connector.CloseSessionRequest{SessionID: sessionID}); err != nil {
+			return Session{}, NewError("connector_request_failed", fmt.Sprintf("connector closeSession failed: %v", err))
+		}
+	}
+	now := s.now()
+	session.Status = "closed"
+	session.UpdatedAt = now
+	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
+		return Session{}, err
+	}
+	return session, nil
+}
+
+func (s *MockGatewayService) SetSessionMode(ctx context.Context, sessionID string, req SetSessionModeRequest) (Session, error) {
+	if err := ctx.Err(); err != nil {
+		return Session{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
+	if err != nil {
+		return Session{}, err
+	}
+	if !ok {
+		return Session{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
+	}
+	mode := strings.TrimSpace(req.Mode)
+	if mode == "" {
+		return Session{}, NewError("invalid_session_config", "mode is required")
+	}
+	if s.connector != nil {
+		if _, err := s.connector.SetSessionMode(ctx, connector.SetSessionModeRequest{
+			SessionID: sessionID,
+			ModeID:    mode,
+		}); err != nil {
+			return Session{}, NewError("connector_request_failed", fmt.Sprintf("connector setSessionMode failed: %v", err))
+		}
+	}
+	session := fromStoreConversation(conversation)
+	session.Mode = mode
+	session.UpdatedAt = s.now()
+	if !isGenericMode(mode) && s.hasAgentLocked(mode) {
+		session.AgentID = mode
+	}
+	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
+		return Session{}, err
+	}
+	return session, nil
+}
+
+func (s *MockGatewayService) SetSessionConfigOption(ctx context.Context, sessionID string, req SetSessionConfigOptionRequest) (Session, error) {
+	if err := ctx.Err(); err != nil {
+		return Session{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
+	if err != nil {
+		return Session{}, err
+	}
+	if !ok {
+		return Session{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
+	}
+	configID := strings.TrimSpace(req.ConfigID)
+	if configID == "" {
+		return Session{}, NewError("invalid_session_config", "configId is required")
+	}
+	if req.BooleanValue == nil && strings.TrimSpace(req.ValueID) == "" {
+		return Session{}, NewError("invalid_session_config", "booleanValue or valueId is required")
+	}
+	if s.connector != nil {
+		if _, err := s.connector.SetSessionConfigOption(ctx, connector.SetSessionConfigOptionRequest{
+			SessionID:    sessionID,
+			ConfigID:     configID,
+			BooleanValue: req.BooleanValue,
+			ValueID:      strings.TrimSpace(req.ValueID),
+		}); err != nil {
+			return Session{}, NewError("connector_request_failed", fmt.Sprintf("connector setSessionConfigOption failed: %v", err))
+		}
+	}
+	session := fromStoreConversation(conversation)
+	session.UpdatedAt = s.now()
+	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
+		return Session{}, err
+	}
+	return session, nil
 }
 
 func (s *MockGatewayService) ListMessages(ctx context.Context, sessionID string) ([]Message, error) {
@@ -612,6 +801,58 @@ func (s *MockGatewayService) latestRunIDLocked(ctx context.Context, sessionID st
 	return runs[len(runs)-1].RunID, nil
 }
 
+func (s *MockGatewayService) syncSessionsFromConnector(ctx context.Context) error {
+	resp, err := s.connector.ListSessions(ctx, connector.ListSessionsRequest{})
+	if err != nil {
+		return NewError("connector_request_failed", fmt.Sprintf("connector listSessions failed: %v", err))
+	}
+	now := s.now()
+	for _, item := range resp.Sessions {
+		sessionID := strings.TrimSpace(item.SessionID)
+		if sessionID == "" {
+			continue
+		}
+		conversation, ok, err := s.store.GetConversation(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+		var session Session
+		if ok {
+			session = fromStoreConversation(conversation)
+		} else {
+			agentID := "icoo-ai-acp"
+			if len(s.agents) > 0 {
+				agentID = s.agents[0].ID
+			}
+			session = Session{
+				ID:        sessionID,
+				Title:     "Restored Session",
+				AgentID:   agentID,
+				Mode:      agentID,
+				Status:    "active",
+				CreatedAt: now,
+			}
+		}
+		if title := strings.TrimSpace(item.Title); title != "" {
+			session.Title = title
+		}
+		if cwd := strings.TrimSpace(item.CWD); cwd != "" {
+			session.CWD = cwd
+		}
+		if len(item.AdditionalDirectories) > 0 {
+			session.AdditionalDirectories = append([]string(nil), item.AdditionalDirectories...)
+		}
+		if strings.TrimSpace(session.Status) == "" {
+			session.Status = "active"
+		}
+		session.UpdatedAt = now
+		if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *MockGatewayService) idLocked(prefix string) string {
 	id := fmt.Sprintf("%s_%06d", prefix, s.nextID)
 	s.nextID++
@@ -628,6 +869,9 @@ func toStoreConversation(session Session) store.Conversation {
 	}
 	if strings.TrimSpace(session.Mode) != "" {
 		safeMeta["mode"] = strings.TrimSpace(session.Mode)
+	}
+	if len(session.AdditionalDirectories) > 0 {
+		safeMeta["additionalDirectories"] = append([]string(nil), session.AdditionalDirectories...)
 	}
 	if len(safeMeta) == 0 {
 		safeMeta = nil
@@ -650,21 +894,23 @@ func fromStoreConversation(conversation store.Conversation) Session {
 	startupCommand, _ := conversation.SafeMeta["startupCommand"].(string)
 	workspaceID, _ := conversation.SafeMeta["workspaceId"].(string)
 	mode, _ := conversation.SafeMeta["mode"].(string)
+	additionalDirectories := stringSliceMeta(conversation.SafeMeta["additionalDirectories"])
 	if strings.TrimSpace(mode) == "" {
 		mode = conversation.AgentID
 	}
 	return Session{
-		ID:             conversation.SessionID,
-		Title:          conversation.Title,
-		WorkspaceID:    strings.TrimSpace(workspaceID),
-		CWD:            conversation.CWD,
-		StartupCommand: strings.TrimSpace(startupCommand),
-		Mode:           strings.TrimSpace(mode),
-		AgentID:        conversation.AgentID,
-		Model:          conversation.Model,
-		Status:         conversation.Status,
-		CreatedAt:      conversation.CreatedAt,
-		UpdatedAt:      conversation.UpdatedAt,
+		ID:                    conversation.SessionID,
+		Title:                 conversation.Title,
+		WorkspaceID:           strings.TrimSpace(workspaceID),
+		CWD:                   conversation.CWD,
+		AdditionalDirectories: additionalDirectories,
+		StartupCommand:        strings.TrimSpace(startupCommand),
+		Mode:                  strings.TrimSpace(mode),
+		AgentID:               conversation.AgentID,
+		Model:                 conversation.Model,
+		Status:                conversation.Status,
+		CreatedAt:             conversation.CreatedAt,
+		UpdatedAt:             conversation.UpdatedAt,
 	}
 }
 
@@ -756,6 +1002,25 @@ func timePointerValue(in *time.Time, fallback time.Time) time.Time {
 		return fallback
 	}
 	return *in
+}
+
+func stringSliceMeta(raw any) []string {
+	switch value := raw.(type) {
+	case []string:
+		return append([]string(nil), value...)
+	case []any:
+		out := make([]string, 0, len(value))
+		for _, item := range value {
+			text, ok := item.(string)
+			if !ok {
+				continue
+			}
+			out = append(out, text)
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func isGenericMode(mode string) bool {

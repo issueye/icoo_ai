@@ -78,9 +78,13 @@ func (h *Handler) handleSessionAction(w http.ResponseWriter, r *http.Request) {
 
 	switch action {
 	case "":
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", http.MethodGet)
+		if r.Method != http.MethodGet && r.Method != http.MethodDelete {
+			w.Header().Set("Allow", "GET, DELETE")
 			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		if r.Method == http.MethodDelete {
+			h.closeSession(w, r, sessionID)
 			return
 		}
 		h.getSession(w, r, sessionID)
@@ -105,6 +109,34 @@ func (h *Handler) handleSessionAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.cancel(w, r, sessionID)
+	case "resume":
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		h.resumeSession(w, r, sessionID)
+	case "mode":
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		h.setSessionMode(w, r, sessionID)
+	case "config":
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		h.setSessionConfigOption(w, r, sessionID)
+	case "close":
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		h.closeSession(w, r, sessionID)
 	default:
 		writeError(w, http.StatusNotFound, "not_found", "route not found")
 	}
@@ -149,6 +181,57 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request, sessionID strin
 		return
 	}
 	writeJSON(w, http.StatusOK, run)
+}
+
+func (h *Handler) resumeSession(w http.ResponseWriter, r *http.Request, sessionID string) {
+	var req service.ResumeSessionRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+		return
+	}
+	session, err := h.service.ResumeSession(r.Context(), sessionID, req)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (h *Handler) setSessionMode(w http.ResponseWriter, r *http.Request, sessionID string) {
+	var req service.SetSessionModeRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+		return
+	}
+	session, err := h.service.SetSessionMode(r.Context(), sessionID, req)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (h *Handler) setSessionConfigOption(w http.ResponseWriter, r *http.Request, sessionID string) {
+	var req service.SetSessionConfigOptionRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+		return
+	}
+	session, err := h.service.SetSessionConfigOption(r.Context(), sessionID, req)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (h *Handler) closeSession(w http.ResponseWriter, r *http.Request, sessionID string) {
+	session, err := h.service.CloseSession(r.Context(), sessionID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
 }
 
 func (h *Handler) handleRuns(w http.ResponseWriter, r *http.Request) {

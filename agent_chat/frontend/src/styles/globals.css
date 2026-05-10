@@ -4,29 +4,33 @@
 
 @layer base {
   :root {
-    --qq-bg: #dff4ff;
-    --qq-nav: #cbeeff;
-    --qq-sidebar: #c8edf9;
-    --qq-sidebar-soft: #d8f3ff;
-    --qq-chat: #eaf8ff;
-    --qq-panel: #f7fcff;
+    --qq-bg: #f7f7fa;
+    --qq-nav: #efeff3;
+    --qq-sidebar: #f2f2f6;
+    --qq-sidebar-soft: #fafafe;
+    --qq-chat: #fbfbfd;
+    --qq-panel: #f6f6fa;
     --qq-panel-strong: #ffffff;
-    --qq-input: #d7eef7;
-    --qq-active: #13aee4;
-    --qq-active-hover: #0b9fd4;
-    --qq-active-soft: #b7ecff;
-    --qq-border: rgba(83, 151, 181, 0.18);
-    --qq-border-strong: rgba(50, 113, 145, 0.26);
-    --qq-text: #082033;
-    --qq-text-soft: #426274;
-    --qq-text-muted: #6f8c9a;
+    --qq-input: #f1f2f8;
+    --qq-active: #fb7299;
+    --qq-active-hover: #f75884;
+    --qq-active-soft: #fde8ef;
+    --qq-active-border: rgba(251, 114, 153, 0.34);
+    --qq-active-border-strong: rgba(251, 114, 153, 0.46);
+    --qq-active-ring: rgba(251, 114, 153, 0.16);
+    --qq-active-ring-soft: rgba(251, 114, 153, 0.1);
+    --qq-border: rgba(209, 213, 219, 0.9);
+    --qq-border-strong: rgba(156, 163, 175, 0.45);
+    --qq-text: #333333;
+    --qq-text-soft: #4b5563;
+    --qq-text-muted: #6b7280;
     --qq-text-inverse: #ffffff;
-    --qq-success: #2dbf70;
-    --qq-warning: #f5a623;
-    --qq-danger: #ef4b5f;
-    --qq-subagent: #7c5cff;
-    --qq-shadow-soft: 0 8px 22px rgba(20, 103, 145, 0.10);
-    --qq-shadow-float: 0 14px 34px rgba(20, 103, 145, 0.14);
+    --qq-success: #2f9e6f;
+    --qq-warning: #b7791f;
+    --qq-danger: #d94b66;
+    --qq-subagent: #7b5ce6;
+    --qq-shadow-soft: 0 8px 22px rgba(17, 24, 39, 0.08);
+    --qq-shadow-float: 0 14px 34px rgba(17, 24, 39, 0.14);
     --nav-rail-width: 64px;
     --conversation-sidebar-width: 288px;
     --global-header-height: 40px;
@@ -36,23 +40,67 @@
     --message-max-width: 680px;
     --radius: 8px;
 
-    --background: 197 100% 94%;
-    --foreground: 204 73% 12%;
-    --card: 200 100% 99%;
-    --card-foreground: 204 73% 12%;
-    --primary: 195 85% 48%;
+    --background: 240 17% 97%;
+    --foreground: 215 14% 21%;
+    --card: 0 0% 100%;
+    --card-foreground: 215 14% 21%;
+    --primary: 342 94% 72%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 195 72% 88%;
-    --secondary-foreground: 204 73% 12%;
-    --muted: 196 54% 90%;
-    --muted-foreground: 199 16% 52%;
-    --accent: 195 100% 86%;
-    --accent-foreground: 200 78% 28%;
-    --destructive: 353 83% 62%;
+    --secondary: 220 14% 91%;
+    --secondary-foreground: 215 14% 21%;
+    --muted: 220 14% 93%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 342 72% 93%;
+    --accent-foreground: 335 45% 38%;
+    --destructive: 346 64% 57%;
     --destructive-foreground: 0 0% 100%;
-    --border: 197 43% 82%;
-    --input: 196 62% 91%;
-    --ring: 195 85% 48%;
+    --border: 220 13% 84%;
+    --input: 220 13% 90%;
+    --ring: 342 94% 72%;
+  }
+
+  html.dark {
+    --qq-bg: #1a1b1f;
+    --qq-nav: #1f2025;
+    --qq-sidebar: #23252b;
+    --qq-sidebar-soft: #2a2d35;
+    --qq-chat: #1d1f24;
+    --qq-panel: #252830;
+    --qq-panel-strong: #2c313b;
+    --qq-input: #272c36;
+    --qq-active: #f68fb0;
+    --qq-active-hover: #f9a1bd;
+    --qq-active-soft: rgba(246, 143, 176, 0.18);
+    --qq-active-border: rgba(246, 143, 176, 0.36);
+    --qq-active-border-strong: rgba(246, 143, 176, 0.46);
+    --qq-active-ring: rgba(246, 143, 176, 0.2);
+    --qq-active-ring-soft: rgba(246, 143, 176, 0.14);
+    --qq-border: rgba(71, 77, 91, 0.8);
+    --qq-border-strong: rgba(110, 117, 132, 0.76);
+    --qq-text: #e5e7eb;
+    --qq-text-soft: #c4c7d0;
+    --qq-text-muted: #9ca3af;
+    --qq-text-inverse: #14161b;
+    --qq-success: #4bb983;
+    --qq-warning: #d9a256;
+    --qq-danger: #f16e8e;
+    --qq-subagent: #9f84ff;
+
+    --background: 225 13% 12%;
+    --foreground: 220 17% 91%;
+    --card: 224 14% 18%;
+    --card-foreground: 220 17% 91%;
+    --primary: 338 84% 76%;
+    --secondary: 224 10% 24%;
+    --secondary-foreground: 220 17% 91%;
+    --muted: 224 10% 21%;
+    --muted-foreground: 220 11% 71%;
+    --accent: 338 45% 28%;
+    --accent-foreground: 338 84% 82%;
+    --destructive: 347 75% 66%;
+    --border: 223 12% 30%;
+    --input: 223 11% 26%;
+    --ring: 338 84% 76%;
   }
 
   * {
@@ -61,7 +109,7 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
     letter-spacing: 0;
   }
 
@@ -391,7 +439,7 @@
 
   .qq-search-box:focus-within {
     background: rgba(255, 255, 255, 0.68);
-    box-shadow: 0 0 0 2px rgba(19, 174, 228, 0.18);
+    box-shadow: 0 0 0 2px var(--qq-active-ring);
   }
 
   .qq-chip {
@@ -404,7 +452,7 @@
 
   .qq-chip.is-active {
     background: var(--qq-active-soft);
-    color: #036889;
+    color: var(--qq-active);
   }
 
   .qq-icon-button {
@@ -450,7 +498,7 @@
     justify-content: center;
     gap: 6px;
     border-radius: 6px;
-    border: 1px solid rgba(83, 151, 181, 0.18);
+    border: 1px solid var(--qq-border);
     background: rgba(255, 255, 255, 0.62);
     color: var(--qq-text-soft);
     transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
@@ -459,7 +507,7 @@
   .qq-secondary-action:hover {
     background: rgba(255, 255, 255, 0.86);
     color: var(--qq-text);
-    border-color: rgba(19, 174, 228, 0.28);
+    border-color: var(--qq-active-border);
   }
 
   .qq-conversation-item {
@@ -488,11 +536,11 @@
     place-items: center;
     border-radius: 50%;
     background: var(--qq-active-soft);
-    color: #03739a;
+    color: var(--qq-active);
   }
 
   .qq-avatar.is-subagent {
-    background: rgba(124, 92, 255, 0.16);
+    background: color-mix(in srgb, var(--qq-subagent) 18%, transparent);
     color: var(--qq-subagent);
   }
 
@@ -533,7 +581,7 @@
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid var(--qq-border);
-    background: rgba(247, 252, 255, 0.72);
+    background: color-mix(in srgb, var(--qq-panel) 78%, transparent);
     gap: 14px;
     padding: 4px 6px;
   }
@@ -547,9 +595,9 @@
 
   .qq-status-pill {
     border-radius: 999px;
-    background: rgba(45, 191, 112, 0.14);
+    background: color-mix(in srgb, var(--qq-success) 16%, transparent);
     padding: 2px 8px;
-    color: #16864a;
+    color: var(--qq-success);
     font-size: 12px;
     line-height: 17px;
   }
@@ -574,7 +622,7 @@
     max-width: 230px;
     align-items: center;
     gap: 6px;
-    border: 1px solid rgba(83, 151, 181, 0.16);
+    border: 1px solid var(--qq-border);
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.62);
     padding: 0 8px;
@@ -587,9 +635,9 @@
   .qq-context-trigger:hover,
   .qq-context-trigger:focus-visible,
   .qq-context-dropdown.is-open .qq-context-trigger {
-    border-color: rgba(19, 174, 228, 0.36);
+    border-color: var(--qq-active-border);
     background: rgba(255, 255, 255, 0.88);
-    box-shadow: 0 0 0 2px rgba(19, 174, 228, 0.12);
+    box-shadow: 0 0 0 2px var(--qq-active-ring-soft);
     outline: none;
   }
 
@@ -653,13 +701,75 @@
   }
 
   .qq-context-option.is-active {
-    background: rgba(19, 174, 228, 0.10);
+    background: color-mix(in srgb, var(--qq-active) 14%, transparent);
     color: var(--qq-text);
   }
 
   .qq-context-option.is-selected {
-    color: #04749c;
+    color: var(--qq-active);
     font-weight: 700;
+  }
+
+  .qq-context-dropdown-chip {
+    max-width: none;
+  }
+
+  .qq-context-dropdown-chip .qq-context-trigger {
+    width: auto;
+    max-width: none;
+    height: 30px;
+    border-radius: 999px;
+    border: 1px solid var(--qq-border);
+    background: rgba(255, 255, 255, 0.94);
+    padding: 0 12px;
+    gap: 6px;
+  }
+
+  .qq-context-dropdown-chip .qq-context-label {
+    color: var(--qq-active);
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 600;
+  }
+
+  .qq-context-dropdown-chip .qq-context-value,
+  .qq-context-dropdown-chip .qq-context-chevron {
+    display: none;
+  }
+
+  .qq-context-dropdown-model {
+    max-width: none;
+  }
+
+  .qq-context-dropdown-model .qq-context-trigger {
+    width: auto;
+    max-width: none;
+    height: 30px;
+    border: none;
+    background: transparent;
+    padding: 0;
+    gap: 6px;
+    box-shadow: none;
+  }
+
+  .qq-context-dropdown-model .qq-context-trigger:hover,
+  .qq-context-dropdown-model .qq-context-trigger:focus-visible,
+  .qq-context-dropdown-model.is-open .qq-context-trigger {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .qq-context-dropdown-model .qq-context-label {
+    display: none;
+  }
+
+  .qq-context-dropdown-model .qq-context-value {
+    max-width: 220px;
+    color: var(--qq-active);
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 500;
   }
 
   .qq-message-timeline {
@@ -722,13 +832,13 @@
   }
 
   .qq-ued-message-avatar.is-assistant {
-    background: rgba(19, 174, 228, 0.14);
-    color: #047aa6;
+    background: color-mix(in srgb, var(--qq-active) 14%, transparent);
+    color: var(--qq-active);
   }
 
   .qq-ued-message-avatar.is-user {
-    background: rgba(66, 98, 116, 0.16);
-    color: #355668;
+    background: color-mix(in srgb, var(--qq-text-soft) 18%, transparent);
+    color: var(--qq-text-soft);
   }
 
   .qq-ued-message-body {
@@ -741,8 +851,8 @@
   }
 
   .qq-ued-message-row.is-user .qq-ued-message-body {
-    border-color: rgba(19, 174, 228, 0.25);
-    background: rgba(199, 239, 255, 0.86);
+    border-color: var(--qq-active-border);
+    background: color-mix(in srgb, var(--qq-active) 14%, white);
   }
 
   .qq-ued-message-meta {
@@ -784,8 +894,8 @@
   }
 
   .qq-ued-reminder.is-info {
-    border-color: rgba(83, 151, 181, 0.28);
-    background: rgba(237, 248, 255, 0.85);
+    border-color: color-mix(in srgb, var(--qq-active) 36%, var(--qq-border));
+    background: color-mix(in srgb, var(--qq-active) 10%, white);
   }
 
   .qq-ued-reminder.is-notice {
@@ -794,7 +904,7 @@
   }
 
   .qq-ued-reminder.is-danger {
-    border-color: rgba(239, 75, 95, 0.28);
+    border-color: color-mix(in srgb, var(--qq-danger) 28%, transparent);
     background: rgba(255, 241, 243, 0.92);
   }
 
@@ -807,11 +917,11 @@
   }
 
   .qq-ued-reminder.is-notice .qq-ued-reminder-icon {
-    color: #a26a13;
+    color: var(--qq-warning);
   }
 
   .qq-ued-reminder.is-danger .qq-ued-reminder-icon {
-    color: #c0394f;
+    color: var(--qq-danger);
   }
 
   .qq-ued-reminder-body {
@@ -869,7 +979,7 @@
   }
 
   .qq-event-card.is-subagent {
-    border-color: rgba(124, 92, 255, 0.26);
+    border-color: color-mix(in srgb, var(--qq-subagent) 28%, transparent);
     background: rgba(244, 241, 255, 0.86);
     color: #36216b;
   }
@@ -882,15 +992,72 @@
 
   .qq-meta-cell {
     border-radius: 6px;
-    background: rgba(222, 239, 247, 0.58);
+    background: color-mix(in srgb, var(--qq-panel) 76%, white);
     padding: 8px;
   }
 
   .qq-composer {
     min-height: var(--composer-height);
-    border-top: 1px solid var(--qq-border);
-    background: rgba(247, 252, 255, 0.78);
-    padding: 12px;
+    background: color-mix(in srgb, var(--qq-panel) 82%, transparent);
+    padding: 10px 12px 12px;
+  }
+
+  .qq-composer-dialog {
+    margin: 0 auto;
+    width: min(100%, var(--chat-content-max-width));
+    border: 1px solid var(--qq-border);
+    border-radius: 18px;
+    background: var(--qq-panel-strong);
+    box-shadow: var(--qq-shadow-soft);
+    overflow: hidden;
+  }
+
+  .qq-composer-agent-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px 8px;
+    border-bottom: 1px solid var(--qq-border);
+    background: color-mix(in srgb, var(--qq-panel) 68%, var(--qq-panel-strong));
+  }
+
+  .qq-composer-agent-meta {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .qq-composer-agent-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--qq-active) 14%, transparent);
+    color: var(--qq-active);
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .qq-composer-agent-title {
+    color: var(--qq-text);
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 700;
+  }
+
+  .qq-composer-agent-subtitle {
+    margin-top: 2px;
+    color: var(--qq-text-muted);
+    font-size: 12px;
+    line-height: 17px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .qq-composer-inner {
@@ -902,12 +1069,21 @@
     box-shadow: 0 1px 2px rgba(8, 32, 51, 0.05);
   }
 
+  .qq-composer-inner-elevated {
+    width: auto;
+    margin: 0;
+    border-radius: 0;
+    background: var(--qq-panel-strong);
+    padding: 10px 12px 12px;
+    box-shadow: none;
+  }
+
   .qq-textarea {
     width: 100%;
     height: 78px;
     resize: none;
     border-radius: 6px;
-    background: rgba(234, 248, 255, 0.74);
+    background: var(--qq-input);
     padding: 10px;
     font-size: 14px;
     line-height: 22px;
@@ -916,7 +1092,76 @@
   }
 
   .qq-textarea:focus {
-    box-shadow: 0 0 0 2px rgba(19, 174, 228, 0.18);
+    box-shadow: 0 0 0 2px var(--qq-active-ring);
+  }
+
+  .qq-textarea-flat {
+    height: 84px;
+    border-radius: 10px;
+    background: transparent;
+    padding: 10px 8px;
+    box-shadow: none;
+  }
+
+  .qq-textarea-flat:focus {
+    box-shadow: none;
+  }
+
+  .qq-composer-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .qq-composer-chip-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .qq-composer-actions {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .qq-composer-tool {
+    display: inline-grid;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    border-radius: 999px;
+    color: var(--qq-text-muted);
+    transition: background-color 140ms ease, color 140ms ease;
+  }
+
+  .qq-composer-tool:hover {
+    background: color-mix(in srgb, var(--qq-active) 10%, transparent);
+    color: var(--qq-active);
+  }
+
+  .qq-composer-send {
+    display: inline-grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    border-radius: 999px;
+    background: var(--qq-active);
+    color: var(--qq-text-inverse);
+    transition: background-color 140ms ease, opacity 140ms ease;
+  }
+
+  .qq-composer-send:hover:not(:disabled) {
+    background: var(--qq-active-hover);
+  }
+
+  .qq-composer-send:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .qq-settings-body {
@@ -958,8 +1203,8 @@
     height: 30px;
     place-items: center;
     border-radius: 8px;
-    background: rgba(19, 174, 228, 0.14);
-    color: #0b88b5;
+    background: color-mix(in srgb, var(--qq-active) 14%, transparent);
+    color: var(--qq-active);
     flex-shrink: 0;
   }
 
@@ -1019,8 +1264,8 @@
   }
 
   .qq-settings-input:focus {
-    border-color: rgba(19, 174, 228, 0.46);
-    box-shadow: 0 0 0 2px rgba(19, 174, 228, 0.16);
+    border-color: var(--qq-active-border-strong);
+    box-shadow: 0 0 0 2px var(--qq-active-ring);
   }
 
   .qq-settings-dropdown {
@@ -1161,17 +1406,17 @@
   }
 
   .qq-toast.is-success {
-    border-color: rgba(45, 191, 112, 0.26);
+    border-color: color-mix(in srgb, var(--qq-success) 30%, transparent);
     background: rgba(241, 255, 247, 0.98);
   }
 
   .qq-toast.is-error {
-    border-color: rgba(239, 75, 95, 0.28);
+    border-color: color-mix(in srgb, var(--qq-danger) 30%, transparent);
     background: rgba(255, 244, 246, 0.98);
   }
 
   .qq-toast.is-info {
-    border-color: rgba(83, 151, 181, 0.24);
+    border-color: color-mix(in srgb, var(--qq-active) 30%, transparent);
     background: rgba(246, 252, 255, 0.98);
   }
 
@@ -1184,11 +1429,11 @@
   }
 
   .qq-toast.is-success .qq-toast-icon {
-    color: #16864a;
+    color: var(--qq-success);
   }
 
   .qq-toast.is-error .qq-toast-icon {
-    color: #c0394f;
+    color: var(--qq-danger);
   }
 
   .qq-toast-message {
@@ -1219,6 +1464,6 @@
 @layer utilities {
   .scrollbar-thin-blue {
     scrollbar-width: thin;
-    scrollbar-color: rgba(19, 174, 228, 0.35) transparent;
+    scrollbar-color: color-mix(in srgb, var(--qq-active) 35%, transparent) transparent;
   }
 }

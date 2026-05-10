@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { Boxes, BrainCircuit, FolderGit2, Send, Square } from 'lucide-vue-next'
+import { BookOpen, BrainCircuit, ChevronRight, Image, Paperclip, Send, Sparkles, Square } from 'lucide-vue-next'
 import { useConversationsStore } from '@/stores/conversations'
 import { useMessagesStore } from '@/stores/messages'
 import { useRunsStore } from '@/stores/runs'
@@ -12,12 +12,9 @@ const messages = useMessagesStore()
 const runs = useRunsStore()
 const activeSessionId = computed(() => conversations.activeSessionId)
 const sending = computed(() => Boolean(messages.sendingBySessionId[activeSessionId.value]))
-const activeContextText = computed(() => {
-  const workspaceLabel = conversations.activeWorkspace?.label || '未选择工作区'
-  const modeLabel = conversations.activeMode?.label || '未选择模式'
-  const modelLabel = conversations.activeModel?.label || '未选择模型'
-  return `${workspaceLabel} · ${modeLabel} · ${modelLabel}`
-})
+const activeModeId = computed(() => conversations.activeConversation?.mode ?? conversations.activeMode?.id ?? '')
+const activeWorkspaceId = computed(() => conversations.activeConversation?.workspaceId ?? conversations.activeWorkspace.id)
+const activeModelId = computed(() => conversations.activeConversation?.model ?? conversations.activeModel?.id ?? '')
 
 async function sendPrompt() {
   if (!activeSessionId.value || sending.value || !draft.value.trim()) return
@@ -48,35 +45,72 @@ function handleKeydown(event) {
 
 <template>
   <footer class="qq-composer">
-    <div class="qq-composer-inner">
-      <textarea v-model="draft" class="qq-textarea" placeholder="输入消息，或使用 /skill 启动 subagent..."
-        @keydown="handleKeydown" />
-      <div class="mt-1 flex items-center justify-between gap-3 text-xs text-[color:var(--qq-text-muted)]">
-        <div class="qq-context-bar">
-          <ContextDropdown label="工作区" :icon="FolderGit2"
-            :model-value="conversations.activeConversation?.workspaceId ?? conversations.activeWorkspace.id"
-            :options="conversations.workspaceOptions"
-            @update:model-value="conversations.updateActiveContext({ workspaceId: $event })" />
-          <ContextDropdown label="模式" :icon="Boxes"
-            :model-value="conversations.activeConversation?.mode ?? conversations.activeMode?.id ?? ''"
-            :options="conversations.modeOptions"
-            @update:model-value="conversations.updateActiveContext({ mode: $event })" />
-          <ContextDropdown label="模型" :icon="BrainCircuit"
-            :model-value="conversations.activeConversation?.model ?? conversations.activeModel?.id ?? ''"
-            :options="conversations.modelOptions"
-            @update:model-value="conversations.updateActiveContext({ model: $event })" />
+    <div class="qq-composer-dialog">
+      <div class="qq-composer-agent-bar">
+        <div class="qq-composer-agent-meta">
+          <div class="qq-composer-agent-avatar">AI</div>
+          <div class="min-w-0">
+            <p class="qq-composer-agent-title">智能助手</p>
+            <p class="qq-composer-agent-subtitle">一个友好、专业的 AI 助手，可以帮助你解决各种问题。</p>
+          </div>
         </div>
+        <button class="qq-icon-button h-7 w-7" type="button" aria-label="展开助手信息">
+          <ChevronRight class="h-4 w-4" />
+        </button>
+      </div>
 
-        <div class="flex items-center gap-2">
-          <button class="qq-secondary-action h-8 px-3 text-sm font-medium" aria-label="停止运行" @click="cancelRun">
-            <Square class="h-4 w-4" />
-            停止
-          </button>
-          <button class="qq-primary-action h-8 px-4 text-sm" :disabled="sending || !draft.trim()" aria-label="发送消息"
-            @click="sendPrompt">
-            <Send class="h-4 w-4" />
-            {{ sending ? '发送中' : '发送' }}
-          </button>
+      <div class="qq-composer-inner qq-composer-inner-elevated">
+        <textarea
+          v-model="draft"
+          class="qq-textarea qq-textarea-flat"
+          placeholder="Enter发送, Shift+Enter换行"
+          @keydown="handleKeydown"
+        />
+        <div class="qq-composer-bottom">
+          <div class="qq-composer-chip-row">
+            <ContextDropdown
+              class="qq-context-dropdown-chip"
+              label="思考"
+              :icon="Sparkles"
+              :model-value="activeModeId"
+              :options="conversations.modeOptions"
+              @update:model-value="conversations.updateActiveContext({ mode: $event })"
+            />
+            <ContextDropdown
+              class="qq-context-dropdown-chip"
+              label="知识库"
+              :icon="BookOpen"
+              :model-value="activeWorkspaceId"
+              :options="conversations.workspaceOptions"
+              @update:model-value="conversations.updateActiveContext({ workspaceId: $event })"
+            />
+          </div>
+
+          <div class="qq-composer-actions">
+            <ContextDropdown
+              class="qq-context-dropdown-model"
+              label=""
+              :icon="BrainCircuit"
+              :model-value="activeModelId"
+              :options="conversations.modelOptions"
+              @update:model-value="conversations.updateActiveContext({ model: $event })"
+            />
+            <button class="qq-composer-tool" type="button" aria-label="上传附件">
+              <Paperclip class="h-4 w-4" />
+            </button>
+            <button class="qq-composer-tool" type="button" aria-label="插入图片">
+              <Image class="h-4 w-4" />
+            </button>
+            <button
+              class="qq-composer-send"
+              :disabled="(!draft.trim() && !sending) || !activeSessionId"
+              aria-label="发送消息"
+              @click="sending ? cancelRun() : sendPrompt()"
+            >
+              <Square v-if="sending" class="h-3.5 w-3.5" />
+              <Send v-else class="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

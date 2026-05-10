@@ -30,6 +30,26 @@ func (f *promptReadyAPIFake) NewSession(context.Context, connector.NewSessionReq
 	return connector.NewSessionResponse{}, nil
 }
 
+func (f *promptReadyAPIFake) ListSessions(context.Context, connector.ListSessionsRequest) (connector.ListSessionsResponse, error) {
+	return connector.ListSessionsResponse{}, nil
+}
+
+func (f *promptReadyAPIFake) ResumeSession(context.Context, connector.ResumeSessionRequest) (connector.ResumeSessionResponse, error) {
+	return connector.ResumeSessionResponse{}, nil
+}
+
+func (f *promptReadyAPIFake) CloseSession(context.Context, connector.CloseSessionRequest) (connector.CloseSessionResponse, error) {
+	return connector.CloseSessionResponse{}, nil
+}
+
+func (f *promptReadyAPIFake) SetSessionMode(context.Context, connector.SetSessionModeRequest) (connector.SetSessionModeResponse, error) {
+	return connector.SetSessionModeResponse{}, nil
+}
+
+func (f *promptReadyAPIFake) SetSessionConfigOption(context.Context, connector.SetSessionConfigOptionRequest) (connector.SetSessionConfigOptionResponse, error) {
+	return connector.SetSessionConfigOptionResponse{}, nil
+}
+
 func (f *promptReadyAPIFake) Prompt(context.Context, connector.PromptRequest) (connector.PromptResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -462,9 +482,13 @@ type connectorBackedAPIFake struct {
 	cancelResp connector.CancelResponse
 	cancelErr  error
 
-	newSessionCalls int
-	promptCalls     int
-	cancelCalls     int
+	newSessionCalls   int
+	resumeCalls       int
+	closeSessionCalls int
+	setModeCalls      int
+	setConfigCalls    int
+	promptCalls       int
+	cancelCalls       int
 }
 
 func (f *connectorBackedAPIFake) Initialize(context.Context, connector.InitializeRequest) (connector.InitializeResponse, error) {
@@ -477,6 +501,30 @@ func (f *connectorBackedAPIFake) NewSession(context.Context, connector.NewSessio
 		return connector.NewSessionResponse{}, f.newSessionErr
 	}
 	return f.newSessionResp, nil
+}
+
+func (f *connectorBackedAPIFake) ListSessions(context.Context, connector.ListSessionsRequest) (connector.ListSessionsResponse, error) {
+	return connector.ListSessionsResponse{}, nil
+}
+
+func (f *connectorBackedAPIFake) ResumeSession(context.Context, connector.ResumeSessionRequest) (connector.ResumeSessionResponse, error) {
+	f.resumeCalls++
+	return connector.ResumeSessionResponse{}, nil
+}
+
+func (f *connectorBackedAPIFake) CloseSession(context.Context, connector.CloseSessionRequest) (connector.CloseSessionResponse, error) {
+	f.closeSessionCalls++
+	return connector.CloseSessionResponse{}, nil
+}
+
+func (f *connectorBackedAPIFake) SetSessionMode(context.Context, connector.SetSessionModeRequest) (connector.SetSessionModeResponse, error) {
+	f.setModeCalls++
+	return connector.SetSessionModeResponse{}, nil
+}
+
+func (f *connectorBackedAPIFake) SetSessionConfigOption(context.Context, connector.SetSessionConfigOptionRequest) (connector.SetSessionConfigOptionResponse, error) {
+	f.setConfigCalls++
+	return connector.SetSessionConfigOptionResponse{}, nil
 }
 
 func (f *connectorBackedAPIFake) Prompt(context.Context, connector.PromptRequest) (connector.PromptResponse, error) {
@@ -557,6 +605,58 @@ func TestConnectorBackedPromptHistoryAPIConsistency(t *testing.T) {
 	}
 	if approvals[0].ID != prompt.Approval.ID || approvals[0].RunID != prompt.Run.ID || approvals[0].SessionID != session.ID {
 		t.Fatalf("approval list mismatch: got %#v prompt approval %#v", approvals[0], prompt.Approval)
+	}
+}
+
+func TestSessionLifecycleEndpoints(t *testing.T) {
+	fake := &connectorBackedAPIFake{
+		newSessionResp: connector.NewSessionResponse{SessionID: "sess_api_lifecycle_1"},
+	}
+	svc := service.NewConnectorGatewayServiceWithAgentsAndStore(nil, store.NewMemoryStore(), fake)
+	router := api.NewRouter(svc)
+
+	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
+		"title":   "lifecycle api",
+		"agentId": "icoo-ai-acp",
+		"cwd":     "E:/codes/icoo_ai",
+	})
+
+	resumed := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions/"+session.ID+"/resume", map[string]any{
+		"cwd":                   "E:/codes/icoo_ai",
+		"additionalDirectories": []string{"E:/codes/icoo_ai/agent_gateway"},
+	})
+	if len(resumed.AdditionalDirectories) != 1 {
+		t.Fatalf("expected resumed additional directories, got %#v", resumed.AdditionalDirectories)
+	}
+
+	modeUpdated := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions/"+session.ID+"/mode", map[string]any{
+		"mode": "agent",
+	})
+	if modeUpdated.Mode != "agent" {
+		t.Fatalf("expected mode updated to agent, got %#v", modeUpdated.Mode)
+	}
+
+	configUpdated := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions/"+session.ID+"/config", map[string]any{
+		"configId":     "emit_plan_updates",
+		"booleanValue": true,
+	})
+	if configUpdated.UpdatedAt.IsZero() {
+		t.Fatalf("expected updatedAt after config update, got %#v", configUpdated)
+	}
+
+	closed := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions/"+session.ID+"/close", nil)
+	if closed.Status != "closed" {
+		t.Fatalf("expected closed status, got %#v", closed.Status)
+	}
+
+	closedAgain := doJSON[service.Session](t, router, http.MethodDelete, "/v1/sessions/"+session.ID, nil)
+	if closedAgain.Status != "closed" {
+		t.Fatalf("expected closed status via delete, got %#v", closedAgain.Status)
+	}
+
+	if fake.resumeCalls == 0 || fake.setModeCalls == 0 || fake.setConfigCalls == 0 || fake.closeSessionCalls == 0 {
+		t.Fatalf("expected lifecycle calls, got resume=%d mode=%d config=%d close=%d",
+			fake.resumeCalls, fake.setModeCalls, fake.setConfigCalls, fake.closeSessionCalls)
 	}
 }
 

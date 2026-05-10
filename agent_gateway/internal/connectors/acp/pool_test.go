@@ -15,17 +15,28 @@ type fakePoolBackend struct {
 
 	mu sync.Mutex
 
-	initializeCalls int
-	newSessionCalls int
-	promptCalls     []connector.PromptRequest
-	cancelCalls     []connector.CancelRequest
-	closeCalls      int
+	initializeCalls   int
+	newSessionCalls   int
+	listCalls         int
+	resumeCalls       int
+	closeSessionCalls int
+	setModeCalls      int
+	setConfigCalls    int
+	promptCalls       []connector.PromptRequest
+	cancelCalls       []connector.CancelRequest
+	closeCalls        int
 
 	initializeResp connector.InitializeResponse
 	initializeErr  error
 
-	newSessionIDs []string
-	newSessionErr error
+	newSessionIDs   []string
+	newSessionErr   error
+	listResp        connector.ListSessionsResponse
+	listErr         error
+	resumeErr       error
+	closeSessionErr error
+	setModeErr      error
+	setConfigErr    error
 
 	promptResp connector.PromptResponse
 	promptErr  error
@@ -75,6 +86,56 @@ func (f *fakePoolBackend) Prompt(_ context.Context, req connector.PromptRequest)
 		return connector.PromptResponse{RunID: "run-" + f.id}, nil
 	}
 	return f.promptResp, nil
+}
+
+func (f *fakePoolBackend) ListSessions(context.Context, connector.ListSessionsRequest) (connector.ListSessionsResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listCalls++
+	if f.listErr != nil {
+		return connector.ListSessionsResponse{}, f.listErr
+	}
+	return f.listResp, nil
+}
+
+func (f *fakePoolBackend) ResumeSession(context.Context, connector.ResumeSessionRequest) (connector.ResumeSessionResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resumeCalls++
+	if f.resumeErr != nil {
+		return connector.ResumeSessionResponse{}, f.resumeErr
+	}
+	return connector.ResumeSessionResponse{}, nil
+}
+
+func (f *fakePoolBackend) CloseSession(context.Context, connector.CloseSessionRequest) (connector.CloseSessionResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closeSessionCalls++
+	if f.closeSessionErr != nil {
+		return connector.CloseSessionResponse{}, f.closeSessionErr
+	}
+	return connector.CloseSessionResponse{}, nil
+}
+
+func (f *fakePoolBackend) SetSessionMode(context.Context, connector.SetSessionModeRequest) (connector.SetSessionModeResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.setModeCalls++
+	if f.setModeErr != nil {
+		return connector.SetSessionModeResponse{}, f.setModeErr
+	}
+	return connector.SetSessionModeResponse{}, nil
+}
+
+func (f *fakePoolBackend) SetSessionConfigOption(context.Context, connector.SetSessionConfigOptionRequest) (connector.SetSessionConfigOptionResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.setConfigCalls++
+	if f.setConfigErr != nil {
+		return connector.SetSessionConfigOptionResponse{}, f.setConfigErr
+	}
+	return connector.SetSessionConfigOptionResponse{}, nil
 }
 
 func (f *fakePoolBackend) Cancel(_ context.Context, req connector.CancelRequest) (connector.CancelResponse, error) {

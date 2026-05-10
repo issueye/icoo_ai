@@ -12,7 +12,7 @@ type rpcRequest struct {
 	JSONRPC string         `json:"jsonrpc"`
 	ID      string         `json:"id"`
 	Method  string         `json:"method"`
-	Params  map[string]any `json:"params,omitempty"`
+	Params  map[string]any `json:"params"`
 }
 
 type rpcError struct {
@@ -84,6 +84,55 @@ func cancelParams(req connector.CancelRequest) map[string]any {
 	}
 }
 
+func listSessionsParams(req connector.ListSessionsRequest) map[string]any {
+	params := map[string]any{}
+	if req.CWD != "" {
+		params["cwd"] = req.CWD
+	}
+	if len(req.AdditionalDirectories) > 0 {
+		params["additionalDirectories"] = append([]string(nil), req.AdditionalDirectories...)
+	}
+	return params
+}
+
+func resumeSessionParams(req connector.ResumeSessionRequest) map[string]any {
+	params := map[string]any{
+		"sessionId": req.SessionID,
+		"cwd":       req.CWD,
+	}
+	if len(req.AdditionalDirectories) > 0 {
+		params["additionalDirectories"] = append([]string(nil), req.AdditionalDirectories...)
+	}
+	return params
+}
+
+func closeSessionParams(req connector.CloseSessionRequest) map[string]any {
+	return map[string]any{
+		"sessionId": req.SessionID,
+	}
+}
+
+func setSessionModeParams(req connector.SetSessionModeRequest) map[string]any {
+	return map[string]any{
+		"sessionId": req.SessionID,
+		"modeId":    req.ModeID,
+	}
+}
+
+func setSessionConfigOptionParams(req connector.SetSessionConfigOptionRequest) map[string]any {
+	params := map[string]any{
+		"sessionId": req.SessionID,
+		"configId":  req.ConfigID,
+	}
+	if req.BooleanValue != nil {
+		params["type"] = "boolean"
+		params["value"] = *req.BooleanValue
+		return params
+	}
+	params["value"] = req.ValueID
+	return params
+}
+
 func mapInitializeResponse(result map[string]any) connector.InitializeResponse {
 	serverName := stringField(result, "serverName")
 	serverVersion := stringField(result, "serverVersion")
@@ -148,12 +197,72 @@ func mapCancelResponse(result map[string]any) connector.CancelResponse {
 	return resp
 }
 
+func mapListSessionsResponse(result map[string]any) connector.ListSessionsResponse {
+	resp := connector.ListSessionsResponse{}
+	rawSessions, _ := result["sessions"].([]any)
+	for _, raw := range rawSessions {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		resp.Sessions = append(resp.Sessions, connector.SessionInfo{
+			SessionID:             stringField(item, "sessionId"),
+			CWD:                   stringField(item, "cwd"),
+			Title:                 stringField(item, "title"),
+			AdditionalDirectories: stringSliceField(item, "additionalDirectories"),
+		})
+	}
+	return resp
+}
+
+func mapResumeSessionResponse(_ map[string]any) connector.ResumeSessionResponse {
+	return connector.ResumeSessionResponse{}
+}
+
+func mapCloseSessionResponse(_ map[string]any) connector.CloseSessionResponse {
+	return connector.CloseSessionResponse{}
+}
+
+func mapSetSessionModeResponse(_ map[string]any) connector.SetSessionModeResponse {
+	return connector.SetSessionModeResponse{}
+}
+
+func mapSetSessionConfigOptionResponse(_ map[string]any) connector.SetSessionConfigOptionResponse {
+	return connector.SetSessionConfigOptionResponse{}
+}
+
 func stringField(m map[string]any, key string) string {
 	if m == nil {
 		return ""
 	}
 	v, _ := m[key].(string)
 	return v
+}
+
+func stringSliceField(m map[string]any, key string) []string {
+	if m == nil {
+		return nil
+	}
+	raw, ok := m[key]
+	if !ok {
+		return nil
+	}
+	switch value := raw.(type) {
+	case []string:
+		return append([]string(nil), value...)
+	case []any:
+		out := make([]string, 0, len(value))
+		for _, item := range value {
+			text, ok := item.(string)
+			if !ok {
+				continue
+			}
+			out = append(out, text)
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func mapSessionUpdateToEnvelope(eventID string, params map[string]any) (events.Envelope, bool) {

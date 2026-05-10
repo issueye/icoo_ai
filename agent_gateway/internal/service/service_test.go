@@ -15,6 +15,30 @@ type fakeConnector struct {
 	newSessionErr  error
 	lastNewSession connector.NewSessionRequest
 
+	listSessionsResp  connector.ListSessionsResponse
+	listSessionsErr   error
+	listSessionsCalls int
+
+	resumeSessionResp  connector.ResumeSessionResponse
+	resumeSessionErr   error
+	lastResumeSession  connector.ResumeSessionRequest
+	resumeSessionCalls int
+
+	closeSessionResp  connector.CloseSessionResponse
+	closeSessionErr   error
+	lastCloseSession  connector.CloseSessionRequest
+	closeSessionCalls int
+
+	setSessionModeResp  connector.SetSessionModeResponse
+	setSessionModeErr   error
+	lastSetSessionMode  connector.SetSessionModeRequest
+	setSessionModeCalls int
+
+	setSessionConfigResp  connector.SetSessionConfigOptionResponse
+	setSessionConfigErr   error
+	lastSetSessionConfig  connector.SetSessionConfigOptionRequest
+	setSessionConfigCalls int
+
 	promptResp connector.PromptResponse
 	promptErr  error
 
@@ -36,6 +60,45 @@ func (f *fakeConnector) NewSession(_ context.Context, req connector.NewSessionRe
 		return connector.NewSessionResponse{}, f.newSessionErr
 	}
 	return f.newSessionResp, nil
+}
+func (f *fakeConnector) ListSessions(context.Context, connector.ListSessionsRequest) (connector.ListSessionsResponse, error) {
+	f.listSessionsCalls++
+	if f.listSessionsErr != nil {
+		return connector.ListSessionsResponse{}, f.listSessionsErr
+	}
+	return f.listSessionsResp, nil
+}
+func (f *fakeConnector) ResumeSession(_ context.Context, req connector.ResumeSessionRequest) (connector.ResumeSessionResponse, error) {
+	f.resumeSessionCalls++
+	f.lastResumeSession = req
+	if f.resumeSessionErr != nil {
+		return connector.ResumeSessionResponse{}, f.resumeSessionErr
+	}
+	return f.resumeSessionResp, nil
+}
+func (f *fakeConnector) CloseSession(_ context.Context, req connector.CloseSessionRequest) (connector.CloseSessionResponse, error) {
+	f.closeSessionCalls++
+	f.lastCloseSession = req
+	if f.closeSessionErr != nil {
+		return connector.CloseSessionResponse{}, f.closeSessionErr
+	}
+	return f.closeSessionResp, nil
+}
+func (f *fakeConnector) SetSessionMode(_ context.Context, req connector.SetSessionModeRequest) (connector.SetSessionModeResponse, error) {
+	f.setSessionModeCalls++
+	f.lastSetSessionMode = req
+	if f.setSessionModeErr != nil {
+		return connector.SetSessionModeResponse{}, f.setSessionModeErr
+	}
+	return f.setSessionModeResp, nil
+}
+func (f *fakeConnector) SetSessionConfigOption(_ context.Context, req connector.SetSessionConfigOptionRequest) (connector.SetSessionConfigOptionResponse, error) {
+	f.setSessionConfigCalls++
+	f.lastSetSessionConfig = req
+	if f.setSessionConfigErr != nil {
+		return connector.SetSessionConfigOptionResponse{}, f.setSessionConfigErr
+	}
+	return f.setSessionConfigResp, nil
 }
 func (f *fakeConnector) Prompt(context.Context, connector.PromptRequest) (connector.PromptResponse, error) {
 	f.promptCalls++
@@ -393,5 +456,85 @@ func TestConnectorBackedServiceMapsConnectorPromptError(t *testing.T) {
 	}
 	if serviceErr.Code != "connector_request_failed" {
 		t.Fatalf("unexpected error code: %s", serviceErr.Code)
+	}
+}
+
+func TestConnectorBackedServiceSessionLifecycleOperations(t *testing.T) {
+	ctx := context.Background()
+	rec := newRecordingStore()
+	fake := &fakeConnector{
+		newSessionResp: connector.NewSessionResponse{SessionID: "sess_conn_lifecycle_1"},
+	}
+	svc := NewConnectorGatewayServiceWithAgentsAndStore(defaultAgents(), rec, fake)
+
+	session, err := svc.CreateSession(ctx, CreateSessionRequest{
+		Title: "lifecycle",
+		CWD:   "E:/codes/icoo_ai",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	resumed, err := svc.ResumeSession(ctx, session.ID, ResumeSessionRequest{
+		CWD:                   "E:/codes/icoo_ai",
+		AdditionalDirectories: []string{"E:/codes/icoo_ai/agent_gateway"},
+	})
+	if err != nil {
+		t.Fatalf("resume session: %v", err)
+	}
+	if fake.resumeSessionCalls != 1 {
+		t.Fatalf("expected resumeSession call, got %d", fake.resumeSessionCalls)
+	}
+	if fake.lastResumeSession.SessionID != session.ID || fake.lastResumeSession.CWD != "E:/codes/icoo_ai" {
+		t.Fatalf("unexpected resume request: %#v", fake.lastResumeSession)
+	}
+	if len(resumed.AdditionalDirectories) != 1 {
+		t.Fatalf("expected additional directories in resumed session, got %#v", resumed.AdditionalDirectories)
+	}
+
+	updatedMode, err := svc.SetSessionMode(ctx, session.ID, SetSessionModeRequest{Mode: "agent"})
+	if err != nil {
+		t.Fatalf("set session mode: %v", err)
+	}
+	if fake.setSessionModeCalls != 1 {
+		t.Fatalf("expected setSessionMode call, got %d", fake.setSessionModeCalls)
+	}
+	if fake.lastSetSessionMode.SessionID != session.ID || fake.lastSetSessionMode.ModeID != "agent" {
+		t.Fatalf("unexpected set mode request: %#v", fake.lastSetSessionMode)
+	}
+	if updatedMode.Mode != "agent" {
+		t.Fatalf("expected session mode updated, got %q", updatedMode.Mode)
+	}
+
+	booleanValue := true
+	updatedConfig, err := svc.SetSessionConfigOption(ctx, session.ID, SetSessionConfigOptionRequest{
+		ConfigID:     "emit_plan_updates",
+		BooleanValue: &booleanValue,
+	})
+	if err != nil {
+		t.Fatalf("set session config option: %v", err)
+	}
+	if fake.setSessionConfigCalls != 1 {
+		t.Fatalf("expected setSessionConfigOption call, got %d", fake.setSessionConfigCalls)
+	}
+	if fake.lastSetSessionConfig.SessionID != session.ID || fake.lastSetSessionConfig.ConfigID != "emit_plan_updates" {
+		t.Fatalf("unexpected set config request: %#v", fake.lastSetSessionConfig)
+	}
+	if updatedConfig.UpdatedAt.IsZero() {
+		t.Fatalf("expected updated session timestamp after set config, got %#v", updatedConfig)
+	}
+
+	closed, err := svc.CloseSession(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("close session: %v", err)
+	}
+	if fake.closeSessionCalls != 1 {
+		t.Fatalf("expected closeSession call, got %d", fake.closeSessionCalls)
+	}
+	if fake.lastCloseSession.SessionID != session.ID {
+		t.Fatalf("unexpected close request: %#v", fake.lastCloseSession)
+	}
+	if closed.Status != "closed" {
+		t.Fatalf("expected closed status, got %q", closed.Status)
 	}
 }

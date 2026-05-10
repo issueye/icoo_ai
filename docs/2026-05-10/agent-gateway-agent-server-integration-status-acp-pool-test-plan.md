@@ -13,8 +13,8 @@
 结论：
 
 - 已完成 ACP 池化能力落地（配置、CLI、运行时装配、路由与单测）。
-- 已修复网关 ACP method 映射为 ACP 标准 method（`session/new`、`session/prompt`、`session/cancel`），不再兼容旧 mock method（`newSession`/`prompt`/`cancel`）。
-- 已完成真实环境联通验证，网关通过 HTTP 接口可创建会话、发起 prompt、取消运行，链路可用。
+- 已修复网关 ACP method 映射为 ACP 标准 method（`session/new`、`session/list`、`session/resume`、`session/set_mode`、`session/set_config_option`、`session/prompt`、`session/cancel`、`session/close`），不再兼容旧 mock method（`newSession`/`prompt`/`cancel`）。
+- 已完成真实环境联通验证，网关通过 HTTP 接口可完成会话创建、查询、恢复、模式切换、配置更新、prompt、取消与关闭，链路可用。
 
 ---
 
@@ -41,8 +41,13 @@
 
 - `initialize`
 - `session/new`
+- `session/list`
+- `session/resume`
+- `session/set_mode`
+- `session/set_config_option`
 - `session/prompt`
 - `session/cancel`
+- `session/close`
 
 ---
 
@@ -100,16 +105,16 @@
 | session/new | 已实现 | 已接入 |
 | session/prompt | 已实现 | 已接入 |
 | session/cancel | 已实现 | 已接入 |
-| session/close | 已实现 | 未接入 |
-| session/list | 已实现 | 未接入 |
-| session/resume | 已实现 | 未接入 |
-| session/set_mode | 已实现 | 未接入 |
-| session/set_config_option | 已实现 | 未接入 |
+| session/close | 已实现 | 已接入 |
+| session/list | 已实现 | 已接入 |
+| session/resume | 已实现 | 已接入 |
+| session/set_mode | 已实现 | 已接入 |
+| session/set_config_option | 已实现 | 已接入 |
 
 当前定位：
 
 - 主链路（new/prompt/cancel）已可用。
-- 会话管理增强链路（close/list/resume/mode/config）仍待接入网关 southbound。
+- 会话管理增强链路（close/list/resume/mode/config）已完成 southbound 接入并通过实测。
 
 ---
 
@@ -179,23 +184,63 @@ go test ./internal/connectors/acp -run TestRealProcessSmoke -count=1 -v
 
 结论：`gateway <-> agent_server` 实际可联通，主链路通过。
 
+## 5.4 gateway HTTP 会话生命周期增强链路联通（pool_size=2）
+
+测试动作：
+
+- 启动网关（`-acp-enabled -acp-pool-size 2`，`acp-command` 使用预编译 `icoo-ai` 二进制）。
+- 调用 `POST /v1/sessions`
+- 调用 `GET /v1/sessions`
+- 调用 `POST /v1/sessions/{id}/resume`
+- 调用 `POST /v1/sessions/{id}/mode`
+- 调用 `POST /v1/sessions/{id}/config`（`approval_mode=workspace-write`）
+- 调用 `POST /v1/sessions/{id}/config`（`emit_plan_updates=true`）
+- 调用 `POST /v1/sessions/{id}/prompt`
+- 调用 `POST /v1/sessions/{id}/close`
+
+结果摘要：
+
+```json
+{
+  "baseURL": "http://127.0.0.1:52724",
+  "agentsCount": 1,
+  "sessionID": "sess_1778422867055573700",
+  "listCountBefore": 9,
+  "resumedStatus": "active",
+  "modeAfterUpdate": "agent",
+  "configValueCallStatus": "active",
+  "configBoolCallStatus": "active",
+  "promptRunID": "run_000003",
+  "promptRunStatus": "completed",
+  "promptMessageCount": 1,
+  "closeStatus": "closed",
+  "listCountAfter": 9
+}
+```
+
+结论：会话生命周期增强链路已实测通过。
+
 ---
 
 ## 6. 变更文件（本次）
 
 主要代码：
 
+- `agent_gateway/internal/connector/types.go`
+- `agent_gateway/internal/connector/connector.go`
 - `agent_gateway/internal/connectors/acp/pool.go`
 - `agent_gateway/internal/connectors/acp/pool_test.go`
 - `agent_gateway/internal/runtime/server.go`
 - `agent_gateway/internal/connectors/acp/connector.go`
 - `agent_gateway/internal/connectors/acp/mapper.go`
-- `agent_gateway/internal/connectors/acp/connector_test.go`
+- `agent_gateway/internal/service/types.go`
+- `agent_gateway/internal/service/service.go`
+- `agent_gateway/internal/service/service_test.go`
+- `agent_gateway/internal/service/approval_broker_test.go`
+- `agent_gateway/internal/api/routes.go`
+- `agent_gateway/internal/api/sessions.go`
+- `agent_gateway/internal/api/routes_test.go`
 - `agent_gateway/internal/connectors/acp/connector_smoke_test.go`
-- `agent_gateway/internal/config/config.go`
-- `agent_gateway/internal/config/config_test.go`
-- `agent_gateway/cmd/agent-gateway/main.go`
-- `agent_gateway/cmd/agent-gateway/main_test.go`
 
 文档：
 
@@ -203,22 +248,18 @@ go test ./internal/connectors/acp -run TestRealProcessSmoke -count=1 -v
 
 ---
 
-## 7. 剩余缺口与后续开发计划
+## 7. 剩余风险与后续计划
 
-1. 补齐 southbound ACP 能力映射：
-   - `session/list`
-   - `session/resume`
-   - `session/close`
-   - `session/set_mode`
-   - `session/set_config_option`
+1. pool 启动方式约束（开发态）：
+   - 在 `pool_size > 1` 时直接使用 `go run ./cmd/icoo-ai serve` 作为 `acp-command`，可能出现子进程快速退出；
+   - 建议在池化场景下使用预编译 `icoo-ai` 二进制作为 `acp-command`（本次实测通过方式）。
 
-2. 会话状态一致性改造：
-   - 当前网关 `ListSessions` 主要来自本地 store；
-   - 需要与 ACP 服务端会话做对齐策略（冷启动重建/懒加载/显式同步）。
+2. 会话状态一致性增强：
+   - 当前 `GET /v1/sessions` 已增加 connector 侧同步；
+   - 后续可补充“关闭后清理策略/冷启动重建策略”的可配置开关。
 
 3. 事件语义增强：
    - 进一步细化 `session/update` 到网关事件模型的映射（message/run/approval/tool_call）。
 
 4. 池化观测性增强：
    - 增加 backend 维度日志和指标（`backend_index`、失败率、会话分布）。
-

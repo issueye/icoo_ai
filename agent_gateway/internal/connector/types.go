@@ -33,6 +33,22 @@ type NewSessionResponse struct {
 	SessionID string
 }
 
+type SessionInfo struct {
+	SessionID             string
+	CWD                   string
+	Title                 string
+	AdditionalDirectories []string
+}
+
+type ListSessionsRequest struct {
+	CWD                   string
+	AdditionalDirectories []string
+}
+
+type ListSessionsResponse struct {
+	Sessions []SessionInfo
+}
+
 type PromptRequest struct {
 	SessionID string
 	Content   string
@@ -62,6 +78,36 @@ type CancelResponse struct {
 	RunID  string
 	Status string
 }
+
+type ResumeSessionRequest struct {
+	SessionID             string
+	CWD                   string
+	AdditionalDirectories []string
+}
+
+type ResumeSessionResponse struct{}
+
+type CloseSessionRequest struct {
+	SessionID string
+}
+
+type CloseSessionResponse struct{}
+
+type SetSessionModeRequest struct {
+	SessionID string
+	ModeID    string
+}
+
+type SetSessionModeResponse struct{}
+
+type SetSessionConfigOptionRequest struct {
+	SessionID    string
+	ConfigID     string
+	BooleanValue *bool
+	ValueID      string
+}
+
+type SetSessionConfigOptionResponse struct{}
 
 type Error struct {
 	Code    string
