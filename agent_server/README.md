@@ -196,6 +196,7 @@ go run ./cmd/icoo-ai doctor
 go run ./cmd/icoo-ai version
 go run ./cmd/icoo-ai run "解释这个工作区"
 go run ./cmd/icoo-ai serve
+go run ./cmd/acp-real-client -llm-info ../docs/llm_info.txt -workspace ..
 go run ./cmd/icoo-ai migrate-claude-config ./claude.json ./.icoo-ai.toml
 ```
 
@@ -206,6 +207,7 @@ go run ./cmd/icoo-ai migrate-claude-config ./claude.json ./.icoo-ai.toml
 - `version`：打印版本、提交号、构建时间、Go 版本和平台信息。
 - `run`：通过本地 Runtime 执行一次 Prompt。
 - `serve`：启动 ACP stdio 服务。
+- `acp-real-client`：按 `docs/llm_info.txt` 中的 `api_key/base_url/model` 拉起真实 ACP 客户端联调（覆盖 `initialize/new/list/resume/setMode/setConfig/prompt/close`）。
 - `migrate-claude-config`：将常见 Claude Code JSON 配置字段迁移为 icoo-ai TOML 配置。
 
 ## 构建

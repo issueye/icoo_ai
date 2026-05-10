@@ -1,6 +1,9 @@
 agent_chat/.task/*
 *.exe
 *.log
+*.txt
+
 agent/*
 dist/*
 agent_chat/chat.toml
+agent_server/acp

@@ -10,6 +10,66 @@ import { Create as $Create } from "@wailsio/runtime";
 // @ts-ignore: Unused imports
 import * as time$0 from "../../../../../../time/models.js";
 
+export class AgentProfile {
+    /**
+     * Creates a new AgentProfile instance.
+     * @param {Partial<AgentProfile>} [$$source = {}] - The source object to create the AgentProfile.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (!("protocol" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["protocol"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["models"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["description"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AgentProfile instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AgentProfile}
+     */
+    static createFrom($$source = {}) {
+        const $$createField3_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("models" in $$parsedSource) {
+            $$parsedSource["models"] = $$createField3_0($$parsedSource["models"]);
+        }
+        return new AgentProfile(/** @type {Partial<AgentProfile>} */($$parsedSource));
+    }
+}
+
 export class AppSettings {
     /**
      * Creates a new AppSettings instance.
@@ -36,6 +96,27 @@ export class AppSettings {
              * @type {number | undefined}
              */
             this["gatewayPort"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["acpEnabled"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["acpCommand"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["acpArgs"] = undefined;
         }
         if (/** @type {any} */(false)) {
             /**
@@ -530,7 +611,7 @@ export class MessageEvent {
      * @returns {MessageEvent}
      */
     static createFrom($$source = {}) {
-        const $$createField9_0 = $$createType0;
+        const $$createField9_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("safeMeta" in $$parsedSource) {
             $$parsedSource["safeMeta"] = $$createField9_0($$parsedSource["safeMeta"]);
@@ -778,4 +859,5 @@ export class SkillInfo {
 }
 
 // Private type creation functions
-const $$createType0 = $Create.Map($Create.Any, $Create.Any);
+const $$createType0 = $Create.Array($Create.Any);
+const $$createType1 = $Create.Map($Create.Any, $Create.Any);

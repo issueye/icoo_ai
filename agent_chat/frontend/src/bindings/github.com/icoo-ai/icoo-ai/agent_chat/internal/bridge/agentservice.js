@@ -49,11 +49,20 @@ export function GetGatewayStatus() {
 }
 
 /**
+ * @returns {$CancellablePromise<$models.AgentProfile[]>}
+ */
+export function ListAgents() {
+    return $Call.ByID(1354756368).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType5($result);
+    }));
+}
+
+/**
  * @returns {$CancellablePromise<$models.ApprovalDecision[]>}
  */
 export function ListApprovals() {
     return $Call.ByID(1954958298).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType4($result);
+        return $$createType6($result);
     }));
 }
 
@@ -62,7 +71,7 @@ export function ListApprovals() {
  */
 export function ListAuditEvents() {
     return $Call.ByID(2019736616).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType8($result);
     }));
 }
 
@@ -71,7 +80,7 @@ export function ListAuditEvents() {
  */
 export function ListConversations() {
     return $Call.ByID(3580566090).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType8($result);
+        return $$createType10($result);
     }));
 }
 
@@ -81,7 +90,7 @@ export function ListConversations() {
  */
 export function ListMessages(sessionID) {
     return $Call.ByID(1810703410, sessionID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType10($result);
+        return $$createType12($result);
     }));
 }
 
@@ -90,7 +99,7 @@ export function ListMessages(sessionID) {
  */
 export function ListRuns() {
     return $Call.ByID(1709216948).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType11($result);
+        return $$createType13($result);
     }));
 }
 
@@ -99,7 +108,7 @@ export function ListRuns() {
  */
 export function ListSkills() {
     return $Call.ByID(2497812148).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType13($result);
+        return $$createType15($result);
     }));
 }
 
@@ -109,7 +118,7 @@ export function ListSkills() {
  */
 export function LoadSession(sessionID) {
     return $Call.ByID(2360595638, sessionID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType7($result);
+        return $$createType9($result);
     }));
 }
 
@@ -119,7 +128,7 @@ export function LoadSession(sessionID) {
  */
 export function NewSession(req) {
     return $Call.ByID(2559977568, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType7($result);
+        return $$createType9($result);
     }));
 }
 
@@ -129,7 +138,7 @@ export function NewSession(req) {
  */
 export function Prompt(req) {
     return $Call.ByID(123951944, req).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType10($result);
+        return $$createType12($result);
     }));
 }
 
@@ -166,13 +175,15 @@ const $$createType0 = $models.RunSummary.createFrom;
 const $$createType1 = $models.ApprovalDecision.createFrom;
 const $$createType2 = $models.AppSettings.createFrom;
 const $$createType3 = $models.GatewayStatus.createFrom;
-const $$createType4 = $Create.Array($$createType1);
-const $$createType5 = $models.AuditEvent.createFrom;
-const $$createType6 = $Create.Array($$createType5);
-const $$createType7 = $models.Conversation.createFrom;
+const $$createType4 = $models.AgentProfile.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = $Create.Array($$createType1);
+const $$createType7 = $models.AuditEvent.createFrom;
 const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = $models.MessageEvent.createFrom;
+const $$createType9 = $models.Conversation.createFrom;
 const $$createType10 = $Create.Array($$createType9);
-const $$createType11 = $Create.Array($$createType0);
-const $$createType12 = $models.SkillInfo.createFrom;
-const $$createType13 = $Create.Array($$createType12);
+const $$createType11 = $models.MessageEvent.createFrom;
+const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = $Create.Array($$createType0);
+const $$createType14 = $models.SkillInfo.createFrom;
+const $$createType15 = $Create.Array($$createType14);

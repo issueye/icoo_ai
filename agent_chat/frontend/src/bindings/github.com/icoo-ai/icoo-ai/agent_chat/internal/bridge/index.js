@@ -8,6 +8,7 @@ export {
 };
 
 export {
+    AgentProfile,
     AppSettings,
     ApprovalDecision,
     ApprovalDecisionRequest,

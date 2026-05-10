@@ -39,7 +39,11 @@ func InitializeResponse(opts CapabilitiesOptions) sdk.InitializeResponse {
 				Image:           false,
 				Audio:           false,
 			},
-			SessionCapabilities: sdk.SessionCapabilities{},
+			SessionCapabilities: sdk.SessionCapabilities{
+				Close:  &sdk.SessionCloseCapabilities{},
+				List:   &sdk.SessionListCapabilities{},
+				Resume: &sdk.SessionResumeCapabilities{},
+			},
 		},
 	}
 }

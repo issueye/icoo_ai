@@ -153,6 +153,24 @@ func (r *DefaultRuntime) LoadSession(ctx context.Context, sessionID string) (Ses
 	return r.store.Get(ctx, sessionID)
 }
 
+func (r *DefaultRuntime) ListSessions(ctx context.Context) ([]Session, error) {
+	return r.store.List(ctx)
+}
+
+func (r *DefaultRuntime) UpdateSession(ctx context.Context, session Session) error {
+	return r.store.Update(ctx, session)
+}
+
+func (r *DefaultRuntime) CloseSession(ctx context.Context, sessionID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, err := r.store.Get(ctx, sessionID); err != nil {
+		return err
+	}
+	return r.Cancel(ctx, sessionID)
+}
+
 func (r *DefaultRuntime) setCancel(sessionID string, cancel context.CancelFunc) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
