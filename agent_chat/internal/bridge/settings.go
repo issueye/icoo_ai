@@ -9,16 +9,28 @@ import (
 	"strings"
 )
 
+type ChannelConfig struct {
+	ID         string `json:"id,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Type       string `json:"type,omitempty"`
+	Enabled    bool   `json:"enabled,omitempty"`
+	AppID      string `json:"appId,omitempty"`
+	AppSecret  string `json:"appSecret,omitempty"`
+	BotToken   string `json:"botToken,omitempty"`
+	WebhookURL string `json:"webhookUrl,omitempty"`
+}
+
 type AppSettings struct {
-	GatewayBinaryPath string `json:"gatewayBinaryPath,omitempty"`
-	GatewayHost       string `json:"gatewayHost,omitempty"`
-	GatewayPort       int    `json:"gatewayPort,omitempty"`
-	ACPEnabled        bool   `json:"acpEnabled,omitempty"`
-	ACPCommand        string `json:"acpCommand,omitempty"`
-	ACPArgs           string `json:"acpArgs,omitempty"`
-	LogLevel          string `json:"logLevel,omitempty"`
-	LogFormat         string `json:"logFormat,omitempty"`
-	LogFilePath       string `json:"logFilePath,omitempty"`
+	GatewayBinaryPath string          `json:"gatewayBinaryPath,omitempty"`
+	GatewayHost       string          `json:"gatewayHost,omitempty"`
+	GatewayPort       int             `json:"gatewayPort,omitempty"`
+	ACPEnabled        bool            `json:"acpEnabled,omitempty"`
+	ACPCommand        string          `json:"acpCommand,omitempty"`
+	ACPArgs           string          `json:"acpArgs,omitempty"`
+	LogLevel          string          `json:"logLevel,omitempty"`
+	LogFormat         string          `json:"logFormat,omitempty"`
+	LogFilePath       string          `json:"logFilePath,omitempty"`
+	Channels          []ChannelConfig `json:"channels,omitempty"`
 }
 
 const (
@@ -27,6 +39,9 @@ const (
 	defaultLogLevel    = "info"
 	defaultLogFormat   = "text"
 	defaultLogFilePath = "logs/agent_chat.log"
+	channelTypeQQ      = "qq"
+	channelTypeLark    = "lark"
+	channelTypeWechat  = "wechat"
 )
 
 func settingsFilePath() (string, error) {
@@ -62,6 +77,7 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 		"logLevel", settings.LogLevel,
 		"logFormat", settings.LogFormat,
 		"logFilePath", settings.LogFilePath,
+		"channels", len(settings.Channels),
 	)
 	return settings, nil
 }
@@ -102,12 +118,14 @@ func loadAppSettings() (AppSettings, error) {
 		"logLevel", normalized.LogLevel,
 		"logFormat", normalized.LogFormat,
 		"logFilePath", normalized.LogFilePath,
+		"channels", len(normalized.Channels),
 	)
 	return normalized, nil
 }
 
 func decodeSettingsTOML(data []byte) (AppSettings, error) {
 	settings := AppSettings{}
+	currentChannelIndex := -1
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -121,12 +139,81 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 				continue
 			}
 		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			if line == "[[channels]]" {
+				settings.Channels = append(settings.Channels, ChannelConfig{})
+				currentChannelIndex = len(settings.Channels) - 1
+			} else {
+				currentChannelIndex = -1
+			}
+			continue
+		}
 		key, value, ok := strings.Cut(line, "=")
 		if !ok {
 			continue
 		}
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
+		if currentChannelIndex >= 0 {
+			channel := settings.Channels[currentChannelIndex]
+			handled := true
+			switch key {
+			case "id":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				channel.ID = strings.TrimSpace(unquoted)
+			case "name":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				channel.Name = strings.TrimSpace(unquoted)
+			case "type":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				channel.Type = strings.TrimSpace(unquoted)
+			case "enabled":
+				parsed, err := strconv.ParseBool(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				channel.Enabled = parsed
+			case "app_id":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				channel.AppID = strings.TrimSpace(unquoted)
+			case "app_secret":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				channel.AppSecret = strings.TrimSpace(unquoted)
+			case "bot_token":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				channel.BotToken = strings.TrimSpace(unquoted)
+			case "webhook_url":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				channel.WebhookURL = strings.TrimSpace(unquoted)
+			default:
+				handled = false
+			}
+			if handled {
+				settings.Channels[currentChannelIndex] = channel
+				continue
+			}
+		}
 		switch key {
 		case "gateway_binary_path":
 			unquoted, err := strconv.Unquote(value)
@@ -191,27 +278,29 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 }
 
 func encodeSettingsTOML(settings AppSettings) []byte {
-	data := []byte(
-		fmt.Sprintf(
-			"gateway_binary_path = %s\ngateway_host = %s\ngateway_port = %d",
-			strconv.Quote(settings.GatewayBinaryPath),
-			strconv.Quote(settings.GatewayHost),
-			settings.GatewayPort,
-		),
-	)
-	data = append(data, '\n')
-	data = append(data, []byte(fmt.Sprintf("acp_enabled = %t", settings.ACPEnabled))...)
-	data = append(data, '\n')
-	data = append(data, []byte(fmt.Sprintf("acp_command = %s", strconv.Quote(settings.ACPCommand)))...)
-	data = append(data, '\n')
-	data = append(data, []byte(fmt.Sprintf("acp_args = %s", strconv.Quote(settings.ACPArgs)))...)
-	data = append(data, '\n')
-	data = append(data, []byte(fmt.Sprintf("log_level = %s", strconv.Quote(settings.LogLevel)))...)
-	data = append(data, '\n')
-	data = append(data, []byte(fmt.Sprintf("log_format = %s", strconv.Quote(settings.LogFormat)))...)
-	data = append(data, '\n')
-	data = append(data, []byte(fmt.Sprintf("log_file_path = %s", strconv.Quote(settings.LogFilePath)))...)
-	return data
+	normalized := normalizeAppSettings(settings)
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "gateway_binary_path = %s\n", strconv.Quote(normalized.GatewayBinaryPath))
+	fmt.Fprintf(&builder, "gateway_host = %s\n", strconv.Quote(normalized.GatewayHost))
+	fmt.Fprintf(&builder, "gateway_port = %d\n", normalized.GatewayPort)
+	fmt.Fprintf(&builder, "acp_enabled = %t\n", normalized.ACPEnabled)
+	fmt.Fprintf(&builder, "acp_command = %s\n", strconv.Quote(normalized.ACPCommand))
+	fmt.Fprintf(&builder, "acp_args = %s\n", strconv.Quote(normalized.ACPArgs))
+	fmt.Fprintf(&builder, "log_level = %s\n", strconv.Quote(normalized.LogLevel))
+	fmt.Fprintf(&builder, "log_format = %s\n", strconv.Quote(normalized.LogFormat))
+	fmt.Fprintf(&builder, "log_file_path = %s\n", strconv.Quote(normalized.LogFilePath))
+	for _, channel := range normalized.Channels {
+		builder.WriteString("\n[[channels]]\n")
+		fmt.Fprintf(&builder, "id = %s\n", strconv.Quote(channel.ID))
+		fmt.Fprintf(&builder, "name = %s\n", strconv.Quote(channel.Name))
+		fmt.Fprintf(&builder, "type = %s\n", strconv.Quote(channel.Type))
+		fmt.Fprintf(&builder, "enabled = %t\n", channel.Enabled)
+		fmt.Fprintf(&builder, "app_id = %s\n", strconv.Quote(channel.AppID))
+		fmt.Fprintf(&builder, "app_secret = %s\n", strconv.Quote(channel.AppSecret))
+		fmt.Fprintf(&builder, "bot_token = %s\n", strconv.Quote(channel.BotToken))
+		fmt.Fprintf(&builder, "webhook_url = %s\n", strconv.Quote(channel.WebhookURL))
+	}
+	return []byte(builder.String())
 }
 
 func writeSettingsFile(path string, settings AppSettings) error {
@@ -236,6 +325,7 @@ func normalizeAppSettings(in AppSettings) AppSettings {
 		LogLevel:          strings.TrimSpace(in.LogLevel),
 		LogFormat:         strings.TrimSpace(in.LogFormat),
 		LogFilePath:       strings.TrimSpace(in.LogFilePath),
+		Channels:          normalizeChannels(in.Channels),
 	}
 	if settings.GatewayHost == "" {
 		settings.GatewayHost = defaultGatewayHost
@@ -263,4 +353,112 @@ func normalizeAppSettings(in AppSettings) AppSettings {
 		settings.LogFilePath = defaultLogFilePath
 	}
 	return settings
+}
+
+func defaultChannelConfigs() []ChannelConfig {
+	return []ChannelConfig{
+		{
+			ID:   channelTypeQQ,
+			Name: "QQ机器人",
+			Type: channelTypeQQ,
+		},
+		{
+			ID:   channelTypeLark,
+			Name: "飞书机器人",
+			Type: channelTypeLark,
+		},
+		{
+			ID:   channelTypeWechat,
+			Name: "微信机器人",
+			Type: channelTypeWechat,
+		},
+	}
+}
+
+func normalizeChannelType(raw string, fallback string) string {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	switch normalized {
+	case channelTypeQQ, channelTypeLark, channelTypeWechat:
+		return normalized
+	}
+	fallback = strings.ToLower(strings.TrimSpace(fallback))
+	switch fallback {
+	case channelTypeQQ, channelTypeLark, channelTypeWechat:
+		return fallback
+	}
+	return channelTypeQQ
+}
+
+func channelConfigForType(channelType string) ChannelConfig {
+	switch normalizeChannelType(channelType, channelTypeQQ) {
+	case channelTypeLark:
+		return ChannelConfig{
+			ID:   channelTypeLark,
+			Name: "飞书机器人",
+			Type: channelTypeLark,
+		}
+	case channelTypeWechat:
+		return ChannelConfig{
+			ID:   channelTypeWechat,
+			Name: "微信机器人",
+			Type: channelTypeWechat,
+		}
+	default:
+		return ChannelConfig{
+			ID:   channelTypeQQ,
+			Name: "QQ机器人",
+			Type: channelTypeQQ,
+		}
+	}
+}
+
+func normalizeChannelConfig(in ChannelConfig, fallbackType string) ChannelConfig {
+	channelType := normalizeChannelType(in.Type, fallbackType)
+	defaults := channelConfigForType(channelType)
+	id := strings.TrimSpace(in.ID)
+	if id == "" {
+		id = defaults.ID
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		name = defaults.Name
+	}
+	return ChannelConfig{
+		ID:         id,
+		Name:       name,
+		Type:       channelType,
+		Enabled:    in.Enabled,
+		AppID:      strings.TrimSpace(in.AppID),
+		AppSecret:  strings.TrimSpace(in.AppSecret),
+		BotToken:   strings.TrimSpace(in.BotToken),
+		WebhookURL: strings.TrimSpace(in.WebhookURL),
+	}
+}
+
+func normalizeChannels(in []ChannelConfig) []ChannelConfig {
+	defaults := defaultChannelConfigs()
+	if len(in) == 0 {
+		return defaults
+	}
+	channelsByType := map[string]ChannelConfig{}
+	for index, channel := range in {
+		fallbackType := ""
+		if index < len(defaults) {
+			fallbackType = defaults[index].Type
+		}
+		normalized := normalizeChannelConfig(channel, fallbackType)
+		if _, exists := channelsByType[normalized.Type]; exists {
+			continue
+		}
+		channelsByType[normalized.Type] = normalized
+	}
+	normalizedChannels := make([]ChannelConfig, 0, len(defaults))
+	for _, fallback := range defaults {
+		if channel, ok := channelsByType[fallback.Type]; ok {
+			normalizedChannels = append(normalizedChannels, channel)
+			continue
+		}
+		normalizedChannels = append(normalizedChannels, fallback)
+	}
+	return normalizedChannels
 }

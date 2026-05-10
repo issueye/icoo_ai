@@ -1,6 +1,71 @@
 import { defineStore } from 'pinia'
 import { agentBridge } from '@/services/agentBridge'
 
+const channelTypeOrder = ['qq', 'lark', 'wechat']
+
+const channelTemplates = {
+  qq: { id: 'qq', name: 'QQ 机器人', type: 'qq' },
+  lark: { id: 'lark', name: '飞书机器人', type: 'lark' },
+  wechat: { id: 'wechat', name: '微信机器人', type: 'wechat' },
+}
+
+function normalizeChannelType(rawType, fallbackType = 'qq') {
+  const source = typeof rawType === 'string' ? rawType.trim().toLowerCase() : ''
+  if (channelTypeOrder.includes(source)) return source
+  const fallback = typeof fallbackType === 'string' ? fallbackType.trim().toLowerCase() : ''
+  if (channelTypeOrder.includes(fallback)) return fallback
+  return 'qq'
+}
+
+function defaultChannelByType(channelType) {
+  const type = normalizeChannelType(channelType)
+  const template = channelTemplates[type]
+  return {
+    id: template.id,
+    name: template.name,
+    type,
+    enabled: false,
+    appId: '',
+    appSecret: '',
+    botToken: '',
+    webhookUrl: '',
+  }
+}
+
+function normalizeChannel(rawChannel = {}, fallbackType = 'qq') {
+  const type = normalizeChannelType(rawChannel?.type, fallbackType)
+  const defaults = defaultChannelByType(type)
+  const normalizedID = typeof rawChannel?.id === 'string' ? rawChannel.id.trim() : ''
+  const normalizedName = typeof rawChannel?.name === 'string' ? rawChannel.name.trim() : ''
+  const normalizedAppID = typeof rawChannel?.appId === 'string' ? rawChannel.appId.trim() : ''
+  const normalizedAppSecret = typeof rawChannel?.appSecret === 'string' ? rawChannel.appSecret.trim() : ''
+  const normalizedBotToken = typeof rawChannel?.botToken === 'string' ? rawChannel.botToken.trim() : ''
+  const normalizedWebhookURL = typeof rawChannel?.webhookUrl === 'string' ? rawChannel.webhookUrl.trim() : ''
+  return {
+    id: normalizedID || defaults.id,
+    name: normalizedName || defaults.name,
+    type,
+    enabled: Boolean(rawChannel?.enabled),
+    appId: normalizedAppID,
+    appSecret: normalizedAppSecret,
+    botToken: normalizedBotToken,
+    webhookUrl: normalizedWebhookURL,
+  }
+}
+
+function normalizeChannels(rawChannels) {
+  const source = Array.isArray(rawChannels) ? rawChannels : []
+  const channelsByType = new Map()
+  source.forEach((rawChannel, index) => {
+    const fallbackType = channelTypeOrder[index] || 'qq'
+    const normalized = normalizeChannel(rawChannel, fallbackType)
+    if (!channelsByType.has(normalized.type)) {
+      channelsByType.set(normalized.type, normalized)
+    }
+  })
+  return channelTypeOrder.map((type) => channelsByType.get(type) || defaultChannelByType(type))
+}
+
 export const useAppStore = defineStore('app', {
   state: () => ({
     activeNav: 'chats',
@@ -18,6 +83,7 @@ export const useAppStore = defineStore('app', {
     logLevel: 'info',
     logFormat: 'text',
     logFilePath: 'logs/agent_chat.log',
+    channels: normalizeChannels([]),
     settingsSaving: false,
     settingsError: null,
     toasts: [],
@@ -93,6 +159,7 @@ export const useAppStore = defineStore('app', {
         this.logLevel = settings?.logLevel || 'info'
         this.logFormat = settings?.logFormat || 'text'
         this.logFilePath = settings?.logFilePath || 'logs/agent_chat.log'
+        this.channels = normalizeChannels(settings?.channels)
       } catch (error) {
         this.settingsError = error?.message || '加载配置失败'
       }
@@ -111,6 +178,7 @@ export const useAppStore = defineStore('app', {
           logLevel: payload.logLevel ?? this.logLevel ?? 'info',
           logFormat: payload.logFormat ?? this.logFormat ?? 'text',
           logFilePath: payload.logFilePath ?? this.logFilePath ?? 'logs/agent_chat.log',
+          channels: normalizeChannels(payload.channels ?? this.channels),
         })
         this.gatewayBinaryPath = saved?.gatewayBinaryPath || ''
         this.gatewayHost = saved?.gatewayHost || '127.0.0.1'
@@ -122,6 +190,7 @@ export const useAppStore = defineStore('app', {
         this.logLevel = saved?.logLevel || 'info'
         this.logFormat = saved?.logFormat || 'text'
         this.logFilePath = saved?.logFilePath || 'logs/agent_chat.log'
+        this.channels = normalizeChannels(saved?.channels)
         return saved
       } catch (error) {
         this.settingsError = error?.message || '保存配置失败'

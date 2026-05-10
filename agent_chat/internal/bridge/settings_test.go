@@ -17,7 +17,32 @@ func TestNormalizeAppSettings_DefaultHostAndPort(t *testing.T) {
 	}
 }
 
-func TestDecodeSettingsTOML_ReadsHostAndPort(t *testing.T) {
+func TestNormalizeAppSettings_DefaultChannels(t *testing.T) {
+	t.Parallel()
+
+	settings := normalizeAppSettings(AppSettings{})
+	if len(settings.Channels) != 3 {
+		t.Fatalf("expected 3 default channels, got %d", len(settings.Channels))
+	}
+	expected := []struct {
+		name string
+		typ  string
+	}{
+		{name: "QQ机器人", typ: "qq"},
+		{name: "飞书机器人", typ: "lark"},
+		{name: "微信机器人", typ: "wechat"},
+	}
+	for i, item := range expected {
+		if settings.Channels[i].Type != item.typ {
+			t.Fatalf("expected channel type %q at index %d, got %q", item.typ, i, settings.Channels[i].Type)
+		}
+		if settings.Channels[i].Name != item.name {
+			t.Fatalf("expected channel name %q at index %d, got %q", item.name, i, settings.Channels[i].Name)
+		}
+	}
+}
+
+func TestDecodeSettingsTOML_ReadsHostPortAndChannels(t *testing.T) {
 	t.Parallel()
 
 	data := []byte("gateway_binary_path = \"E:/bin/agent-gateway.exe\"\n" +
@@ -28,7 +53,16 @@ func TestDecodeSettingsTOML_ReadsHostAndPort(t *testing.T) {
 		"acp_args = \"-y @acp/server --stdio\"\n" +
 		"log_level = \"debug\"\n" +
 		"log_format = \"json\"\n" +
-		"log_file_path = \"logs/custom.log\"\n")
+		"log_file_path = \"logs/custom.log\"\n" +
+		"\n[[channels]]\n" +
+		"id = \"qq\"\n" +
+		"name = \"QQ机器人\"\n" +
+		"type = \"qq\"\n" +
+		"enabled = true\n" +
+		"app_id = \"qq-app\"\n" +
+		"app_secret = \"qq-secret\"\n" +
+		"bot_token = \"qq-token\"\n" +
+		"webhook_url = \"https://qq.example/webhook\"\n")
 	settings, err := decodeSettingsTOML(data)
 	if err != nil {
 		t.Fatalf("decodeSettingsTOML returned error: %v", err)
@@ -59,6 +93,22 @@ func TestDecodeSettingsTOML_ReadsHostAndPort(t *testing.T) {
 	}
 	if settings.LogFilePath != "logs/custom.log" {
 		t.Fatalf("unexpected log file path: %q", settings.LogFilePath)
+	}
+	if len(settings.Channels) != 1 {
+		t.Fatalf("expected decoded channels length 1, got %d", len(settings.Channels))
+	}
+	first := settings.Channels[0]
+	if first.Type != "qq" || first.ID != "qq" {
+		t.Fatalf("unexpected channel id/type: id=%q type=%q", first.ID, first.Type)
+	}
+	if !first.Enabled {
+		t.Fatal("expected qq channel enabled true")
+	}
+	if first.AppID != "qq-app" || first.AppSecret != "qq-secret" || first.BotToken != "qq-token" {
+		t.Fatalf("unexpected channel credentials: appID=%q appSecret=%q botToken=%q", first.AppID, first.AppSecret, first.BotToken)
+	}
+	if first.WebhookURL != "https://qq.example/webhook" {
+		t.Fatalf("unexpected webhook url: %q", first.WebhookURL)
 	}
 }
 
@@ -101,6 +151,18 @@ func TestEncodeSettingsTOML_PreservesLogConfig(t *testing.T) {
 		LogLevel:          "debug",
 		LogFormat:         "json",
 		LogFilePath:       "logs/runtime.log",
+		Channels: []ChannelConfig{
+			{
+				ID:         "qq",
+				Name:       "QQ机器人",
+				Type:       "qq",
+				Enabled:    true,
+				AppID:      "qq-app",
+				AppSecret:  "qq-secret",
+				BotToken:   "qq-token",
+				WebhookURL: "https://qq.example/webhook",
+			},
+		},
 	})))
 
 	if !containsLine(data, "acp_enabled = true") {
@@ -120,6 +182,24 @@ func TestEncodeSettingsTOML_PreservesLogConfig(t *testing.T) {
 	}
 	if !containsLine(data, "log_file_path = \"logs/runtime.log\"") {
 		t.Fatalf("encoded settings missing log_file_path: %q", data)
+	}
+	if !containsLine(data, "[[channels]]") {
+		t.Fatalf("encoded settings missing channel table: %q", data)
+	}
+	if !containsLine(data, "type = \"qq\"") {
+		t.Fatalf("encoded settings missing qq channel type: %q", data)
+	}
+	if !containsLine(data, "enabled = true") {
+		t.Fatalf("encoded settings missing qq channel enabled flag: %q", data)
+	}
+	if !containsLine(data, "webhook_url = \"https://qq.example/webhook\"") {
+		t.Fatalf("encoded settings missing qq webhook: %q", data)
+	}
+	if !containsLine(data, "type = \"lark\"") {
+		t.Fatalf("encoded settings missing default lark channel: %q", data)
+	}
+	if !containsLine(data, "type = \"wechat\"") {
+		t.Fatalf("encoded settings missing default wechat channel: %q", data)
 	}
 }
 
