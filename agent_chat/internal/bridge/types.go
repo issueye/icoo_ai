@@ -133,6 +133,14 @@ type SkillInfo struct {
 	Description string `json:"description"`
 }
 
+type AgentProfile struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Protocol    string   `json:"protocol"`
+	Models      []string `json:"models,omitempty"`
+	Description string   `json:"description,omitempty"`
+}
+
 type AuditEvent struct {
 	ID        string    `json:"id"`
 	SessionID string    `json:"sessionId"`

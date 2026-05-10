@@ -321,6 +321,39 @@ func TestListSkills_MapsGatewaySkillDTO(t *testing.T) {
 	}
 }
 
+func TestListAgents_MapsGatewayAgentDTO(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/agents" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"icoo-ai-acp","name":"Icoo AI","protocol":"acp","models":["gpt-5.4"],"description":"Default ACP connector profile."}]`))
+	}))
+	defer srv.Close()
+
+	svc := NewAgentService()
+	svc.gateway = &gatewayProxy{
+		client:  srv.Client(),
+		baseURL: srv.URL,
+	}
+
+	agents, err := svc.ListAgents(context.Background())
+	if err != nil {
+		t.Fatalf("ListAgents returned error: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+	if agents[0].ID != "icoo-ai-acp" || agents[0].Protocol != "acp" {
+		t.Fatalf("unexpected agent mapping: %#v", agents[0])
+	}
+	if len(agents[0].Models) != 1 || agents[0].Models[0] != "gpt-5.4" {
+		t.Fatalf("unexpected agent models: %#v", agents[0].Models)
+	}
+}
+
 func TestStreamGatewayEvents_ForwardsEventAndUpdatesLastEventID(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/events/stream" {

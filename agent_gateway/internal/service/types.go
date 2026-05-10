@@ -22,8 +22,10 @@ type Skill struct {
 type Session struct {
 	ID             string    `json:"id"`
 	Title          string    `json:"title"`
+	WorkspaceID    string    `json:"workspaceId,omitempty"`
 	CWD            string    `json:"cwd,omitempty"`
 	StartupCommand string    `json:"startupCommand,omitempty"`
+	Mode           string    `json:"mode,omitempty"`
 	AgentID        string    `json:"agentId"`
 	Model          string    `json:"model,omitempty"`
 	Status         string    `json:"status"`
@@ -33,8 +35,10 @@ type Session struct {
 
 type CreateSessionRequest struct {
 	Title          string `json:"title"`
+	WorkspaceID    string `json:"workspaceId,omitempty"`
 	CWD            string `json:"cwd,omitempty"`
 	StartupCommand string `json:"startupCommand,omitempty"`
+	Mode           string `json:"mode,omitempty"`
 	AgentID        string `json:"agentId,omitempty"`
 	Model          string `json:"model,omitempty"`
 }
@@ -49,7 +53,12 @@ type Message struct {
 }
 
 type PromptRequest struct {
-	Content string `json:"content"`
+	Content     string `json:"content"`
+	WorkspaceID string `json:"workspaceId,omitempty"`
+	CWD         string `json:"cwd,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+	AgentID     string `json:"agentId,omitempty"`
+	Model       string `json:"model,omitempty"`
 }
 
 type PromptResponse struct {

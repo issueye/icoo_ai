@@ -126,8 +126,15 @@ func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessio
 	defer s.mu.Unlock()
 
 	agentID := strings.TrimSpace(req.AgentID)
+	mode := strings.TrimSpace(req.Mode)
+	if agentID == "" && mode != "" && !isGenericMode(mode) {
+		agentID = mode
+	}
 	if agentID == "" {
 		agentID = s.agents[0].ID
+	}
+	if mode == "" {
+		mode = agentID
 	}
 	if !s.hasAgentLocked(agentID) {
 		return Session{}, NewError("agent_not_found", fmt.Sprintf("agent %q was not found", agentID))
@@ -138,12 +145,19 @@ func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessio
 	if title == "" {
 		title = "New Agent Session"
 	}
+	workspaceID := strings.TrimSpace(req.WorkspaceID)
 	startupCommand := strings.TrimSpace(req.StartupCommand)
 	sessionID := s.idLocked("sess")
 	if s.connector != nil {
 		metadata := map[string]any{}
 		if startupCommand != "" {
 			metadata["startupCommand"] = startupCommand
+		}
+		if workspaceID != "" {
+			metadata["workspaceId"] = workspaceID
+		}
+		if mode != "" {
+			metadata["mode"] = mode
 		}
 		if len(metadata) == 0 {
 			metadata = nil
@@ -164,8 +178,10 @@ func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessio
 	session := Session{
 		ID:             sessionID,
 		Title:          title,
+		WorkspaceID:    workspaceID,
 		CWD:            req.CWD,
 		StartupCommand: startupCommand,
+		Mode:           mode,
 		AgentID:        agentID,
 		Model:          req.Model,
 		Status:         "active",
@@ -251,6 +267,30 @@ func (s *MockGatewayService) Prompt(ctx context.Context, sessionID string, req P
 	}
 
 	session := fromStoreConversation(conversation)
+	if workspaceID := strings.TrimSpace(req.WorkspaceID); workspaceID != "" {
+		session.WorkspaceID = workspaceID
+	}
+	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
+		session.CWD = cwd
+	}
+	if mode := strings.TrimSpace(req.Mode); mode != "" {
+		session.Mode = mode
+		if !isGenericMode(mode) && s.hasAgentLocked(mode) {
+			session.AgentID = mode
+		}
+	}
+	if agentID := strings.TrimSpace(req.AgentID); agentID != "" {
+		if !s.hasAgentLocked(agentID) {
+			return PromptResponse{}, NewError("agent_not_found", fmt.Sprintf("agent %q was not found", agentID))
+		}
+		session.AgentID = agentID
+	}
+	if model := strings.TrimSpace(req.Model); model != "" {
+		session.Model = model
+	}
+	if session.Mode == "" {
+		session.Mode = session.AgentID
+	}
 	if s.connector != nil {
 		return s.promptViaConnectorLocked(ctx, session, content)
 	}
@@ -583,6 +623,12 @@ func toStoreConversation(session Session) store.Conversation {
 	if strings.TrimSpace(session.StartupCommand) != "" {
 		safeMeta["startupCommand"] = strings.TrimSpace(session.StartupCommand)
 	}
+	if strings.TrimSpace(session.WorkspaceID) != "" {
+		safeMeta["workspaceId"] = strings.TrimSpace(session.WorkspaceID)
+	}
+	if strings.TrimSpace(session.Mode) != "" {
+		safeMeta["mode"] = strings.TrimSpace(session.Mode)
+	}
 	if len(safeMeta) == 0 {
 		safeMeta = nil
 	}
@@ -602,11 +648,18 @@ func toStoreConversation(session Session) store.Conversation {
 
 func fromStoreConversation(conversation store.Conversation) Session {
 	startupCommand, _ := conversation.SafeMeta["startupCommand"].(string)
+	workspaceID, _ := conversation.SafeMeta["workspaceId"].(string)
+	mode, _ := conversation.SafeMeta["mode"].(string)
+	if strings.TrimSpace(mode) == "" {
+		mode = conversation.AgentID
+	}
 	return Session{
 		ID:             conversation.SessionID,
 		Title:          conversation.Title,
+		WorkspaceID:    strings.TrimSpace(workspaceID),
 		CWD:            conversation.CWD,
 		StartupCommand: strings.TrimSpace(startupCommand),
+		Mode:           strings.TrimSpace(mode),
 		AgentID:        conversation.AgentID,
 		Model:          conversation.Model,
 		Status:         conversation.Status,
@@ -703,4 +756,13 @@ func timePointerValue(in *time.Time, fallback time.Time) time.Time {
 		return fallback
 	}
 	return *in
+}
+
+func isGenericMode(mode string) bool {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "agent", "default", "main":
+		return true
+	default:
+		return false
+	}
 }

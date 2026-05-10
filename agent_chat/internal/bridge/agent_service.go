@@ -424,6 +424,14 @@ func (s *AgentService) ListSkills(ctx context.Context) ([]SkillInfo, error) {
 	return mapGatewaySkillsToInfos(out), nil
 }
 
+func (s *AgentService) ListAgents(ctx context.Context) ([]AgentProfile, error) {
+	var out []gatewayAgentDTO
+	if err := s.gatewayJSON(ctx, http.MethodGet, "/v1/agents", nil, &out); err != nil {
+		return nil, err
+	}
+	return mapGatewayAgentsToProfiles(out), nil
+}
+
 func (s *AgentService) ListAuditEvents(ctx context.Context) ([]AuditEvent, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -740,8 +748,10 @@ func (s *AgentService) mapGatewayStreamError(err error) *BridgeError {
 type gatewaySessionDTO struct {
 	ID             string    `json:"id"`
 	Title          string    `json:"title"`
+	WorkspaceID    string    `json:"workspaceId,omitempty"`
 	CWD            string    `json:"cwd,omitempty"`
 	StartupCommand string    `json:"startupCommand,omitempty"`
+	Mode           string    `json:"mode,omitempty"`
 	AgentID        string    `json:"agentId"`
 	Model          string    `json:"model,omitempty"`
 	Status         string    `json:"status"`
@@ -809,6 +819,14 @@ type gatewaySkillDTO struct {
 	Description string `json:"description,omitempty"`
 }
 
+type gatewayAgentDTO struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Protocol    string   `json:"protocol"`
+	Models      []string `json:"models,omitempty"`
+	Description string   `json:"description,omitempty"`
+}
+
 type gatewayPromptResponse struct {
 	Run      gatewayRunDTO       `json:"run"`
 	Messages []gatewayMessageDTO `json:"messages"`
@@ -872,6 +890,10 @@ func mapGatewaySessionToConversation(in gatewaySessionDTO) Conversation {
 	if subtitle == "" {
 		subtitle = "unknown"
 	}
+	mode := strings.TrimSpace(in.Mode)
+	if mode == "" {
+		mode = strings.TrimSpace(in.AgentID)
+	}
 	return Conversation{
 		ID:             in.ID,
 		Type:           conversationType,
@@ -880,9 +902,10 @@ func mapGatewaySessionToConversation(in gatewaySessionDTO) Conversation {
 		Status:         in.Status,
 		UnreadCount:    0,
 		UpdatedAt:      updatedAt,
+		WorkspaceID:    strings.TrimSpace(in.WorkspaceID),
 		CWD:            in.CWD,
 		StartupCommand: in.StartupCommand,
-		Mode:           in.AgentID,
+		Mode:           mode,
 		Model:          in.Model,
 	}
 }
@@ -970,6 +993,20 @@ func mapGatewaySkillsToInfos(in []gatewaySkillDTO) []SkillInfo {
 			ID:          item.ID,
 			Name:        item.Name,
 			Description: item.Description,
+		})
+	}
+	return out
+}
+
+func mapGatewayAgentsToProfiles(in []gatewayAgentDTO) []AgentProfile {
+	out := make([]AgentProfile, 0, len(in))
+	for _, item := range in {
+		out = append(out, AgentProfile{
+			ID:          strings.TrimSpace(item.ID),
+			Name:        strings.TrimSpace(item.Name),
+			Protocol:    strings.TrimSpace(item.Protocol),
+			Models:      append([]string(nil), item.Models...),
+			Description: strings.TrimSpace(item.Description),
 		})
 	}
 	return out

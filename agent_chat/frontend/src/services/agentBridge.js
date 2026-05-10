@@ -1,4 +1,7 @@
 import * as AgentService from '@/bindings/github.com/icoo-ai/icoo-ai/agent_chat/internal/bridge/agentservice'
+import { Call } from '@wailsio/runtime'
+
+const bridgeServiceMethodPrefix = 'github.com/icoo-ai/icoo-ai/agent_chat/internal/bridge.AgentService.'
 
 function getBridgeMethod(name) {
   const method = AgentService?.[name]
@@ -19,7 +22,12 @@ function requirePromptContent(payload) {
   return { ...payload, content }
 }
 
+function callBridgeByName(method, ...args) {
+  return Call.ByName(`${bridgeServiceMethodPrefix}${method}`, ...args)
+}
+
 export const agentBridge = {
+  listAgents: () => callBridgeByName('ListAgents'),
   listConversations: () => getBridgeMethod('ListConversations')(),
   loadSession: (sessionId) => getBridgeMethod('LoadSession')(sessionId),
   listMessages: (sessionId) => getBridgeMethod('ListMessages')(sessionId),

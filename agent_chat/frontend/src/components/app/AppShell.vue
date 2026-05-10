@@ -44,6 +44,7 @@ onMounted(async () => {
     app.refreshGatewayStatus()
   }, 3000)
   await Promise.all([
+    conversations.loadAgentProfiles(),
     conversations.loadConversations(),
     runs.loadRuns(),
     approvals.loadApprovals(),
