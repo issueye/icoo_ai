@@ -69,6 +69,7 @@ func TestRealProcessSmoke(t *testing.T) {
 	sessionResp, err := c.NewSession(ctx, connector.NewSessionRequest{
 		AgentID: "icoo-ai-acp",
 		Model:   strings.TrimSpace(os.Getenv(acpSmokeModelEnv)),
+		CWD:     t.TempDir(),
 	})
 	if err != nil {
 		t.Fatalf("NewSession() error = %v", err)
@@ -85,8 +86,8 @@ func TestRealProcessSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prompt() error = %v", err)
 	}
-	if strings.TrimSpace(promptResp.RunID) == "" {
-		t.Fatalf("Prompt() run id is empty: %#v", promptResp)
+	if promptResp.EndedAt == nil {
+		t.Fatalf("Prompt() endedAt is nil: %#v", promptResp)
 	}
 
 	cancelResp, err := c.Cancel(ctx, connector.CancelRequest{
@@ -97,7 +98,7 @@ func TestRealProcessSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cancel() error = %v", err)
 	}
-	if strings.TrimSpace(cancelResp.RunID) == "" {
-		t.Fatalf("Cancel() run id is empty: %#v", cancelResp)
+	if strings.TrimSpace(cancelResp.Status) == "" {
+		t.Fatalf("Cancel() status is empty: %#v", cancelResp)
 	}
 }

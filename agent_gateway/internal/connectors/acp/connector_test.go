@@ -72,7 +72,7 @@ func (f *fakeProcess) run(t *testing.T) {
 			f.params[req.Method] = req.Params
 			f.mu.Unlock()
 
-			if req.Method == "prompt" {
+			if req.Method == "session/prompt" {
 				update := map[string]any{
 					"jsonrpc": "2.0",
 					"method":  "session.update",
@@ -116,22 +116,20 @@ func asString(v any) string {
 func (f *fakeProcess) resultFor(method string) map[string]any {
 	switch method {
 	case "initialize":
-		return map[string]any{"serverName": "fake-acp", "serverVersion": "0.1.0"}
-	case "newSession":
-		return map[string]any{"sessionId": "sess_fake_1"}
-	case "prompt":
 		return map[string]any{
-			"runId":  "run_fake_1",
-			"output": "ok",
-			"approvals": []any{
-				map[string]any{
-					"requestId": "req_approval_1",
-					"action":    "write_file",
-					"message":   "allow write",
-				},
+			"protocolVersion": 1,
+			"agentInfo": map[string]any{
+				"name":    "fake-acp",
+				"version": "0.1.0",
 			},
 		}
-	case "cancel":
+	case "session/new":
+		return map[string]any{"sessionId": "sess_fake_1"}
+	case "session/prompt":
+		return map[string]any{
+			"stopReason": "end_turn",
+		}
+	case "session/cancel":
 		return map[string]any{"runId": "run_fake_1", "status": "cancelled"}
 	default:
 		return map[string]any{}
@@ -180,14 +178,11 @@ func TestFakeProcessProtocolMapping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prompt() error = %v", err)
 	}
-	if promptResp.RunID != "run_fake_1" || promptResp.Output != "ok" {
+	if promptResp.Output != "" {
 		t.Fatalf("Prompt() response = %#v", promptResp)
 	}
-	if len(promptResp.Approvals) != 1 {
-		t.Fatalf("Prompt() approvals = %#v", promptResp.Approvals)
-	}
-	if promptResp.Approvals[0].RequestID != "req_approval_1" || promptResp.Approvals[0].Action != "write_file" {
-		t.Fatalf("Prompt() approval mapping mismatch: %#v", promptResp.Approvals[0])
+	if promptResp.EndedAt == nil {
+		t.Fatalf("Prompt() endedAt should not be nil: %#v", promptResp)
 	}
 	select {
 	case evt := <-sub.Events():
@@ -222,14 +217,19 @@ func TestFakeProcessProtocolMapping(t *testing.T) {
 	if len(fake.methods) != 4 {
 		t.Fatalf("expected 4 rpc methods, got %d (%v)", len(fake.methods), fake.methods)
 	}
-	if fake.methods[0] != "initialize" || fake.methods[1] != "newSession" || fake.methods[2] != "prompt" || fake.methods[3] != "cancel" {
+	if fake.methods[0] != "initialize" || fake.methods[1] != "session/new" || fake.methods[2] != "session/prompt" || fake.methods[3] != "session/cancel" {
 		t.Fatalf("unexpected method order: %v", fake.methods)
 	}
-	if got := fake.params["newSession"]["cwd"]; got != "E:/code" {
-		t.Fatalf("newSession.cwd = %#v", got)
+	if got := fake.params["session/new"]["cwd"]; got != "E:/code" {
+		t.Fatalf("session/new.cwd = %#v", got)
 	}
-	if got := fake.params["prompt"]["content"]; got != "hello" {
-		t.Fatalf("prompt.content = %#v", got)
+	promptBlocks, ok := fake.params["session/prompt"]["prompt"].([]any)
+	if !ok || len(promptBlocks) == 0 {
+		t.Fatalf("session/prompt.prompt = %#v", fake.params["session/prompt"]["prompt"])
+	}
+	block, _ := promptBlocks[0].(map[string]any)
+	if block["text"] != "hello" {
+		t.Fatalf("session/prompt first block text = %#v", block["text"])
 	}
 }
 

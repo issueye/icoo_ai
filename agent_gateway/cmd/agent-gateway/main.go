@@ -66,6 +66,7 @@ func parseConfigFromFlags(args []string) (config.Config, bool, error) {
 	flags.BoolVar(&cfg.ACP.Enabled, "acp-enabled", cfg.ACP.Enabled, "enable ACP connector mode")
 	flags.StringVar(&cfg.ACP.Command, "acp-command", cfg.ACP.Command, "ACP command executable")
 	flags.StringVar(&acpArgsRaw, "acp-args", strings.Join(cfg.ACP.Args, " "), "ACP command args, split by shell whitespace")
+	flags.IntVar(&cfg.ACP.PoolSize, "acp-pool-size", cfg.ACP.PoolSize, "ACP connector pool size, must be greater than 0")
 	flags.BoolVar(&once, "once", false, "start, write endpoint files, then stop")
 	if err := flags.Parse(args); err != nil {
 		return config.Config{}, false, err

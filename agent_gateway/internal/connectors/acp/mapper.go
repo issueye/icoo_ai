@@ -29,40 +29,74 @@ type rpcResponse struct {
 
 func initializeParams(req connector.InitializeRequest) map[string]any {
 	return map[string]any{
-		"clientName":    req.ClientName,
-		"clientVersion": req.ClientVersion,
+		"protocolVersion": 1,
+		"clientInfo": map[string]any{
+			"name":    req.ClientName,
+			"version": req.ClientVersion,
+		},
+		"clientCapabilities": map[string]any{
+			"fs": map[string]any{
+				"readTextFile":  false,
+				"writeTextFile": false,
+			},
+			"terminal": false,
+		},
 	}
 }
 
 func newSessionParams(req connector.NewSessionRequest) map[string]any {
-	return map[string]any{
-		"agentId":  req.AgentID,
-		"model":    req.Model,
-		"cwd":      req.CWD,
-		"metadata": req.Metadata,
+	params := map[string]any{
+		"cwd":        req.CWD,
+		"mcpServers": []any{},
 	}
+	if len(req.Metadata) > 0 {
+		params["_meta"] = cloneMap(req.Metadata)
+		if rawAdditional, ok := req.Metadata["additional_directories"]; ok {
+			if additional, ok := rawAdditional.([]string); ok {
+				params["additionalDirectories"] = append([]string(nil), additional...)
+			}
+		}
+	}
+	return params
 }
 
 func promptParams(req connector.PromptRequest) map[string]any {
-	return map[string]any{
+	params := map[string]any{
 		"sessionId": req.SessionID,
-		"content":   req.Content,
-		"requestId": req.RequestID,
+		"prompt": []any{
+			map[string]any{
+				"type": "text",
+				"text": req.Content,
+			},
+		},
 	}
+	if req.RequestID != "" {
+		params["_meta"] = map[string]any{
+			"requestId": req.RequestID,
+		}
+	}
+	return params
 }
 
 func cancelParams(req connector.CancelRequest) map[string]any {
 	return map[string]any{
 		"sessionId": req.SessionID,
-		"runId":     req.RunID,
-		"reason":    req.Reason,
 	}
 }
 
 func mapInitializeResponse(result map[string]any) connector.InitializeResponse {
+	serverName := stringField(result, "serverName")
+	serverVersion := stringField(result, "serverVersion")
+	agentInfo := mapField(result, "agentInfo")
+	if serverName == "" {
+		serverName = stringField(agentInfo, "name")
+	}
+	if serverVersion == "" {
+		serverVersion = stringField(agentInfo, "version")
+	}
 	return connector.InitializeResponse{
-		ServerName:    stringField(result, "serverName"),
-		ServerVersion: stringField(result, "serverVersion"),
+		ServerName:    serverName,
+		ServerVersion: serverVersion,
 	}
 }
 
@@ -77,10 +111,16 @@ func mapPromptResponse(result map[string]any) connector.PromptResponse {
 		RunID:  stringField(result, "runId"),
 		Output: stringField(result, "output"),
 	}
+	if resp.RunID == "" {
+		resp.RunID = stringField(result, "userMessageId")
+	}
 	if endedAt := stringField(result, "endedAt"); endedAt != "" {
 		if parsed, err := time.Parse(time.RFC3339Nano, endedAt); err == nil {
 			resp.EndedAt = &parsed
 		}
+	} else if stopReason := stringField(result, "stopReason"); stopReason != "" {
+		now := time.Now().UTC()
+		resp.EndedAt = &now
 	}
 	rawApprovals, _ := result["approvals"].([]any)
 	for _, raw := range rawApprovals {
@@ -98,10 +138,14 @@ func mapPromptResponse(result map[string]any) connector.PromptResponse {
 }
 
 func mapCancelResponse(result map[string]any) connector.CancelResponse {
-	return connector.CancelResponse{
+	resp := connector.CancelResponse{
 		RunID:  stringField(result, "runId"),
 		Status: stringField(result, "status"),
 	}
+	if resp.Status == "" {
+		resp.Status = "cancelled"
+	}
+	return resp
 }
 
 func stringField(m map[string]any, key string) string {
@@ -116,6 +160,48 @@ func mapSessionUpdateToEnvelope(eventID string, params map[string]any) (events.E
 	if params == nil {
 		return events.Envelope{}, false
 	}
+	sessionID := stringField(params, "sessionId")
+	runID := stringField(params, "runId")
+
+	if update := mapField(params, "update"); update != nil {
+		updateType := stringField(update, "sessionUpdate")
+		if updateType == "" {
+			updateType = stringField(update, "type")
+		}
+		payload := update
+		eventType := updateType
+		switch updateType {
+		case "agent_message_chunk":
+			eventType = "message.created"
+			payload = map[string]any{
+				"role":    "assistant",
+				"content": textFromContentBlock(mapField(update, "content")),
+			}
+		case "agent_thought_chunk":
+			eventType = "run.updated"
+			payload = map[string]any{
+				"status":  "running",
+				"thought": textFromContentBlock(mapField(update, "content")),
+			}
+		case "tool_call":
+			eventType = "run.updated"
+		case "tool_call_status":
+			eventType = "run.updated"
+		}
+		if eventType == "" {
+			eventType = "run.updated"
+		}
+		return events.Envelope{
+			ID:        eventID,
+			Type:      eventType,
+			AgentID:   stringField(params, "agentId"),
+			SessionID: sessionID,
+			RunID:     runID,
+			Payload:   payload,
+			CreatedAt: parseEventCreatedAt(params),
+		}, true
+	}
+
 	eventType := stringField(params, "type")
 	if eventType == "" {
 		eventType = "run.updated"
@@ -133,8 +219,8 @@ func mapSessionUpdateToEnvelope(eventID string, params map[string]any) (events.E
 		ID:        eventID,
 		Type:      eventType,
 		AgentID:   stringField(params, "agentId"),
-		SessionID: stringField(params, "sessionId"),
-		RunID:     stringField(params, "runId"),
+		SessionID: sessionID,
+		RunID:     runID,
 		Payload:   payload,
 		CreatedAt: parseEventCreatedAt(params),
 	}, true
@@ -171,6 +257,16 @@ func cloneMap(in map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+func textFromContentBlock(content map[string]any) string {
+	if content == nil {
+		return ""
+	}
+	if text := stringField(content, "text"); text != "" {
+		return text
+	}
+	return ""
 }
 
 func nextEventID(n uint64) string {

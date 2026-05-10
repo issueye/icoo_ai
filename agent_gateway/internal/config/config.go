@@ -17,9 +17,10 @@ type Config struct {
 }
 
 type ACPConfig struct {
-	Enabled bool
-	Command string
-	Args    []string
+	Enabled  bool
+	Command  string
+	Args     []string
+	PoolSize int
 }
 
 func Default() Config {
@@ -28,7 +29,8 @@ func Default() Config {
 		Port:    0,
 		Version: Version,
 		ACP: ACPConfig{
-			Enabled: false,
+			Enabled:  false,
+			PoolSize: 1,
 		},
 	}
 }
@@ -43,6 +45,9 @@ func (c Config) Validate() error {
 	}
 	if c.Port < 0 || c.Port > 65535 {
 		return errors.New("port must be between 0 and 65535")
+	}
+	if c.ACP.PoolSize <= 0 {
+		return errors.New("acp.pool_size must be greater than 0")
 	}
 	if c.ACP.Enabled && strings.TrimSpace(c.ACP.Command) == "" {
 		return errors.New("acp.command is required when acp.enabled=true")

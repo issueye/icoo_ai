@@ -99,7 +99,7 @@ func (c *Connector) Initialize(ctx context.Context, req connector.InitializeRequ
 }
 
 func (c *Connector) NewSession(ctx context.Context, req connector.NewSessionRequest) (connector.NewSessionResponse, error) {
-	resp, err := c.call(ctx, "newSession", newSessionParams(req))
+	resp, err := c.call(ctx, "session/new", newSessionParams(req))
 	if err != nil {
 		return connector.NewSessionResponse{}, err
 	}
@@ -107,7 +107,7 @@ func (c *Connector) NewSession(ctx context.Context, req connector.NewSessionRequ
 }
 
 func (c *Connector) Prompt(ctx context.Context, req connector.PromptRequest) (connector.PromptResponse, error) {
-	resp, err := c.call(ctx, "prompt", promptParams(req))
+	resp, err := c.call(ctx, "session/prompt", promptParams(req))
 	if err != nil {
 		return connector.PromptResponse{}, err
 	}
@@ -115,7 +115,7 @@ func (c *Connector) Prompt(ctx context.Context, req connector.PromptRequest) (co
 }
 
 func (c *Connector) Cancel(ctx context.Context, req connector.CancelRequest) (connector.CancelResponse, error) {
-	resp, err := c.call(ctx, "cancel", cancelParams(req))
+	resp, err := c.call(ctx, "session/cancel", cancelParams(req))
 	if err != nil {
 		return connector.CancelResponse{}, err
 	}
@@ -221,9 +221,8 @@ func (c *Connector) readLoop() {
 			c.deliverResponse(resp)
 			continue
 		}
-		if !c.handleSessionUpdate(frame) {
-			c.onAsyncFailure(connector.NewError(connector.ErrCodeProtocolError, "received unknown acp frame"))
-			return
+		if c.handleSessionUpdate(frame) {
+			continue
 		}
 	}
 }
@@ -248,7 +247,7 @@ func (c *Connector) handleSessionUpdate(frame map[string]any) bool {
 	if method == "" {
 		return false
 	}
-	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(method, "_", "."), "-", "."))
+	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(method, "_", "."), "-", "."), "/", "."))
 	if normalized != "session.update" && normalized != "sessionupdate" {
 		return false
 	}
@@ -258,7 +257,7 @@ func (c *Connector) handleSessionUpdate(frame map[string]any) bool {
 	}
 	event, ok := mapSessionUpdateToEnvelope(nextEventID(atomic.AddUint64(&c.eventSeq, 1)), params)
 	if !ok {
-		return false
+		return true
 	}
 	events.DefaultBus().Publish(event)
 	return true

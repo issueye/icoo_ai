@@ -12,6 +12,7 @@ func TestParseConfigFromFlagsACPOptions(t *testing.T) {
 		"-acp-enabled",
 		"-acp-command", "icoo-ai",
 		"-acp-args", "serve --transport stdio",
+		"-acp-pool-size", "3",
 		"-once",
 	})
 	if err != nil {
@@ -26,9 +27,22 @@ func TestParseConfigFromFlagsACPOptions(t *testing.T) {
 	if cfg.ACP.Command != "icoo-ai" {
 		t.Fatalf("cfg.ACP.Command = %q, want %q", cfg.ACP.Command, "icoo-ai")
 	}
+	if cfg.ACP.PoolSize != 3 {
+		t.Fatalf("cfg.ACP.PoolSize = %d, want %d", cfg.ACP.PoolSize, 3)
+	}
 	wantArgs := []string{"serve", "--transport", "stdio"}
 	if !reflect.DeepEqual(cfg.ACP.Args, wantArgs) {
 		t.Fatalf("cfg.ACP.Args = %#v, want %#v", cfg.ACP.Args, wantArgs)
+	}
+}
+
+func TestParseConfigFromFlagsDefaultACPPoolSize(t *testing.T) {
+	cfg, _, err := parseConfigFromFlags([]string{})
+	if err != nil {
+		t.Fatalf("parseConfigFromFlags() error = %v", err)
+	}
+	if cfg.ACP.PoolSize != 1 {
+		t.Fatalf("cfg.ACP.PoolSize = %d, want 1", cfg.ACP.PoolSize)
 	}
 }
 

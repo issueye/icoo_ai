@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -25,7 +26,7 @@ type Server struct {
 	endpoint              Endpoint
 	http                  *http.Server
 	listener              net.Listener
-	acpConn               *acp.Connector
+	acpConn               connector.AgentConnector
 	store                 store.Store
 	eventBus              *events.Bus
 	projector             *eventProjector
@@ -105,16 +106,23 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	var shutdownErr error
 	if s.projector != nil {
 		s.projector.Stop()
 	}
 	if s.acpConn != nil {
-		_ = s.acpConn.Close()
+		if err := s.acpConn.Close(); err != nil {
+			shutdownErr = errors.Join(shutdownErr, err)
+		}
+		s.acpConn = nil
 	}
 	if s.http == nil {
-		return nil
+		return shutdownErr
 	}
-	return s.http.Shutdown(ctx)
+	if err := s.http.Shutdown(ctx); err != nil {
+		shutdownErr = errors.Join(shutdownErr, err)
+	}
+	return shutdownErr
 }
 
 func (s *Server) newGatewayService() (service.GatewayService, error) {
@@ -129,14 +137,7 @@ func (s *Server) newGatewayService() (service.GatewayService, error) {
 			"acp connector is disabled; set --acp-enabled and --acp-command",
 		)
 	}
-	conn, err := acp.NewDefaultConnector(acp.DefaultConnectorOptions{
-		Command: s.cfg.ACP.Command,
-		Args:    s.cfg.ACP.Args,
-		Stderr: acp.NewStderrAuditSink(acp.StderrAuditSinkOptions{
-			Store:   memStore,
-			AgentID: "icoo-ai-acp",
-		}),
-	})
+	conn, err := s.newACPConnector(memStore)
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +160,41 @@ func (s *Server) newGatewayService() (service.GatewayService, error) {
 			Description: "Default ACP connector profile.",
 		},
 	}, memStore, conn), nil
+}
+
+func (s *Server) newACPConnector(memStore store.Store) (connector.AgentConnector, error) {
+	poolSize := s.cfg.ACP.PoolSize
+	if poolSize <= 0 {
+		poolSize = 1
+	}
+
+	backends := make([]connector.AgentConnector, 0, poolSize)
+	for i := 0; i < poolSize; i++ {
+		conn, err := acp.NewDefaultConnector(acp.DefaultConnectorOptions{
+			Command: s.cfg.ACP.Command,
+			Args:    s.cfg.ACP.Args,
+			Stderr: acp.NewStderrAuditSink(acp.StderrAuditSinkOptions{
+				Store:   memStore,
+				AgentID: "icoo-ai-acp",
+			}),
+		})
+		if err != nil {
+			for _, backend := range backends {
+				_ = backend.Close()
+			}
+			return nil, err
+		}
+		backends = append(backends, conn)
+	}
+
+	pool, err := acp.NewPool(backends)
+	if err != nil {
+		for _, backend := range backends {
+			_ = backend.Close()
+		}
+		return nil, err
+	}
+	return pool, nil
 }
 
 func (s *Server) authorize(next http.Handler) http.Handler {
