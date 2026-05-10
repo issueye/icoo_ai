@@ -13,6 +13,7 @@ const conversations = useConversationsStore()
 const navLabel = computed(() => {
   const labels = {
     chats: '消息',
+    channels: '渠道',
     agents: 'Agent',
     skills: 'Skills',
     audit: '审计',
@@ -23,6 +24,7 @@ const navLabel = computed(() => {
 
 const title = computed(() => conversations.activeConversation?.title ?? 'Agent Chat')
 const headerTitle = computed(() => {
+  if (app.activeNav === 'channels') return '渠道管理'
   if (app.activeNav === 'audit') return '审计日志'
   if (app.activeNav === 'settings') return '系统设置'
   return title.value

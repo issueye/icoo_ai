@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { agentBridge } from '@/services/agentBridge'
 
-const channelTypeOrder = ['qq', 'lark', 'wechat']
+const supportedChannelTypes = ['qq', 'lark', 'wechat']
 
 const channelTemplates = {
   qq: { id: 'qq', name: 'QQ 机器人', type: 'qq' },
@@ -11,18 +11,20 @@ const channelTemplates = {
 
 function normalizeChannelType(rawType, fallbackType = 'qq') {
   const source = typeof rawType === 'string' ? rawType.trim().toLowerCase() : ''
-  if (channelTypeOrder.includes(source)) return source
+  if (supportedChannelTypes.includes(source)) return source
   const fallback = typeof fallbackType === 'string' ? fallbackType.trim().toLowerCase() : ''
-  if (channelTypeOrder.includes(fallback)) return fallback
+  if (supportedChannelTypes.includes(fallback)) return fallback
   return 'qq'
 }
 
-function defaultChannelByType(channelType) {
+function defaultChannelByType(channelType, sequence = 1) {
   const type = normalizeChannelType(channelType)
   const template = channelTemplates[type]
+  const baseID = template?.id || type
+  const id = sequence > 1 ? `${baseID}_${sequence}` : baseID
   return {
-    id: template.id,
-    name: template.name,
+    id,
+    name: template?.name || baseID,
     type,
     enabled: false,
     appId: '',
@@ -34,7 +36,7 @@ function defaultChannelByType(channelType) {
 
 function normalizeChannel(rawChannel = {}, fallbackType = 'qq') {
   const type = normalizeChannelType(rawChannel?.type, fallbackType)
-  const defaults = defaultChannelByType(type)
+  const defaults = defaultChannelByType(type, 1)
   const normalizedID = typeof rawChannel?.id === 'string' ? rawChannel.id.trim() : ''
   const normalizedName = typeof rawChannel?.name === 'string' ? rawChannel.name.trim() : ''
   const normalizedAppID = typeof rawChannel?.appId === 'string' ? rawChannel.appId.trim() : ''
@@ -53,17 +55,37 @@ function normalizeChannel(rawChannel = {}, fallbackType = 'qq') {
   }
 }
 
+function ensureUniqueChannelIDs(channels = []) {
+  const used = new Map()
+  return channels.map((channel) => {
+    const type = normalizeChannelType(channel?.type)
+    const baseID = String(channel?.id || '').trim() || type
+    if (!used.has(baseID)) {
+      used.set(baseID, 1)
+      return { ...channel, id: baseID, type }
+    }
+    const next = used.get(baseID) + 1
+    used.set(baseID, next)
+    const derivedID = `${baseID}_${next}`
+    used.set(derivedID, 1)
+    return { ...channel, id: derivedID, type }
+  })
+}
+
 function normalizeChannels(rawChannels) {
   const source = Array.isArray(rawChannels) ? rawChannels : []
-  const channelsByType = new Map()
-  source.forEach((rawChannel, index) => {
-    const fallbackType = channelTypeOrder[index] || 'qq'
-    const normalized = normalizeChannel(rawChannel, fallbackType)
-    if (!channelsByType.has(normalized.type)) {
-      channelsByType.set(normalized.type, normalized)
-    }
+  if (source.length === 0) {
+    return [
+      defaultChannelByType('qq', 1),
+      defaultChannelByType('lark', 1),
+      defaultChannelByType('wechat', 1),
+    ]
+  }
+  const normalized = source.map((rawChannel, index) => {
+    const fallbackType = supportedChannelTypes[index % supportedChannelTypes.length] || 'qq'
+    return normalizeChannel(rawChannel, fallbackType)
   })
-  return channelTypeOrder.map((type) => channelsByType.get(type) || defaultChannelByType(type))
+  return ensureUniqueChannelIDs(normalized)
 }
 
 export const useAppStore = defineStore('app', {

@@ -8,6 +8,7 @@ import AppToastStack from './AppToastStack.vue'
 import ConversationSidebar from '@/components/conversation/ConversationSidebar.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
 import AuditWorkspace from '@/components/audit/AuditWorkspace.vue'
+import SettingsChannelsPanel from '@/components/settings/SettingsChannelsPanel.vue'
 import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
 import SettingsWorkspace from '@/components/settings/SettingsWorkspace.vue'
 import { useApprovalsStore } from '@/stores/approvals'
@@ -47,6 +48,7 @@ onMounted(async () => {
     app.refreshGatewayStatus()
   }, 3000)
   await Promise.all([
+    app.loadAppSettings(),
     conversations.loadAgentProfiles(),
     conversations.loadConversations(),
     runs.loadRuns(),
@@ -86,6 +88,7 @@ watch(() => route.params.sessionId, async (sessionId) => {
 watch(() => route.name, (name) => {
   if (name === 'settings') app.setActiveNav('settings')
   else if (name === 'audit') app.setActiveNav('audit')
+  else if (name === 'channels') app.setActiveNav('channels')
   else if (name === 'skills') app.setActiveNav('skills')
   else app.setActiveNav('chats')
   if (name === 'audit') {
@@ -112,6 +115,9 @@ watch(() => conversations.activeSessionId, async (sessionId) => {
       </template>
       <template v-else-if="route.name === 'audit'">
         <AuditWorkspace />
+      </template>
+      <template v-else-if="route.name === 'channels'">
+        <SettingsChannelsPanel />
       </template>
       <template v-else>
         <ConversationSidebar />

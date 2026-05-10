@@ -416,9 +416,6 @@ func normalizeChannelConfig(in ChannelConfig, fallbackType string) ChannelConfig
 	channelType := normalizeChannelType(in.Type, fallbackType)
 	defaults := channelConfigForType(channelType)
 	id := strings.TrimSpace(in.ID)
-	if id == "" {
-		id = defaults.ID
-	}
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
 		name = defaults.Name
@@ -435,30 +432,47 @@ func normalizeChannelConfig(in ChannelConfig, fallbackType string) ChannelConfig
 	}
 }
 
+func ensureUniqueChannelID(rawID string, channelType string, used map[string]int) string {
+	baseID := strings.TrimSpace(rawID)
+	if baseID == "" {
+		baseID = strings.TrimSpace(channelType)
+	}
+	if baseID == "" {
+		baseID = channelTypeQQ
+	}
+	if _, exists := used[baseID]; !exists {
+		used[baseID] = 1
+		return baseID
+	}
+	for suffix := used[baseID] + 1; ; suffix++ {
+		candidate := fmt.Sprintf("%s_%d", baseID, suffix)
+		if _, exists := used[candidate]; exists {
+			continue
+		}
+		used[baseID] = suffix
+		used[candidate] = 1
+		return candidate
+	}
+}
+
 func normalizeChannels(in []ChannelConfig) []ChannelConfig {
 	defaults := defaultChannelConfigs()
 	if len(in) == 0 {
 		return defaults
 	}
-	channelsByType := map[string]ChannelConfig{}
+	usedIDs := map[string]int{}
+	normalizedChannels := make([]ChannelConfig, 0, len(in))
 	for index, channel := range in {
 		fallbackType := ""
 		if index < len(defaults) {
 			fallbackType = defaults[index].Type
 		}
 		normalized := normalizeChannelConfig(channel, fallbackType)
-		if _, exists := channelsByType[normalized.Type]; exists {
-			continue
-		}
-		channelsByType[normalized.Type] = normalized
+		normalized.ID = ensureUniqueChannelID(normalized.ID, normalized.Type, usedIDs)
+		normalizedChannels = append(normalizedChannels, normalized)
 	}
-	normalizedChannels := make([]ChannelConfig, 0, len(defaults))
-	for _, fallback := range defaults {
-		if channel, ok := channelsByType[fallback.Type]; ok {
-			normalizedChannels = append(normalizedChannels, channel)
-			continue
-		}
-		normalizedChannels = append(normalizedChannels, fallback)
+	if len(normalizedChannels) == 0 {
+		return defaults
 	}
 	return normalizedChannels
 }

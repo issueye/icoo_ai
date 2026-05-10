@@ -2,7 +2,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Power, PowerOff, RefreshCcw, RotateCcw, Save } from 'lucide-vue-next'
 import ContextDropdown from '@/components/ui/ContextDropdown.vue'
-import SettingsChannelsPanel from './SettingsChannelsPanel.vue'
 import { useAppStore } from '@/stores/app'
 
 const app = useAppStore()
@@ -230,8 +229,7 @@ function resetToDefault() {
 </script>
 
 <template>
-  <SettingsChannelsPanel v-if="section === 'channels'" />
-  <section v-else class="qq-chat-workspace">
+  <section class="qq-chat-workspace">
     <header class="qq-chat-header qq-settings-header">
       <div class="min-w-0 flex-1">
         <h2 class="qq-chat-title">配置</h2>

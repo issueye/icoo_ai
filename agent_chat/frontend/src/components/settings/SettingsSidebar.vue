@@ -10,7 +10,6 @@ const emit = defineEmits(['update:modelValue'])
 
 const items = [
   { key: 'gateway', title: '网关连接', subtitle: '可执行路径与连通状态' },
-  { key: 'channels', title: '渠道管理', subtitle: 'QQ / 飞书 / 微信 机器人' },
 ]
 
 function selectItem(key) {

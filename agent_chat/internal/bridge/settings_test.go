@@ -42,6 +42,28 @@ func TestNormalizeAppSettings_DefaultChannels(t *testing.T) {
 	}
 }
 
+func TestNormalizeAppSettings_AllowDuplicateChannelTypes(t *testing.T) {
+	t.Parallel()
+
+	settings := normalizeAppSettings(AppSettings{
+		Channels: []ChannelConfig{
+			{ID: "qq", Type: "qq", Name: "QQ 机器人 A"},
+			{ID: "qq", Type: "qq", Name: "QQ 机器人 B"},
+			{ID: "lark", Type: "lark", Name: "飞书机器人 A"},
+		},
+	})
+
+	if len(settings.Channels) != 3 {
+		t.Fatalf("expected 3 channels after normalization, got %d", len(settings.Channels))
+	}
+	if settings.Channels[0].Type != "qq" || settings.Channels[1].Type != "qq" {
+		t.Fatalf("expected duplicate qq channel types preserved, got %#v", settings.Channels)
+	}
+	if settings.Channels[0].ID == settings.Channels[1].ID {
+		t.Fatalf("expected duplicate ids to be disambiguated, got %q", settings.Channels[0].ID)
+	}
+}
+
 func TestDecodeSettingsTOML_ReadsHostPortAndChannels(t *testing.T) {
 	t.Parallel()
 
@@ -194,12 +216,6 @@ func TestEncodeSettingsTOML_PreservesLogConfig(t *testing.T) {
 	}
 	if !containsLine(data, "webhook_url = \"https://qq.example/webhook\"") {
 		t.Fatalf("encoded settings missing qq webhook: %q", data)
-	}
-	if !containsLine(data, "type = \"lark\"") {
-		t.Fatalf("encoded settings missing default lark channel: %q", data)
-	}
-	if !containsLine(data, "type = \"wechat\"") {
-		t.Fatalf("encoded settings missing default wechat channel: %q", data)
 	}
 }
 

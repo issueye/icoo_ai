@@ -1,11 +1,17 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { Save } from 'lucide-vue-next'
+import { PenSquare, Plus, Trash2 } from 'lucide-vue-next'
+import ContextDropdown from '@/components/ui/ContextDropdown.vue'
 import { useAppStore } from '@/stores/app'
 
 const app = useAppStore()
 
-const channelOrder = ['qq', 'lark', 'wechat']
+const channelTypeOptions = [
+  { id: 'qq', label: 'QQ 机器人' },
+  { id: 'lark', label: '飞书机器人' },
+  { id: 'wechat', label: '微信机器人' },
+]
+
 const channelMetaMap = {
   qq: {
     name: 'QQ 机器人',
@@ -38,13 +44,19 @@ const channelMetaMap = {
     },
   },
 }
+
+const supportedChannelTypes = channelTypeOptions.map((item) => item.id)
 const channelDrafts = ref([])
+const editorOpen = ref(false)
+const editorMode = ref('edit')
+const editorIndex = ref(-1)
+const editorDraft = ref(null)
 
 function normalizeChannelType(rawType, fallbackType = 'qq') {
   const source = typeof rawType === 'string' ? rawType.trim().toLowerCase() : ''
-  if (channelOrder.includes(source)) return source
+  if (supportedChannelTypes.includes(source)) return source
   const fallback = typeof fallbackType === 'string' ? fallbackType.trim().toLowerCase() : ''
-  if (channelOrder.includes(fallback)) return fallback
+  if (supportedChannelTypes.includes(fallback)) return fallback
   return 'qq'
 }
 
@@ -53,9 +65,29 @@ function channelMeta(type) {
   return channelMetaMap[normalizedType] || channelMetaMap.qq
 }
 
+function defaultChannelID(type, sequence = 1) {
+  const normalizedType = normalizeChannelType(type)
+  return sequence > 1 ? `${normalizedType}_${sequence}` : normalizedType
+}
+
+function createDefaultChannel(type = 'qq', sequence = 1) {
+  const normalizedType = normalizeChannelType(type)
+  const meta = channelMeta(normalizedType)
+  return {
+    id: defaultChannelID(normalizedType, sequence),
+    name: meta.name,
+    type: normalizedType,
+    enabled: false,
+    appId: '',
+    appSecret: '',
+    botToken: '',
+    webhookUrl: '',
+  }
+}
+
 function normalizeChannel(rawChannel = {}, fallbackType = 'qq') {
   const type = normalizeChannelType(rawChannel?.type, fallbackType)
-  const meta = channelMeta(type)
+  const defaults = createDefaultChannel(type, 1)
   const normalizedID = typeof rawChannel?.id === 'string' ? rawChannel.id.trim() : ''
   const normalizedName = typeof rawChannel?.name === 'string' ? rawChannel.name.trim() : ''
   const normalizedAppID = typeof rawChannel?.appId === 'string' ? rawChannel.appId.trim() : ''
@@ -63,8 +95,8 @@ function normalizeChannel(rawChannel = {}, fallbackType = 'qq') {
   const normalizedBotToken = typeof rawChannel?.botToken === 'string' ? rawChannel.botToken.trim() : ''
   const normalizedWebhookURL = typeof rawChannel?.webhookUrl === 'string' ? rawChannel.webhookUrl.trim() : ''
   return {
-    id: normalizedID || type,
-    name: normalizedName || meta.name,
+    id: normalizedID || defaults.id,
+    name: normalizedName || defaults.name,
     type,
     enabled: Boolean(rawChannel?.enabled),
     appId: normalizedAppID,
@@ -74,17 +106,41 @@ function normalizeChannel(rawChannel = {}, fallbackType = 'qq') {
   }
 }
 
+function ensureUniqueChannelIDs(channels = []) {
+  const used = new Set()
+  const typeCounters = new Map()
+  return channels.map((channel) => {
+    const type = normalizeChannelType(channel?.type)
+    const nextTypeCount = (typeCounters.get(type) || 0) + 1
+    typeCounters.set(type, nextTypeCount)
+    const requestedID = String(channel?.id || '').trim()
+    let id = requestedID || defaultChannelID(type, nextTypeCount)
+    if (!used.has(id)) {
+      used.add(id)
+      return { ...channel, id, type }
+    }
+    let suffix = nextTypeCount
+    while (used.has(`${id}_${suffix}`)) suffix += 1
+    id = `${id}_${suffix}`
+    used.add(id)
+    return { ...channel, id, type }
+  })
+}
+
 function normalizeChannels(rawChannels) {
   const source = Array.isArray(rawChannels) ? rawChannels : []
-  const channelsByType = new Map()
-  source.forEach((rawChannel, index) => {
-    const fallbackType = channelOrder[index] || 'qq'
-    const normalized = normalizeChannel(rawChannel, fallbackType)
-    if (!channelsByType.has(normalized.type)) {
-      channelsByType.set(normalized.type, normalized)
-    }
+  if (source.length === 0) {
+    return [
+      createDefaultChannel('qq', 1),
+      createDefaultChannel('lark', 1),
+      createDefaultChannel('wechat', 1),
+    ]
+  }
+  const normalized = source.map((rawChannel, index) => {
+    const fallbackType = supportedChannelTypes[index % supportedChannelTypes.length] || 'qq'
+    return normalizeChannel(rawChannel, fallbackType)
   })
-  return channelOrder.map((type) => channelsByType.get(type) || normalizeChannel({ type }, type))
+  return ensureUniqueChannelIDs(normalized)
 }
 
 function syncChannelsFromStore() {
@@ -101,20 +157,103 @@ watch(
 
 const disabled = computed(() => app.settingsSaving)
 
-function toggleChannel(channel) {
-  if (!channel || typeof channel !== 'object') return
-  channel.enabled = !channel.enabled
+function summarizeText(value) {
+  const text = String(value || '').trim()
+  if (!text) return '未配置'
+  if (text.length <= 26) return text
+  return `${text.slice(0, 10)}...${text.slice(-10)}`
 }
 
-async function saveChannels() {
+function hideSecret(value) {
+  const text = String(value || '').trim()
+  if (!text) return '未配置'
+  if (text.length <= 10) return '******'
+  return `${text.slice(0, 3)}******${text.slice(-3)}`
+}
+
+function openCreateEditor() {
+  editorMode.value = 'create'
+  editorIndex.value = -1
+  editorDraft.value = createDefaultChannel('qq', channelDrafts.value.length + 1)
+  editorOpen.value = true
+}
+
+function openEditEditor(channel, index) {
+  if (!channel || typeof channel !== 'object') return
+  editorMode.value = 'edit'
+  editorIndex.value = Number(index)
+  editorDraft.value = { ...normalizeChannel(channel, channel.type) }
+  editorOpen.value = true
+}
+
+function closeEditor() {
+  editorOpen.value = false
+  editorMode.value = 'edit'
+  editorIndex.value = -1
+  editorDraft.value = null
+}
+
+async function persistChannels(successMessage) {
   try {
     await app.saveAppSettings({
       channels: normalizeChannels(channelDrafts.value),
     })
-    app.pushToast({ type: 'success', message: '渠道配置保存成功' })
+    if (successMessage) {
+      app.pushToast({ type: 'success', message: successMessage })
+    }
+    return true
   } catch {
     app.pushToast({ type: 'error', message: app.settingsError || '渠道配置保存失败' })
+    return false
   }
+}
+
+async function toggleChannel(channel) {
+  if (!channel || typeof channel !== 'object') return
+  channel.enabled = !channel.enabled
+  const success = await persistChannels(channel.enabled ? `${channel.name} 已启用` : `${channel.name} 已禁用`)
+  if (!success) channel.enabled = !channel.enabled
+}
+
+async function removeChannel(index) {
+  if (channelDrafts.value.length <= 1) {
+    app.pushToast({ type: 'info', message: '至少保留一个渠道配置' })
+    return
+  }
+  const removed = channelDrafts.value[index]
+  const backup = channelDrafts.value.map((channel) => ({ ...channel }))
+  channelDrafts.value.splice(index, 1)
+  const success = await persistChannels(`${removed?.name || '渠道'} 已删除`)
+  if (!success) {
+    channelDrafts.value = backup
+  }
+}
+
+async function saveChannelDetail() {
+  if (!editorDraft.value) {
+    closeEditor()
+    return
+  }
+  const nextChannels = channelDrafts.value.map((channel) => ({ ...channel }))
+  const normalizedDraft = normalizeChannel(editorDraft.value, editorDraft.value.type)
+  if (editorMode.value === 'create') {
+    nextChannels.push(normalizedDraft)
+  } else if (editorIndex.value >= 0 && editorIndex.value < nextChannels.length) {
+    nextChannels[editorIndex.value] = normalizedDraft
+  } else {
+    closeEditor()
+    return
+  }
+
+  const backup = channelDrafts.value.map((channel) => ({ ...channel }))
+  channelDrafts.value = normalizeChannels(nextChannels)
+  const actionLabel = editorMode.value === 'create' ? '已新增' : '配置已更新'
+  const success = await persistChannels(`${normalizedDraft.name} ${actionLabel}`)
+  if (!success) {
+    channelDrafts.value = backup
+    return
+  }
+  closeEditor()
 }
 </script>
 
@@ -125,89 +264,116 @@ async function saveChannels() {
         <h2 class="qq-chat-title">渠道管理</h2>
         <p class="qq-sidebar-subtitle">QQ / 飞书 / 微信 机器人接入</p>
       </div>
+      <button class="qq-primary-action h-8 px-3 text-sm" :disabled="disabled" @click="openCreateEditor">
+        <Plus class="h-4 w-4" />
+        <span>新增渠道</span>
+      </button>
     </header>
 
-    <div class="qq-settings-body">
-      <div class="qq-settings-card">
+    <div class="qq-channel-layout">
+      <div class="qq-channel-intro">
         <h3 class="qq-settings-card-title">机器人渠道配置</h3>
-        <p class="qq-settings-helper">为每个渠道填写凭据与回调地址，启用后即可接入消息链路。</p>
-        <div class="qq-channel-grid">
-          <article
-            v-for="channel in channelDrafts"
-            :key="channel.type"
-            class="qq-channel-card"
-            :class="{ 'is-enabled': channel.enabled }"
-          >
-            <div class="qq-channel-head">
-              <div class="min-w-0">
-                <div class="qq-channel-title">{{ channel.name }}</div>
-                <div class="qq-channel-subtitle">{{ channelMeta(channel.type).subtitle }}</div>
-              </div>
-              <button
-                type="button"
-                class="qq-channel-toggle"
-                :class="{ 'is-enabled': channel.enabled }"
-                :disabled="disabled"
-                @click="toggleChannel(channel)"
-              >
-                <span class="qq-channel-toggle-dot" />
-                <span>{{ channel.enabled ? '已启用' : '未启用' }}</span>
-              </button>
+        <p class="qq-settings-helper">支持动态新增多个渠道实例，例如多个 QQ、多个飞书机器人。</p>
+      </div>
+      <div class="qq-channel-grid">
+        <article
+          v-for="(channel, index) in channelDrafts"
+          :key="channel.id"
+          class="qq-channel-card"
+          :class="{ 'is-enabled': channel.enabled }"
+        >
+          <div class="qq-channel-head">
+            <div class="min-w-0">
+              <div class="qq-channel-title">{{ channel.name }}</div>
+              <div class="qq-channel-subtitle">{{ channelMeta(channel.type).subtitle }}</div>
             </div>
-
-            <div class="qq-channel-fields">
-              <div class="qq-channel-field">
-                <label class="qq-settings-label" :for="`${channel.type}_appId`">App ID</label>
-                <input
-                  :id="`${channel.type}_appId`"
-                  v-model="channel.appId"
-                  type="text"
-                  class="qq-settings-input"
-                  :placeholder="channelMeta(channel.type).placeholders.appId"
-                />
-              </div>
-
-              <div class="qq-channel-field">
-                <label class="qq-settings-label" :for="`${channel.type}_appSecret`">App Secret</label>
-                <input
-                  :id="`${channel.type}_appSecret`"
-                  v-model="channel.appSecret"
-                  type="text"
-                  class="qq-settings-input"
-                  :placeholder="channelMeta(channel.type).placeholders.appSecret"
-                />
-              </div>
-
-              <div class="qq-channel-field">
-                <label class="qq-settings-label" :for="`${channel.type}_botToken`">Bot Token</label>
-                <input
-                  :id="`${channel.type}_botToken`"
-                  v-model="channel.botToken"
-                  type="text"
-                  class="qq-settings-input"
-                  :placeholder="channelMeta(channel.type).placeholders.botToken"
-                />
-              </div>
-
-              <div class="qq-channel-field is-wide">
-                <label class="qq-settings-label" :for="`${channel.type}_webhook`">Webhook URL</label>
-                <input
-                  :id="`${channel.type}_webhook`"
-                  v-model="channel.webhookUrl"
-                  type="text"
-                  class="qq-settings-input"
-                  :placeholder="channelMeta(channel.type).placeholders.webhookUrl"
-                />
-              </div>
+            <button
+              type="button"
+              class="qq-channel-toggle"
+              :class="{ 'is-enabled': channel.enabled }"
+              :disabled="disabled"
+              @click="toggleChannel(channel)"
+            >
+              <span class="qq-channel-toggle-dot" />
+              <span>{{ channel.enabled ? '已启用' : '未启用' }}</span>
+            </button>
+          </div>
+          <div class="qq-channel-meta">
+            <div class="qq-channel-meta-row">
+              <span class="qq-channel-meta-label">渠道类型</span>
+              <span class="qq-channel-meta-value">{{ channel.type }}</span>
             </div>
-          </article>
+            <div class="qq-channel-meta-row">
+              <span class="qq-channel-meta-label">App ID</span>
+              <span class="qq-channel-meta-value">{{ summarizeText(channel.appId) }}</span>
+            </div>
+            <div class="qq-channel-meta-row">
+              <span class="qq-channel-meta-label">App Secret</span>
+              <span class="qq-channel-meta-value">{{ hideSecret(channel.appSecret) }}</span>
+            </div>
+            <div class="qq-channel-meta-row">
+              <span class="qq-channel-meta-label">Bot Token</span>
+              <span class="qq-channel-meta-value">{{ hideSecret(channel.botToken) }}</span>
+            </div>
+            <div class="qq-channel-meta-row">
+              <span class="qq-channel-meta-label">Webhook</span>
+              <span class="qq-channel-meta-value">{{ summarizeText(channel.webhookUrl) }}</span>
+            </div>
+          </div>
+          <div class="qq-channel-actions">
+            <button class="qq-secondary-action h-8 px-3 text-sm qq-channel-edit" :disabled="disabled" @click="openEditEditor(channel, index)">
+              <PenSquare class="h-4 w-4" />
+              <span>编辑明细</span>
+            </button>
+            <button class="qq-secondary-action h-8 px-3 text-sm qq-channel-delete" :disabled="disabled" @click="removeChannel(index)">
+              <Trash2 class="h-4 w-4" />
+              <span>删除</span>
+            </button>
+          </div>
+        </article>
+      </div>
+      <p v-if="app.settingsError" class="qq-settings-error">{{ app.settingsError }}</p>
+    </div>
+
+    <div v-if="editorOpen && editorDraft" class="qq-modal-backdrop" @click.self="closeEditor">
+      <div class="qq-modal" role="dialog" aria-modal="true" aria-labelledby="channelEditorTitle">
+        <div class="qq-modal-header">
+          <h3 id="channelEditorTitle" class="qq-modal-title">
+            {{ editorMode === 'create' ? '新增渠道' : `${editorDraft.name} 配置明细` }}
+          </h3>
+          <button class="qq-icon-button" type="button" aria-label="关闭弹窗" @click="closeEditor">×</button>
         </div>
-        <div class="qq-settings-actions">
-          <button class="qq-primary-action h-9 px-4" :disabled="disabled" @click="saveChannels">
-            <Save class="h-4 w-4" />
-            <span>{{ app.settingsSaving ? '保存中' : '保存渠道配置' }}</span>
+        <div class="qq-modal-body">
+          <label class="qq-modal-field">
+            <span class="qq-modal-label">渠道类型</span>
+            <ContextDropdown v-model="editorDraft.type" class="qq-settings-dropdown" label="类型" :options="channelTypeOptions" />
+          </label>
+          <label class="qq-modal-field">
+            <span class="qq-modal-label">渠道名称</span>
+            <input v-model="editorDraft.name" type="text" class="qq-settings-input" placeholder="例如：QQ 机器人（业务群）" />
+          </label>
+          <label class="qq-modal-field">
+            <span class="qq-modal-label">App ID</span>
+            <input v-model="editorDraft.appId" type="text" class="qq-settings-input" :placeholder="channelMeta(editorDraft.type).placeholders.appId" />
+          </label>
+          <label class="qq-modal-field">
+            <span class="qq-modal-label">App Secret</span>
+            <input v-model="editorDraft.appSecret" type="text" class="qq-settings-input" :placeholder="channelMeta(editorDraft.type).placeholders.appSecret" />
+          </label>
+          <label class="qq-modal-field">
+            <span class="qq-modal-label">Bot Token</span>
+            <input v-model="editorDraft.botToken" type="text" class="qq-settings-input" :placeholder="channelMeta(editorDraft.type).placeholders.botToken" />
+          </label>
+          <label class="qq-modal-field">
+            <span class="qq-modal-label">Webhook URL</span>
+            <input v-model="editorDraft.webhookUrl" type="text" class="qq-settings-input" :placeholder="channelMeta(editorDraft.type).placeholders.webhookUrl" />
+          </label>
+        </div>
+        <div class="qq-modal-actions">
+          <button class="qq-secondary-action h-8 px-3 text-sm" type="button" :disabled="disabled" @click="closeEditor">取消</button>
+          <button class="qq-primary-action h-8 px-3 text-sm" type="button" :disabled="disabled" @click="saveChannelDetail">
+            {{ app.settingsSaving ? '保存中' : (editorMode === 'create' ? '新增渠道' : '保存明细') }}
           </button>
-          <span v-if="app.settingsError" class="qq-settings-error">{{ app.settingsError }}</span>
         </div>
       </div>
     </div>

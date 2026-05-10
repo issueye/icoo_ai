@@ -12,6 +12,7 @@
 - Go bridge 已优先对接本地 `agent_gateway`（HTTP + SSE），并在启动阶段自动尝试唤醒 gateway。
 - `Prompt` 已兼容 gateway 结构化响应（`run/messages/approval`）并标准化为前端 `MessageEvent`。
 - 已沉淀 QQ 桌面端风格 UED 规范，并在 `frontend/src/styles/globals.css` 中提供统一 `qq-*` CSS token 和组件类。
+- 渠道管理已升级为一级目录模块，采用卡片总览 + 弹窗编辑明细的交互设计。
 
 ## 本地运行
 
@@ -66,7 +67,7 @@ webhook_url = ""
 `agent_chat` 启动时读取该文件；设置页保存后也会回写同一文件。
 其中 `gateway_binary_path` 可留空，留空时使用自动发现；如填写则必须是存在的可执行文件路径。
 `agent_gateway` 已移除 mock 回退路径，`acp_enabled=true` 且 `acp_command` 可执行是必需条件。
-`channels` 默认包含 `qq / lark / wechat` 三个机器人渠道，可在设置页「渠道管理」中启用并填写凭据。
+`channels` 默认包含 `qq / lark / wechat` 三个机器人渠道，可在一级目录「渠道管理」中动态新增多个实例（例如多个 QQ、多个飞书）并填写凭据。
 日志会同时输出到终端和 `log_file_path` 指定文件（自动创建目录并追加写入）。
 
 前端单独调试时可在 `frontend/` 目录运行 `npm run dev`。
