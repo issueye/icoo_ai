@@ -74,3 +74,27 @@ func TestSQLiteManagementSettingsStore_LoadNotFound(t *testing.T) {
 		t.Fatalf("Load() error = %v, want %v", err, ErrManagementSettingsNotFound)
 	}
 }
+
+func TestSQLiteManagementSettingsStore_SaveEmptyThenLoadEmpty(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "management.db")
+	store, err := NewSQLiteManagementSettingsStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteManagementSettingsStore() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("store.Close() error = %v", err)
+		}
+	})
+
+	if err := store.Save(context.Background(), ManagementSettings{}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	got, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(got.Agents) != 0 || len(got.MCPServers) != 0 || len(got.ScheduleTasks) != 0 || len(got.Channels) != 0 {
+		t.Fatalf("expected empty management settings, got %#v", got)
+	}
+}

@@ -41,6 +41,9 @@ const query = ref('')
 const currentPage = ref(1)
 const modalOpen = ref(false)
 const viewingItem = ref(null)
+const deleteConfirmOpen = ref(false)
+const pendingDeleteIndex = ref(-1)
+const pendingDeleteName = ref('')
 
 watch(() => props.items, (next) => {
   localItems.value = copyItems(next)
@@ -164,8 +167,26 @@ function startView(index) {
 
 function removeItem(index) {
   if (!props.allowDelete || props.readonly) return
-  localItems.value.splice(index, 1)
+  const target = localItems.value[index]
+  pendingDeleteIndex.value = index
+  pendingDeleteName.value = String(target?.name || target?.id || '').trim() || '该条目'
+  deleteConfirmOpen.value = true
+}
+
+function cancelDelete() {
+  deleteConfirmOpen.value = false
+  pendingDeleteIndex.value = -1
+  pendingDeleteName.value = ''
+}
+
+function confirmDelete() {
+  if (pendingDeleteIndex.value < 0 || pendingDeleteIndex.value >= localItems.value.length) {
+    cancelDelete()
+    return
+  }
+  localItems.value.splice(pendingDeleteIndex.value, 1)
   emit('update:items', copyItems(localItems.value))
+  cancelDelete()
 }
 
 function toggleItem(index) {
@@ -362,6 +383,24 @@ function clearQuery() {
         <div class="qq-modal-actions">
           <button class="qq-secondary-action h-8 px-3 text-sm" type="button" @click="closeModal">取消</button>
           <button v-if="actionMode !== 'view'" class="qq-primary-action h-8 px-3 text-sm" type="button" @click="applyDraft">{{ isEditing ? '保存' : '保存' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="deleteConfirmOpen" class="qq-modal-backdrop">
+      <div class="qq-modal" role="dialog" aria-modal="true" aria-labelledby="deleteConfirmTitle">
+        <div class="qq-modal-header">
+          <h3 id="deleteConfirmTitle" class="qq-modal-title">确认删除</h3>
+          <button class="qq-icon-button" type="button" aria-label="关闭弹窗" @click="cancelDelete">
+            <X class="h-4 w-4" />
+          </button>
+        </div>
+        <div class="qq-modal-body">
+          <p class="qq-modal-summary">确认删除「{{ pendingDeleteName }}」吗？删除后不可恢复。</p>
+        </div>
+        <div class="qq-modal-actions">
+          <button class="qq-secondary-action h-8 px-3 text-sm" type="button" @click="cancelDelete">取消</button>
+          <button class="qq-primary-action h-8 px-3 text-sm" type="button" @click="confirmDelete">确认删除</button>
         </div>
       </div>
     </div>

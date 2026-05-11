@@ -112,6 +112,13 @@ type agentRow struct {
 
 func (agentRow) TableName() string { return "management_agents" }
 
+type managementMetaRow struct {
+	Key   string `gorm:"primaryKey;size:128"`
+	Value string `gorm:"size:2048"`
+}
+
+func (managementMetaRow) TableName() string { return "management_meta" }
+
 func NewSQLiteManagementSettingsStore(path string) (*SQLiteManagementSettingsStore, error) {
 	target := strings.TrimSpace(path)
 	if target == "" {
@@ -124,7 +131,7 @@ func NewSQLiteManagementSettingsStore(path string) (*SQLiteManagementSettingsSto
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	if err := db.AutoMigrate(&channelRow{}, &mcpServerRow{}, &scheduleTaskRow{}, &agentRow{}); err != nil {
+	if err := db.AutoMigrate(&channelRow{}, &mcpServerRow{}, &scheduleTaskRow{}, &agentRow{}, &managementMetaRow{}); err != nil {
 		return nil, fmt.Errorf("migrate sqlite schema: %w", err)
 	}
 	return &SQLiteManagementSettingsStore{db: db}, nil
@@ -153,8 +160,13 @@ func (s *SQLiteManagementSettingsStore) Load(ctx context.Context) (ManagementSet
 	if err := s.db.WithContext(ctx).Order("position asc").Find(&agentRows).Error; err != nil {
 		return ManagementSettings{}, fmt.Errorf("load agents: %w", err)
 	}
-	if len(channels) == 0 && len(mcpRows) == 0 && len(taskRows) == 0 && len(agentRows) == 0 {
+	var meta managementMetaRow
+	metaErr := s.db.WithContext(ctx).First(&meta, "key = ?", "initialized").Error
+	if errors.Is(metaErr, gorm.ErrRecordNotFound) {
 		return ManagementSettings{}, ErrManagementSettingsNotFound
+	}
+	if metaErr != nil {
+		return ManagementSettings{}, fmt.Errorf("load management meta: %w", metaErr)
 	}
 
 	out := ManagementSettings{
@@ -285,6 +297,10 @@ func (s *SQLiteManagementSettingsStore) Save(ctx context.Context, settings Manag
 			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error; err != nil {
 				return fmt.Errorf("save agent %s: %w", item.ID, err)
 			}
+		}
+		meta := managementMetaRow{Key: "initialized", Value: "true"}
+		if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&meta).Error; err != nil {
+			return fmt.Errorf("save management meta: %w", err)
 		}
 		return nil
 	})
