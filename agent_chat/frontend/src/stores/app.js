@@ -88,6 +88,42 @@ function normalizeChannels(rawChannels) {
   return ensureUniqueChannelIDs(normalized)
 }
 
+function normalizeMcpServer(rawServer = {}, sequence = 1) {
+  const fallbackID = `mcp_${sequence}`
+  const id = typeof rawServer?.id === 'string' ? rawServer.id.trim() : ''
+  const name = typeof rawServer?.name === 'string' ? rawServer.name.trim() : ''
+  const command = typeof rawServer?.command === 'string' ? rawServer.command.trim() : ''
+  const args = Array.isArray(rawServer?.args)
+    ? rawServer.args.map((item) => String(item ?? '').trim()).filter(Boolean)
+    : []
+  return {
+    id: id || fallbackID,
+    name: name || id || fallbackID,
+    command,
+    args,
+    enabled: Boolean(rawServer?.enabled),
+  }
+}
+
+function normalizeMcpServers(rawServers) {
+  const source = Array.isArray(rawServers) ? rawServers : []
+  if (source.length === 0) return []
+  const used = new Map()
+  return source.map((rawServer, index) => {
+    const normalized = normalizeMcpServer(rawServer, index + 1)
+    const baseID = normalized.id || `mcp_${index + 1}`
+    if (!used.has(baseID)) {
+      used.set(baseID, 1)
+      return { ...normalized, id: baseID, name: normalized.name || baseID }
+    }
+    const next = used.get(baseID) + 1
+    used.set(baseID, next)
+    const derivedID = `${baseID}_${next}`
+    used.set(derivedID, 1)
+    return { ...normalized, id: derivedID, name: normalized.name || derivedID }
+  })
+}
+
 export const useAppStore = defineStore('app', {
   state: () => ({
     activeNav: 'chats',
@@ -106,6 +142,7 @@ export const useAppStore = defineStore('app', {
     logFormat: 'text',
     logFilePath: 'logs/agent_chat.log',
     channels: normalizeChannels([]),
+    mcpServers: normalizeMcpServers([]),
     settingsSaving: false,
     settingsError: null,
     toasts: [],
@@ -182,6 +219,7 @@ export const useAppStore = defineStore('app', {
         this.logFormat = settings?.logFormat || 'text'
         this.logFilePath = settings?.logFilePath || 'logs/agent_chat.log'
         this.channels = normalizeChannels(settings?.channels)
+        this.mcpServers = normalizeMcpServers(settings?.mcpServers)
       } catch (error) {
         this.settingsError = error?.message || '加载配置失败'
       }
@@ -201,6 +239,7 @@ export const useAppStore = defineStore('app', {
           logFormat: payload.logFormat ?? this.logFormat ?? 'text',
           logFilePath: payload.logFilePath ?? this.logFilePath ?? 'logs/agent_chat.log',
           channels: normalizeChannels(payload.channels ?? this.channels),
+          mcpServers: normalizeMcpServers(payload.mcpServers ?? this.mcpServers),
         })
         this.gatewayBinaryPath = saved?.gatewayBinaryPath || ''
         this.gatewayHost = saved?.gatewayHost || '127.0.0.1'
@@ -213,6 +252,7 @@ export const useAppStore = defineStore('app', {
         this.logFormat = saved?.logFormat || 'text'
         this.logFilePath = saved?.logFilePath || 'logs/agent_chat.log'
         this.channels = normalizeChannels(saved?.channels)
+        this.mcpServers = normalizeMcpServers(saved?.mcpServers)
         return saved
       } catch (error) {
         this.settingsError = error?.message || '保存配置失败'

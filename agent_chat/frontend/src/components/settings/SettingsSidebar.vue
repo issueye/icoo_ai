@@ -10,6 +10,7 @@ const emit = defineEmits(['update:modelValue'])
 
 const items = [
   { key: 'gateway', title: '网关连接', subtitle: '可执行路径与连通状态' },
+  { key: 'mcp', title: 'MCP 管理', subtitle: 'MCP Servers 配置与启停' },
 ]
 
 function selectItem(key) {

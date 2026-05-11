@@ -20,17 +20,26 @@ type ChannelConfig struct {
 	WebhookURL string `json:"webhookUrl,omitempty"`
 }
 
+type MCPServerConfig struct {
+	ID      string   `json:"id,omitempty"`
+	Name    string   `json:"name,omitempty"`
+	Command string   `json:"command,omitempty"`
+	Args    []string `json:"args,omitempty"`
+	Enabled bool     `json:"enabled,omitempty"`
+}
+
 type AppSettings struct {
-	GatewayBinaryPath string          `json:"gatewayBinaryPath,omitempty"`
-	GatewayHost       string          `json:"gatewayHost,omitempty"`
-	GatewayPort       int             `json:"gatewayPort,omitempty"`
-	ACPEnabled        bool            `json:"acpEnabled,omitempty"`
-	ACPCommand        string          `json:"acpCommand,omitempty"`
-	ACPArgs           string          `json:"acpArgs,omitempty"`
-	LogLevel          string          `json:"logLevel,omitempty"`
-	LogFormat         string          `json:"logFormat,omitempty"`
-	LogFilePath       string          `json:"logFilePath,omitempty"`
-	Channels          []ChannelConfig `json:"channels,omitempty"`
+	GatewayBinaryPath string            `json:"gatewayBinaryPath,omitempty"`
+	GatewayHost       string            `json:"gatewayHost,omitempty"`
+	GatewayPort       int               `json:"gatewayPort,omitempty"`
+	ACPEnabled        bool              `json:"acpEnabled,omitempty"`
+	ACPCommand        string            `json:"acpCommand,omitempty"`
+	ACPArgs           string            `json:"acpArgs,omitempty"`
+	LogLevel          string            `json:"logLevel,omitempty"`
+	LogFormat         string            `json:"logFormat,omitempty"`
+	LogFilePath       string            `json:"logFilePath,omitempty"`
+	Channels          []ChannelConfig   `json:"channels,omitempty"`
+	MCPServers        []MCPServerConfig `json:"mcpServers,omitempty"`
 }
 
 const (
@@ -78,6 +87,7 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 		"logFormat", settings.LogFormat,
 		"logFilePath", settings.LogFilePath,
 		"channels", len(settings.Channels),
+		"mcpServers", len(settings.MCPServers),
 	)
 	return settings, nil
 }
@@ -119,6 +129,7 @@ func loadAppSettings() (AppSettings, error) {
 		"logFormat", normalized.LogFormat,
 		"logFilePath", normalized.LogFilePath,
 		"channels", len(normalized.Channels),
+		"mcpServers", len(normalized.MCPServers),
 	)
 	return normalized, nil
 }
@@ -126,6 +137,7 @@ func loadAppSettings() (AppSettings, error) {
 func decodeSettingsTOML(data []byte) (AppSettings, error) {
 	settings := AppSettings{}
 	currentChannelIndex := -1
+	currentMCPServerIndex := -1
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -143,8 +155,14 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 			if line == "[[channels]]" {
 				settings.Channels = append(settings.Channels, ChannelConfig{})
 				currentChannelIndex = len(settings.Channels) - 1
+				currentMCPServerIndex = -1
+			} else if line == "[[mcp_servers]]" {
+				settings.MCPServers = append(settings.MCPServers, MCPServerConfig{})
+				currentMCPServerIndex = len(settings.MCPServers) - 1
+				currentChannelIndex = -1
 			} else {
 				currentChannelIndex = -1
+				currentMCPServerIndex = -1
 			}
 			continue
 		}
@@ -211,6 +229,48 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 			}
 			if handled {
 				settings.Channels[currentChannelIndex] = channel
+				continue
+			}
+		}
+		if currentMCPServerIndex >= 0 {
+			server := settings.MCPServers[currentMCPServerIndex]
+			handled := true
+			switch key {
+			case "id":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				server.ID = strings.TrimSpace(unquoted)
+			case "name":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				server.Name = strings.TrimSpace(unquoted)
+			case "command":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				server.Command = strings.TrimSpace(unquoted)
+			case "enabled":
+				parsed, err := strconv.ParseBool(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				server.Enabled = parsed
+			case "args":
+				parsedArgs, err := parseTOMLStringArray(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				server.Args = parsedArgs
+			default:
+				handled = false
+			}
+			if handled {
+				settings.MCPServers[currentMCPServerIndex] = server
 				continue
 			}
 		}
@@ -300,6 +360,14 @@ func encodeSettingsTOML(settings AppSettings) []byte {
 		fmt.Fprintf(&builder, "bot_token = %s\n", strconv.Quote(channel.BotToken))
 		fmt.Fprintf(&builder, "webhook_url = %s\n", strconv.Quote(channel.WebhookURL))
 	}
+	for _, server := range normalized.MCPServers {
+		builder.WriteString("\n[[mcp_servers]]\n")
+		fmt.Fprintf(&builder, "id = %s\n", strconv.Quote(server.ID))
+		fmt.Fprintf(&builder, "name = %s\n", strconv.Quote(server.Name))
+		fmt.Fprintf(&builder, "command = %s\n", strconv.Quote(server.Command))
+		fmt.Fprintf(&builder, "args = %s\n", encodeTOMLStringArray(server.Args))
+		fmt.Fprintf(&builder, "enabled = %t\n", server.Enabled)
+	}
 	return []byte(builder.String())
 }
 
@@ -326,6 +394,7 @@ func normalizeAppSettings(in AppSettings) AppSettings {
 		LogFormat:         strings.TrimSpace(in.LogFormat),
 		LogFilePath:       strings.TrimSpace(in.LogFilePath),
 		Channels:          normalizeChannels(in.Channels),
+		MCPServers:        normalizeMCPServers(in.MCPServers),
 	}
 	if settings.GatewayHost == "" {
 		settings.GatewayHost = defaultGatewayHost
@@ -353,6 +422,45 @@ func normalizeAppSettings(in AppSettings) AppSettings {
 		settings.LogFilePath = defaultLogFilePath
 	}
 	return settings
+}
+
+func parseTOMLStringArray(raw string) ([]string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "[]" {
+		return []string{}, nil
+	}
+	if !strings.HasPrefix(trimmed, "[") || !strings.HasSuffix(trimmed, "]") {
+		return nil, fmt.Errorf("invalid toml array: %s", raw)
+	}
+	body := strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	if body == "" {
+		return []string{}, nil
+	}
+	parts := strings.Split(body, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item == "" {
+			continue
+		}
+		unquoted, err := strconv.Unquote(item)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, strings.TrimSpace(unquoted))
+	}
+	return result, nil
+}
+
+func encodeTOMLStringArray(items []string) string {
+	if len(items) == 0 {
+		return "[]"
+	}
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, strconv.Quote(strings.TrimSpace(item)))
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 func defaultChannelConfigs() []ChannelConfig {
@@ -475,4 +583,39 @@ func normalizeChannels(in []ChannelConfig) []ChannelConfig {
 		return defaults
 	}
 	return normalizedChannels
+}
+
+func normalizeMCPServers(in []MCPServerConfig) []MCPServerConfig {
+	if len(in) == 0 {
+		return []MCPServerConfig{}
+	}
+	used := map[string]int{}
+	normalized := make([]MCPServerConfig, 0, len(in))
+	for index, server := range in {
+		id := strings.TrimSpace(server.ID)
+		if id == "" {
+			id = fmt.Sprintf("mcp_%d", index+1)
+		}
+		id = ensureUniqueChannelID(id, "mcp", used)
+		name := strings.TrimSpace(server.Name)
+		if name == "" {
+			name = id
+		}
+		args := make([]string, 0, len(server.Args))
+		for _, arg := range server.Args {
+			trimmed := strings.TrimSpace(arg)
+			if trimmed == "" {
+				continue
+			}
+			args = append(args, trimmed)
+		}
+		normalized = append(normalized, MCPServerConfig{
+			ID:      id,
+			Name:    name,
+			Command: strings.TrimSpace(server.Command),
+			Args:    args,
+			Enabled: server.Enabled,
+		})
+	}
+	return normalized
 }
