@@ -6,6 +6,7 @@ import { useAppStore } from '@/stores/app'
 const app = useAppStore()
 const tasks = ref([])
 const disabled = computed(() => app.settingsSaving)
+const saveDisabled = computed(() => app.settingsSaving || !app.settingsLoaded)
 
 onMounted(async () => {
   await app.loadAppSettings()
@@ -16,18 +17,37 @@ const extraFields = [
   { key: 'spec', label: 'Cron 表达式', placeholder: '*/5 * * * *', defaultValue: '*/5 * * * *' },
 ]
 
+const tableColumns = [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: '名称' },
+  { key: 'spec', label: 'Cron 表达式' },
+  { key: 'command', label: '命令' },
+  { key: 'args', label: '参数', formatter: (item) => (item.args || []).join(' ') },
+  { key: 'enabled', label: '启用', type: 'boolean' },
+]
+
+const detailFields = [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: '名称' },
+  { key: 'spec', label: 'Cron 表达式' },
+  { key: 'command', label: '命令' },
+  { key: 'args', label: '参数', formatter: (item) => (item.args || []).join(' ') },
+  { key: 'enabled', label: '启用', formatter: (item) => (item.enabled ? '是' : '否') },
+]
+
 function validateTask(item) {
   if (!item.command) return '请填写 command'
   if (!item.spec) return '请填写 Cron 表达式'
   return ''
 }
 
-function formatSubtitle(item) {
-  return `${item.spec || ''} · ${item.command || ''} ${(item.args || []).join(' ')}`.trim()
-}
-
 function onError(message) {
   app.pushToast({ type: 'error', message })
+}
+
+async function onRefresh() {
+  await app.loadAppSettings()
+  tasks.value = Array.isArray(app.scheduleTasks) ? app.scheduleTasks.map((item) => ({ ...item })) : []
 }
 
 async function onSave() {
@@ -50,9 +70,15 @@ async function onSave() {
     save-label="保存定时任务配置"
     empty-text="暂无定时任务，请先新增。"
     :extra-fields="extraFields"
+    :table-columns="tableColumns"
+    :detail-fields="detailFields"
+    :loading="app.settingsSaving"
+    :error-text="app.settingsError || ''"
+    :show-refresh="true"
+    :save-disabled="saveDisabled"
     :validate-item="validateTask"
-    :format-subtitle="formatSubtitle"
     @error="onError"
+    @refresh="onRefresh"
     @save="onSave"
   />
 </template>

@@ -6,6 +6,23 @@ import { useAppStore } from '@/stores/app'
 const app = useAppStore()
 const servers = ref([])
 const disabled = computed(() => app.settingsSaving)
+const saveDisabled = computed(() => app.settingsSaving || !app.settingsLoaded)
+
+const tableColumns = [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: '名称' },
+  { key: 'command', label: '命令' },
+  { key: 'args', label: '参数', formatter: (item) => (item.args || []).join(' ') },
+  { key: 'enabled', label: '启用', type: 'boolean' },
+]
+
+const detailFields = [
+  { key: 'id', label: 'ID' },
+  { key: 'name', label: '名称' },
+  { key: 'command', label: '命令' },
+  { key: 'args', label: '参数', formatter: (item) => (item.args || []).join(' ') },
+  { key: 'enabled', label: '启用', formatter: (item) => (item.enabled ? '是' : '否') },
+]
 
 onMounted(async () => {
   await app.loadAppSettings()
@@ -17,12 +34,13 @@ function validateServer(item) {
   return ''
 }
 
-function formatSubtitle(item) {
-  return `${item.command || ''} ${(item.args || []).join(' ')}`.trim()
-}
-
 function onError(message) {
   app.pushToast({ type: 'error', message })
+}
+
+async function onRefresh() {
+  await app.loadAppSettings()
+  servers.value = Array.isArray(app.mcpServers) ? app.mcpServers.map((item) => ({ ...item })) : []
 }
 
 async function onSave() {
@@ -44,9 +62,15 @@ async function onSave() {
     subtitle="配置 MCP servers（id / name / command / args / enabled）"
     save-label="保存 MCP 配置"
     empty-text="暂无 MCP server，请先新增。"
+    :table-columns="tableColumns"
+    :detail-fields="detailFields"
+    :loading="app.settingsSaving"
+    :error-text="app.settingsError || ''"
+    :show-refresh="true"
+    :save-disabled="saveDisabled"
     :validate-item="validateServer"
-    :format-subtitle="formatSubtitle"
     @error="onError"
+    @refresh="onRefresh"
     @save="onSave"
   />
 </template>

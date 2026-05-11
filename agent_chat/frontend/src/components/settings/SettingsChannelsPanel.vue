@@ -130,11 +130,7 @@ function ensureUniqueChannelIDs(channels = []) {
 function normalizeChannels(rawChannels) {
   const source = Array.isArray(rawChannels) ? rawChannels : []
   if (source.length === 0) {
-    return [
-      createDefaultChannel('qq', 1),
-      createDefaultChannel('lark', 1),
-      createDefaultChannel('wechat', 1),
-    ]
+    return []
   }
   const normalized = source.map((rawChannel, index) => {
     const fallbackType = supportedChannelTypes[index % supportedChannelTypes.length] || 'qq'
@@ -216,10 +212,6 @@ async function toggleChannel(channel) {
 }
 
 async function removeChannel(index) {
-  if (channelDrafts.value.length <= 1) {
-    app.pushToast({ type: 'info', message: '至少保留一个渠道配置' })
-    return
-  }
   const removed = channelDrafts.value[index]
   const backup = channelDrafts.value.map((channel) => ({ ...channel }))
   channelDrafts.value.splice(index, 1)

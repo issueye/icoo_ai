@@ -659,7 +659,7 @@ func ensureUniqueChannelID(rawID string, channelType string, used map[string]int
 func normalizeChannels(in []ChannelConfig) []ChannelConfig {
 	defaults := defaultChannelConfigs()
 	if len(in) == 0 {
-		return defaults
+		return []ChannelConfig{}
 	}
 	usedIDs := map[string]int{}
 	normalizedChannels := make([]ChannelConfig, 0, len(in))
@@ -671,9 +671,6 @@ func normalizeChannels(in []ChannelConfig) []ChannelConfig {
 		normalized := normalizeChannelConfig(channel, fallbackType)
 		normalized.ID = ensureUniqueChannelID(normalized.ID, normalized.Type, usedIDs)
 		normalizedChannels = append(normalizedChannels, normalized)
-	}
-	if len(normalizedChannels) == 0 {
-		return defaults
 	}
 	return normalizedChannels
 }

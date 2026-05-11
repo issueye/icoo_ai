@@ -1171,7 +1171,7 @@
   }
 
   .qq-settings-card {
-    width: min(100%, 920px);
+    width: 100%;
     border: 1px solid var(--qq-border);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.84);
@@ -1248,6 +1248,7 @@
     font-size: 13px;
     line-height: 18px;
     font-weight: 600;
+    margin-top: 10px;
   }
 
   .qq-settings-input {
@@ -1356,7 +1357,7 @@
     color: var(--qq-text);
     text-align: left;
     word-break: break-all;
-    vertical-align: top;
+    vertical-align: middle;
   }
 
   .qq-crud-table th:nth-child(1),

@@ -75,11 +75,7 @@ function ensureUniqueChannelIDs(channels = []) {
 function normalizeChannels(rawChannels) {
   const source = Array.isArray(rawChannels) ? rawChannels : []
   if (source.length === 0) {
-    return [
-      defaultChannelByType('qq', 1),
-      defaultChannelByType('lark', 1),
-      defaultChannelByType('wechat', 1),
-    ]
+    return []
   }
   const normalized = source.map((rawChannel, index) => {
     const fallbackType = supportedChannelTypes[index % supportedChannelTypes.length] || 'qq'

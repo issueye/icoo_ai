@@ -14,7 +14,6 @@ const router = useRouter()
 const navItems = [
   { key: 'chats', label: '会话', icon: MessageCircle },
   { key: 'channels', label: '渠道', icon: Webhook },
-  { key: 'agents', label: 'Agent', icon: Bot },
   { key: 'skills', label: 'Skills', icon: Sparkles },
   { key: 'mcp', label: 'MCP', icon: ServerCog },
   { key: 'schedule', label: '定时任务', icon: CalendarClock },

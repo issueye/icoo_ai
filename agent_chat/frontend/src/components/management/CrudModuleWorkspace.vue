@@ -1,21 +1,33 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { Pencil, Plus, Power, PowerOff, Save, Search, Trash2, X } from 'lucide-vue-next'
+import { Eye, Pencil, Plus, Power, PowerOff, RefreshCcw, Save, Search, Trash2, X } from 'lucide-vue-next'
 
 const props = defineProps({
   title: { type: String, required: true },
   subtitle: { type: String, default: '' },
   items: { type: Array, default: () => [] },
-  saveLabel: { type: String, default: '保存配置' },
+  loading: { type: Boolean, default: false },
+  errorText: { type: String, default: '' },
   emptyText: { type: String, default: '暂无数据，请先新增。' },
   queryPlaceholder: { type: String, default: '按 ID / 名称 / 命令搜索' },
   pageSize: { type: Number, default: 10 },
   extraFields: { type: Array, default: () => [] },
-  formatSubtitle: { type: Function, default: (item) => `${item.command || ''} ${(item.args || []).join(' ')}`.trim() },
+  tableColumns: { type: Array, default: () => [] },
+  detailFields: { type: Array, default: () => [] },
+  allowCreate: { type: Boolean, default: true },
+  allowEdit: { type: Boolean, default: true },
+  allowDelete: { type: Boolean, default: true },
+  allowToggle: { type: Boolean, default: true },
+  showRefresh: { type: Boolean, default: false },
+  readonly: { type: Boolean, default: false },
+  actionMode: { type: String, default: 'edit' }, // edit | view
+  detailTitle: { type: String, default: '详情' },
+  modalCreateTitle: { type: String, default: '新增数据' },
+  modalEditTitle: { type: String, default: '编辑数据' },
   validateItem: { type: Function, default: () => '' },
 })
 
-const emit = defineEmits(['update:items', 'save', 'error'])
+const emit = defineEmits(['update:items', 'save', 'refresh', 'error'])
 
 const draft = ref(createEmptyItem())
 const editingIndex = ref(-1)
@@ -23,6 +35,7 @@ const localItems = ref(copyItems(props.items))
 const query = ref('')
 const currentPage = ref(1)
 const modalOpen = ref(false)
+const viewingItem = ref(null)
 
 watch(() => props.items, (next) => {
   localItems.value = copyItems(next)
@@ -33,16 +46,8 @@ function copyItems(items) {
 }
 
 function createEmptyItem() {
-  const base = {
-    id: '',
-    name: '',
-    command: '',
-    argsText: '',
-    enabled: true,
-  }
-  for (const field of props.extraFields) {
-    base[field.key] = field.defaultValue ?? ''
-  }
+  const base = { id: '', name: '', command: '', argsText: '', enabled: true }
+  for (const field of props.extraFields) base[field.key] = field.defaultValue ?? ''
   return base
 }
 
@@ -54,9 +59,7 @@ function toDraft(item = {}) {
     argsText: Array.isArray(item.args) ? item.args.join(' ') : '',
     enabled: Boolean(item.enabled),
   }
-  for (const field of props.extraFields) {
-    out[field.key] = item[field.key] ?? field.defaultValue ?? ''
-  }
+  for (const field of props.extraFields) out[field.key] = item[field.key] ?? field.defaultValue ?? ''
   return out
 }
 
@@ -64,11 +67,7 @@ function normalizeDraft(input, sequence = 1) {
   const id = String(input?.id || '').trim() || `item_${sequence}`
   const name = String(input?.name || '').trim() || id
   const command = String(input?.command || '').trim()
-  const args = String(input?.argsText || '')
-    .trim()
-    .split(/\s+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
+  const args = String(input?.argsText || '').trim().split(/\s+/).map((item) => item.trim()).filter(Boolean)
   const normalized = { id, name, command, args, enabled: Boolean(input?.enabled) }
   for (const field of props.extraFields) {
     normalized[field.key] = String(input?.[field.key] ?? field.defaultValue ?? '').trim()
@@ -78,18 +77,28 @@ function normalizeDraft(input, sequence = 1) {
 
 const isEditing = computed(() => editingIndex.value >= 0)
 const normalizedQuery = computed(() => String(query.value || '').trim().toLowerCase())
+const effectiveColumns = computed(() => {
+  if (props.tableColumns.length) return props.tableColumns
+  return [
+    { key: 'id', label: 'ID' },
+    { key: 'name', label: '名称' },
+    ...props.extraFields.map((field) => ({ key: field.key, label: field.label })),
+    { key: 'command', label: '命令' },
+    { key: 'args', label: '参数', formatter: (item) => (item.args || []).join(' ') },
+    { key: 'enabled', label: '启用', type: 'boolean' },
+  ]
+})
+const hasRowActions = computed(() => props.allowEdit || props.allowDelete || props.allowToggle || props.actionMode === 'view')
 
 const filteredRows = computed(() => {
   const base = localItems.value.map((item, sourceIndex) => ({ item, sourceIndex }))
   if (!normalizedQuery.value) return base
   return base.filter(({ item }) => {
-    const values = [
-      item.id,
-      item.name,
-      item.command,
-      ...(Array.isArray(item.args) ? item.args : []),
-      ...props.extraFields.map((field) => item[field.key]),
-    ]
+    const values = effectiveColumns.value.map((col) => {
+      if (typeof col.formatter === 'function') return col.formatter(item)
+      if (col.key === 'args') return (item.args || []).join(' ')
+      return item[col.key]
+    })
     return values.some((value) => String(value ?? '').toLowerCase().includes(normalizedQuery.value))
   })
 })
@@ -110,24 +119,42 @@ watch(filteredRows, () => {
   if (currentPage.value > totalPages.value) currentPage.value = totalPages.value
 })
 
+function formatCell(item, col) {
+  if (typeof col.formatter === 'function') return col.formatter(item)
+  if (col.key === 'args') return (item.args || []).join(' ')
+  return item[col.key]
+}
+
 function startCreate() {
+  if (props.readonly || !props.allowCreate) return
   editingIndex.value = -1
+  viewingItem.value = null
   draft.value = createEmptyItem()
   modalOpen.value = true
 }
 
 function startEdit(index) {
+  if (!props.allowEdit) return
   editingIndex.value = index
+  viewingItem.value = null
   draft.value = toDraft(localItems.value[index])
   modalOpen.value = true
 }
 
+function startView(index) {
+  viewingItem.value = localItems.value[index]
+  editingIndex.value = -1
+  modalOpen.value = true
+}
+
 function removeItem(index) {
+  if (!props.allowDelete || props.readonly) return
   localItems.value.splice(index, 1)
   emit('update:items', copyItems(localItems.value))
 }
 
 function toggleItem(index) {
+  if (!props.allowToggle || props.readonly) return
   const item = localItems.value[index]
   if (!item) return
   item.enabled = !item.enabled
@@ -137,28 +164,21 @@ function toggleItem(index) {
 function applyDraft() {
   const normalized = normalizeDraft(draft.value, localItems.value.length + 1)
   const error = props.validateItem(normalized)
-  if (error) {
-    emit('error', error)
-    return
-  }
-  if (isEditing.value) {
-    localItems.value[editingIndex.value] = normalized
-  } else {
-    localItems.value.push(normalized)
-  }
+  if (error) return emit('error', error)
+  if (isEditing.value) localItems.value[editingIndex.value] = normalized
+  else localItems.value.push(normalized)
   emit('update:items', copyItems(localItems.value))
-  modalOpen.value = false
-  editingIndex.value = -1
-  draft.value = createEmptyItem()
+  closeModal()
 }
 
-async function saveAll() {
-  await emit('save')
+async function refreshAll() {
+  await emit('refresh')
 }
 
 function closeModal() {
   modalOpen.value = false
   editingIndex.value = -1
+  viewingItem.value = null
   draft.value = createEmptyItem()
 }
 
@@ -191,16 +211,14 @@ function clearQuery() {
             <input v-model="query" type="text" :placeholder="queryPlaceholder" />
           </div>
           <div class="qq-crud-query-actions">
-            <button v-if="query" class="qq-secondary-action h-9 px-4" @click="clearQuery">
-              清空筛选
+            <button v-if="query" class="qq-secondary-action h-9 px-4" @click="clearQuery">清空筛选</button>
+            <button v-if="showRefresh" class="qq-primary-action h-9 px-4" :disabled="loading" @click="refreshAll">
+              <RefreshCcw class="h-4 w-4" />
+              <span>刷新</span>
             </button>
-            <button class="qq-secondary-action h-9 px-4" @click="startCreate">
+            <button v-if="allowCreate && !readonly" class="qq-secondary-action h-9 px-4" @click="startCreate">
               <Plus class="h-4 w-4" />
               <span>新增</span>
-            </button>
-            <button class="qq-primary-action h-9 px-4" @click="saveAll">
-              <Save class="h-4 w-4" />
-              <span>{{ saveLabel }}</span>
             </button>
           </div>
         </div>
@@ -209,46 +227,50 @@ function clearQuery() {
           <table class="qq-crud-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>名称</th>
-                <th v-for="field in extraFields" :key="field.key">{{ field.label }}</th>
-                <th>命令</th>
-                <th>参数</th>
-                <th>启用</th>
-                <th>操作</th>
+                <th v-for="col in effectiveColumns" :key="col.key">{{ col.label }}</th>
+                <th v-if="hasRowActions">操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-if="pagedRows.length === 0">
-                <td class="qq-crud-empty" :colspan="6 + extraFields.length">
+              <tr v-if="loading">
+                <td class="qq-crud-empty" :colspan="effectiveColumns.length + (hasRowActions ? 1 : 0)">数据加载中...</td>
+              </tr>
+              <tr v-else-if="errorText">
+                <td class="qq-crud-empty" :colspan="effectiveColumns.length + (hasRowActions ? 1 : 0)">{{ errorText }}</td>
+              </tr>
+              <tr v-else-if="pagedRows.length === 0">
+                <td class="qq-crud-empty" :colspan="effectiveColumns.length + (hasRowActions ? 1 : 0)">
                   <div>{{ emptyText }}</div>
-                  <button class="qq-secondary-action h-8 px-3 mt-2" @click="startCreate">立即新增</button>
+                  <button v-if="allowCreate && !readonly" class="qq-secondary-action h-8 px-3 mt-2" @click="startCreate">立即新增</button>
                 </td>
               </tr>
-              <tr v-for="(row, pageIndex) in pagedRows" :key="`${row.item.id}_${pageIndex}`">
-                <td>{{ row.item.id }}</td>
-                <td>{{ row.item.name }}</td>
-                <td v-for="field in extraFields" :key="`${row.item.id}_${field.key}`">{{ row.item[field.key] }}</td>
-                <td>{{ row.item.command }}</td>
-                <td>{{ (row.item.args || []).join(' ') }}</td>
-                <td>
-                  <span class="qq-session-pill" :class="{ 'is-subagent': row.item.enabled }">{{ row.item.enabled ? '是' : '否' }}</span>
-                </td>
-                <td>
-                  <div class="qq-crud-row-actions">
-                    <button class="qq-icon-button" aria-label="编辑条目" @click="startEdit(row.sourceIndex)">
-                      <Pencil class="h-4 w-4" />
-                    </button>
-                    <button class="qq-icon-button" aria-label="切换启用状态" @click="toggleItem(row.sourceIndex)">
-                      <Power v-if="row.item.enabled" class="h-4 w-4" />
-                      <PowerOff v-else class="h-4 w-4" />
-                    </button>
-                    <button class="qq-icon-button qq-crud-danger" aria-label="删除条目" @click="removeItem(row.sourceIndex)">
-                      <Trash2 class="h-4 w-4" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
+              <template v-else>
+                <tr v-for="(row, pageIndex) in pagedRows" :key="`${row.item.id}_${pageIndex}`">
+                  <td v-for="col in effectiveColumns" :key="`${row.item.id}_${col.key}`">
+                    <span v-if="col.type === 'boolean'" class="qq-session-pill" :class="{ 'is-subagent': Boolean(row.item[col.key]) }">
+                      {{ row.item[col.key] ? '是' : '否' }}
+                    </span>
+                    <span v-else>{{ formatCell(row.item, col) }}</span>
+                  </td>
+                  <td v-if="hasRowActions">
+                    <div class="qq-crud-row-actions">
+                      <button v-if="actionMode === 'view'" class="qq-icon-button" aria-label="查看详情" @click="startView(row.sourceIndex)">
+                        <Eye class="h-4 w-4" />
+                      </button>
+                      <button v-if="allowEdit && actionMode !== 'view'" class="qq-icon-button" aria-label="编辑条目" @click="startEdit(row.sourceIndex)">
+                        <Pencil class="h-4 w-4" />
+                      </button>
+                      <button v-if="allowToggle" class="qq-icon-button" aria-label="切换启用状态" @click="toggleItem(row.sourceIndex)">
+                        <Power v-if="row.item.enabled" class="h-4 w-4" />
+                        <PowerOff v-else class="h-4 w-4" />
+                      </button>
+                      <button v-if="allowDelete" class="qq-icon-button qq-crud-danger" aria-label="删除条目" @click="removeItem(row.sourceIndex)">
+                        <Trash2 class="h-4 w-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -267,12 +289,20 @@ function clearQuery() {
     <div v-if="modalOpen" class="qq-modal-backdrop" @click.self="closeModal">
       <div class="qq-modal" role="dialog" aria-modal="true">
         <div class="qq-modal-header">
-          <h3 class="qq-modal-title">{{ isEditing ? '编辑数据' : '新增数据' }}</h3>
+          <h3 class="qq-modal-title">
+            {{ actionMode === 'view' ? detailTitle : (isEditing ? modalEditTitle : modalCreateTitle) }}
+          </h3>
           <button class="qq-icon-button" type="button" aria-label="关闭弹窗" @click="closeModal">
             <X class="h-4 w-4" />
           </button>
         </div>
-        <div class="qq-modal-body">
+        <div v-if="actionMode === 'view'" class="qq-modal-body">
+          <template v-for="field in detailFields" :key="field.key">
+            <label class="qq-settings-label">{{ field.label }}</label>
+            <input :value="typeof field.formatter === 'function' ? field.formatter(viewingItem || {}) : (viewingItem?.[field.key] ?? '')" type="text" class="qq-settings-input" readonly />
+          </template>
+        </div>
+        <div v-else class="qq-modal-body">
           <label class="qq-settings-label" for="crudId">ID</label>
           <input id="crudId" v-model="draft.id" type="text" class="qq-settings-input" placeholder="id" />
           <label class="qq-settings-label" for="crudName">名称</label>
@@ -293,7 +323,7 @@ function clearQuery() {
         </div>
         <div class="qq-modal-actions">
           <button class="qq-secondary-action h-8 px-3 text-sm" type="button" @click="closeModal">取消</button>
-          <button class="qq-primary-action h-8 px-3 text-sm" type="button" @click="applyDraft">{{ isEditing ? '更新' : '新增' }}</button>
+          <button v-if="actionMode !== 'view'" class="qq-primary-action h-8 px-3 text-sm" type="button" @click="applyDraft">{{ isEditing ? '更新' : '新增' }}</button>
         </div>
       </div>
     </div>

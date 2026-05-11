@@ -17,28 +17,12 @@ func TestNormalizeAppSettings_DefaultHostAndPort(t *testing.T) {
 	}
 }
 
-func TestNormalizeAppSettings_DefaultChannels(t *testing.T) {
+func TestNormalizeAppSettings_AllowEmptyChannels(t *testing.T) {
 	t.Parallel()
 
 	settings := normalizeAppSettings(AppSettings{})
-	if len(settings.Channels) != 3 {
-		t.Fatalf("expected 3 default channels, got %d", len(settings.Channels))
-	}
-	expected := []struct {
-		name string
-		typ  string
-	}{
-		{name: "QQ机器人", typ: "qq"},
-		{name: "飞书机器人", typ: "lark"},
-		{name: "微信机器人", typ: "wechat"},
-	}
-	for i, item := range expected {
-		if settings.Channels[i].Type != item.typ {
-			t.Fatalf("expected channel type %q at index %d, got %q", item.typ, i, settings.Channels[i].Type)
-		}
-		if settings.Channels[i].Name != item.name {
-			t.Fatalf("expected channel name %q at index %d, got %q", item.name, i, settings.Channels[i].Name)
-		}
+	if len(settings.Channels) != 0 {
+		t.Fatalf("expected empty channels, got %d", len(settings.Channels))
 	}
 }
 
