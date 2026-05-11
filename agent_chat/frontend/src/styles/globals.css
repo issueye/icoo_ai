@@ -1373,6 +1373,77 @@
     color: var(--qq-danger);
   }
 
+  .qq-schedule-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .qq-schedule-form {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .qq-schedule-form-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 4px;
+  }
+
+  .qq-schedule-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .qq-schedule-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border: 1px solid var(--qq-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 10px;
+  }
+
+  .qq-schedule-item-main {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .qq-schedule-item-title {
+    color: var(--qq-text);
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 700;
+    word-break: break-all;
+  }
+
+  .qq-schedule-item-subtitle {
+    margin-top: 4px;
+    color: var(--qq-text-muted);
+    font-size: 12px;
+    line-height: 17px;
+    word-break: break-all;
+  }
+
+  .qq-schedule-item-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .qq-schedule-save-row {
+    padding-top: 2px;
+  }
+
+  .qq-schedule-danger {
+    color: var(--qq-danger);
+  }
+
   .qq-audit-layout {
     flex: 1;
     overflow: auto;

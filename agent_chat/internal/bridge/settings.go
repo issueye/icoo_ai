@@ -2,11 +2,15 @@ package bridge
 
 import (
 	"bufio"
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"gorm.io/gorm"
 )
 
 type ChannelConfig struct {
@@ -28,18 +32,28 @@ type MCPServerConfig struct {
 	Enabled bool     `json:"enabled,omitempty"`
 }
 
+type ScheduleTaskConfig struct {
+	ID      string   `json:"id,omitempty"`
+	Name    string   `json:"name,omitempty"`
+	Spec    string   `json:"spec,omitempty"`
+	Command string   `json:"command,omitempty"`
+	Args    []string `json:"args,omitempty"`
+	Enabled bool     `json:"enabled,omitempty"`
+}
+
 type AppSettings struct {
-	GatewayBinaryPath string            `json:"gatewayBinaryPath,omitempty"`
-	GatewayHost       string            `json:"gatewayHost,omitempty"`
-	GatewayPort       int               `json:"gatewayPort,omitempty"`
-	ACPEnabled        bool              `json:"acpEnabled,omitempty"`
-	ACPCommand        string            `json:"acpCommand,omitempty"`
-	ACPArgs           string            `json:"acpArgs,omitempty"`
-	LogLevel          string            `json:"logLevel,omitempty"`
-	LogFormat         string            `json:"logFormat,omitempty"`
-	LogFilePath       string            `json:"logFilePath,omitempty"`
-	Channels          []ChannelConfig   `json:"channels,omitempty"`
-	MCPServers        []MCPServerConfig `json:"mcpServers,omitempty"`
+	GatewayBinaryPath string               `json:"gatewayBinaryPath,omitempty"`
+	GatewayHost       string               `json:"gatewayHost,omitempty"`
+	GatewayPort       int                  `json:"gatewayPort,omitempty"`
+	ACPEnabled        bool                 `json:"acpEnabled,omitempty"`
+	ACPCommand        string               `json:"acpCommand,omitempty"`
+	ACPArgs           string               `json:"acpArgs,omitempty"`
+	LogLevel          string               `json:"logLevel,omitempty"`
+	LogFormat         string               `json:"logFormat,omitempty"`
+	LogFilePath       string               `json:"logFilePath,omitempty"`
+	Channels          []ChannelConfig      `json:"channels,omitempty"`
+	MCPServers        []MCPServerConfig    `json:"mcpServers,omitempty"`
+	ScheduleTasks     []ScheduleTaskConfig `json:"scheduleTasks,omitempty"`
 }
 
 const (
@@ -72,6 +86,10 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 		return AppSettings{}, err
 	}
 	settings := normalizeAppSettings(in)
+	if err := persistManagementSettings(settings); err != nil {
+		logger.Error("persist management settings to sqlite failed", "error", err)
+		return AppSettings{}, err
+	}
 	if err := writeSettingsFile(path, settings); err != nil {
 		logger.Error("write settings file failed", "path", path, "error", err)
 		return AppSettings{}, err
@@ -88,6 +106,7 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 		"logFilePath", settings.LogFilePath,
 		"channels", len(settings.Channels),
 		"mcpServers", len(settings.MCPServers),
+		"scheduleTasks", len(settings.ScheduleTasks),
 	)
 	return settings, nil
 }
@@ -106,6 +125,10 @@ func loadAppSettings() (AppSettings, error) {
 				logger.Error("initialize settings file failed", "path", path, "error", writeErr)
 				return AppSettings{}, writeErr
 			}
+			if persistErr := persistManagementSettings(settings); persistErr != nil {
+				logger.Error("initialize sqlite management settings failed", "error", persistErr)
+				return AppSettings{}, persistErr
+			}
 			logger.Info("initialized settings file with defaults", "path", path)
 			return settings, nil
 		}
@@ -118,6 +141,12 @@ func loadAppSettings() (AppSettings, error) {
 		return AppSettings{}, fmt.Errorf("decode app settings: %w", err)
 	}
 	normalized := normalizeAppSettings(settings)
+	withStore, storeErr := applyManagementSettingsFromStore(normalized)
+	if storeErr != nil {
+		logger.Warn("load management settings from sqlite failed, fallback to file", "error", storeErr)
+	} else {
+		normalized = withStore
+	}
 	logger.Debug("settings loaded",
 		"path", path,
 		"gatewayHost", normalized.GatewayHost,
@@ -130,6 +159,7 @@ func loadAppSettings() (AppSettings, error) {
 		"logFilePath", normalized.LogFilePath,
 		"channels", len(normalized.Channels),
 		"mcpServers", len(normalized.MCPServers),
+		"scheduleTasks", len(normalized.ScheduleTasks),
 	)
 	return normalized, nil
 }
@@ -138,6 +168,7 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 	settings := AppSettings{}
 	currentChannelIndex := -1
 	currentMCPServerIndex := -1
+	currentScheduleTaskIndex := -1
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -156,13 +187,21 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 				settings.Channels = append(settings.Channels, ChannelConfig{})
 				currentChannelIndex = len(settings.Channels) - 1
 				currentMCPServerIndex = -1
+				currentScheduleTaskIndex = -1
 			} else if line == "[[mcp_servers]]" {
 				settings.MCPServers = append(settings.MCPServers, MCPServerConfig{})
 				currentMCPServerIndex = len(settings.MCPServers) - 1
 				currentChannelIndex = -1
+				currentScheduleTaskIndex = -1
+			} else if line == "[[schedule_tasks]]" {
+				settings.ScheduleTasks = append(settings.ScheduleTasks, ScheduleTaskConfig{})
+				currentScheduleTaskIndex = len(settings.ScheduleTasks) - 1
+				currentMCPServerIndex = -1
+				currentChannelIndex = -1
 			} else {
 				currentChannelIndex = -1
 				currentMCPServerIndex = -1
+				currentScheduleTaskIndex = -1
 			}
 			continue
 		}
@@ -274,6 +313,54 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 				continue
 			}
 		}
+		if currentScheduleTaskIndex >= 0 {
+			task := settings.ScheduleTasks[currentScheduleTaskIndex]
+			handled := true
+			switch key {
+			case "id":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				task.ID = strings.TrimSpace(unquoted)
+			case "name":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				task.Name = strings.TrimSpace(unquoted)
+			case "spec":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				task.Spec = strings.TrimSpace(unquoted)
+			case "command":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				task.Command = strings.TrimSpace(unquoted)
+			case "enabled":
+				parsed, err := strconv.ParseBool(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				task.Enabled = parsed
+			case "args":
+				parsedArgs, err := parseTOMLStringArray(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				task.Args = parsedArgs
+			default:
+				handled = false
+			}
+			if handled {
+				settings.ScheduleTasks[currentScheduleTaskIndex] = task
+				continue
+			}
+		}
 		switch key {
 		case "gateway_binary_path":
 			unquoted, err := strconv.Unquote(value)
@@ -368,6 +455,15 @@ func encodeSettingsTOML(settings AppSettings) []byte {
 		fmt.Fprintf(&builder, "args = %s\n", encodeTOMLStringArray(server.Args))
 		fmt.Fprintf(&builder, "enabled = %t\n", server.Enabled)
 	}
+	for _, task := range normalized.ScheduleTasks {
+		builder.WriteString("\n[[schedule_tasks]]\n")
+		fmt.Fprintf(&builder, "id = %s\n", strconv.Quote(task.ID))
+		fmt.Fprintf(&builder, "name = %s\n", strconv.Quote(task.Name))
+		fmt.Fprintf(&builder, "spec = %s\n", strconv.Quote(task.Spec))
+		fmt.Fprintf(&builder, "command = %s\n", strconv.Quote(task.Command))
+		fmt.Fprintf(&builder, "args = %s\n", encodeTOMLStringArray(task.Args))
+		fmt.Fprintf(&builder, "enabled = %t\n", task.Enabled)
+	}
 	return []byte(builder.String())
 }
 
@@ -395,6 +491,7 @@ func normalizeAppSettings(in AppSettings) AppSettings {
 		LogFilePath:       strings.TrimSpace(in.LogFilePath),
 		Channels:          normalizeChannels(in.Channels),
 		MCPServers:        normalizeMCPServers(in.MCPServers),
+		ScheduleTasks:     normalizeScheduleTasks(in.ScheduleTasks),
 	}
 	if settings.GatewayHost == "" {
 		settings.GatewayHost = defaultGatewayHost
@@ -618,4 +715,205 @@ func normalizeMCPServers(in []MCPServerConfig) []MCPServerConfig {
 		})
 	}
 	return normalized
+}
+
+func normalizeScheduleTasks(in []ScheduleTaskConfig) []ScheduleTaskConfig {
+	if len(in) == 0 {
+		return []ScheduleTaskConfig{}
+	}
+	used := map[string]int{}
+	normalized := make([]ScheduleTaskConfig, 0, len(in))
+	for index, task := range in {
+		id := strings.TrimSpace(task.ID)
+		if id == "" {
+			id = fmt.Sprintf("task_%d", index+1)
+		}
+		id = ensureUniqueChannelID(id, "task", used)
+		name := strings.TrimSpace(task.Name)
+		if name == "" {
+			name = id
+		}
+		spec := strings.TrimSpace(task.Spec)
+		if spec == "" {
+			spec = "*/5 * * * *"
+		}
+		args := make([]string, 0, len(task.Args))
+		for _, arg := range task.Args {
+			trimmed := strings.TrimSpace(arg)
+			if trimmed == "" {
+				continue
+			}
+			args = append(args, trimmed)
+		}
+		normalized = append(normalized, ScheduleTaskConfig{
+			ID:      id,
+			Name:    name,
+			Spec:    spec,
+			Command: strings.TrimSpace(task.Command),
+			Args:    args,
+			Enabled: task.Enabled,
+		})
+	}
+	return normalized
+}
+
+func applyManagementSettingsFromStore(settings AppSettings) (AppSettings, error) {
+	store, err := getManagementStore()
+	if err != nil {
+		return settings, err
+	}
+	ctx := context.Background()
+
+	channelRecords, err := store.channels.List(ctx)
+	if err != nil {
+		return settings, err
+	}
+	mcpRecords, err := store.mcps.List(ctx)
+	if err != nil {
+		return settings, err
+	}
+	taskRecords, err := store.tasks.List(ctx)
+	if err != nil {
+		return settings, err
+	}
+
+	settings.Channels = make([]ChannelConfig, 0, len(channelRecords))
+	for _, rec := range channelRecords {
+		settings.Channels = append(settings.Channels, ChannelConfig{
+			ID:         strings.TrimSpace(rec.ID),
+			Name:       strings.TrimSpace(rec.Name),
+			Type:       strings.TrimSpace(rec.Type),
+			Enabled:    rec.Enabled,
+			AppID:      strings.TrimSpace(rec.AppID),
+			AppSecret:  strings.TrimSpace(rec.AppSecret),
+			BotToken:   strings.TrimSpace(rec.BotToken),
+			WebhookURL: strings.TrimSpace(rec.WebhookURL),
+		})
+	}
+
+	settings.MCPServers = make([]MCPServerConfig, 0, len(mcpRecords))
+	for _, rec := range mcpRecords {
+		settings.MCPServers = append(settings.MCPServers, MCPServerConfig{
+			ID:      strings.TrimSpace(rec.ID),
+			Name:    strings.TrimSpace(rec.Name),
+			Command: strings.TrimSpace(rec.Command),
+			Args:    decodeArgsField(rec.Args),
+			Enabled: rec.Enabled,
+		})
+	}
+
+	settings.ScheduleTasks = make([]ScheduleTaskConfig, 0, len(taskRecords))
+	for _, rec := range taskRecords {
+		settings.ScheduleTasks = append(settings.ScheduleTasks, ScheduleTaskConfig{
+			ID:      strings.TrimSpace(rec.ID),
+			Name:    strings.TrimSpace(rec.Name),
+			Spec:    strings.TrimSpace(rec.Spec),
+			Command: strings.TrimSpace(rec.Command),
+			Args:    decodeArgsField(rec.Args),
+			Enabled: rec.Enabled,
+		})
+	}
+
+	settings = normalizeAppSettings(settings)
+	return settings, nil
+}
+
+func persistManagementSettings(settings AppSettings) error {
+	store, err := getManagementStore()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+
+	channelRecords := make([]ChannelRecord, 0, len(settings.Channels))
+	for index, item := range normalizeChannels(settings.Channels) {
+		channelRecords = append(channelRecords, ChannelRecord{
+			ID:         strings.TrimSpace(item.ID),
+			Name:       strings.TrimSpace(item.Name),
+			Type:       strings.TrimSpace(item.Type),
+			Enabled:    item.Enabled,
+			AppID:      strings.TrimSpace(item.AppID),
+			AppSecret:  strings.TrimSpace(item.AppSecret),
+			BotToken:   strings.TrimSpace(item.BotToken),
+			WebhookURL: strings.TrimSpace(item.WebhookURL),
+			SortOrder:  index,
+		})
+	}
+
+	mcpRecords := make([]MCPServerRecord, 0, len(settings.MCPServers))
+	for index, item := range normalizeMCPServers(settings.MCPServers) {
+		mcpRecords = append(mcpRecords, MCPServerRecord{
+			ID:        strings.TrimSpace(item.ID),
+			Name:      strings.TrimSpace(item.Name),
+			Command:   strings.TrimSpace(item.Command),
+			Args:      encodeArgsField(item.Args),
+			Enabled:   item.Enabled,
+			SortOrder: index,
+		})
+	}
+
+	taskRecords := make([]ScheduleTaskRecord, 0, len(settings.ScheduleTasks))
+	for index, item := range normalizeScheduleTasks(settings.ScheduleTasks) {
+		taskRecords = append(taskRecords, ScheduleTaskRecord{
+			ID:        strings.TrimSpace(item.ID),
+			Name:      strings.TrimSpace(item.Name),
+			Spec:      strings.TrimSpace(item.Spec),
+			Command:   strings.TrimSpace(item.Command),
+			Args:      encodeArgsField(item.Args),
+			Enabled:   item.Enabled,
+			SortOrder: index,
+		})
+	}
+
+	return store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		channelCRUD := NewGormCRUD[ChannelRecord](tx)
+		mcpCRUD := NewGormCRUD[MCPServerRecord](tx)
+		taskCRUD := NewGormCRUD[ScheduleTaskRecord](tx)
+		if err := channelCRUD.ReplaceAll(ctx, channelRecords); err != nil {
+			return err
+		}
+		if err := mcpCRUD.ReplaceAll(ctx, mcpRecords); err != nil {
+			return err
+		}
+		if err := taskCRUD.ReplaceAll(ctx, taskRecords); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func encodeArgsField(args []string) string {
+	cleaned := make([]string, 0, len(args))
+	for _, arg := range args {
+		text := strings.TrimSpace(arg)
+		if text == "" {
+			continue
+		}
+		cleaned = append(cleaned, text)
+	}
+	data, err := json.Marshal(cleaned)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
+}
+
+func decodeArgsField(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return []string{}
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return []string{}
+	}
+	cleaned := make([]string, 0, len(out))
+	for _, item := range out {
+		text := strings.TrimSpace(item)
+		if text == "" {
+			continue
+		}
+		cleaned = append(cleaned, text)
+	}
+	return cleaned
 }

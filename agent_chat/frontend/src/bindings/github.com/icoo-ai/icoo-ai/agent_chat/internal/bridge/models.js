@@ -146,6 +146,20 @@ export class AppSettings {
              */
             this["channels"] = undefined;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {MCPServerConfig[] | undefined}
+             */
+            this["mcpServers"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {ScheduleTaskConfig[] | undefined}
+             */
+            this["scheduleTasks"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }
@@ -157,9 +171,17 @@ export class AppSettings {
      */
     static createFrom($$source = {}) {
         const $$createField9_0 = $$createType2;
+        const $$createField10_0 = $$createType4;
+        const $$createField11_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("channels" in $$parsedSource) {
             $$parsedSource["channels"] = $$createField9_0($$parsedSource["channels"]);
+        }
+        if ("mcpServers" in $$parsedSource) {
+            $$parsedSource["mcpServers"] = $$createField10_0($$parsedSource["mcpServers"]);
+        }
+        if ("scheduleTasks" in $$parsedSource) {
+            $$parsedSource["scheduleTasks"] = $$createField11_0($$parsedSource["scheduleTasks"]);
         }
         return new AppSettings(/** @type {Partial<AppSettings>} */($$parsedSource));
     }
@@ -571,6 +593,66 @@ export class GatewayStatus {
     }
 }
 
+export class MCPServerConfig {
+    /**
+     * Creates a new MCPServerConfig instance.
+     * @param {Partial<MCPServerConfig>} [$$source = {}] - The source object to create the MCPServerConfig.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["id"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["name"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["command"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["args"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["enabled"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new MCPServerConfig instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {MCPServerConfig}
+     */
+    static createFrom($$source = {}) {
+        const $$createField3_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("args" in $$parsedSource) {
+            $$parsedSource["args"] = $$createField3_0($$parsedSource["args"]);
+        }
+        return new MCPServerConfig(/** @type {Partial<MCPServerConfig>} */($$parsedSource));
+    }
+}
+
 export class MessageEvent {
     /**
      * Creates a new MessageEvent instance.
@@ -699,7 +781,7 @@ export class MessageEvent {
      * @returns {MessageEvent}
      */
     static createFrom($$source = {}) {
-        const $$createField9_0 = $$createType3;
+        const $$createField9_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("safeMeta" in $$parsedSource) {
             $$parsedSource["safeMeta"] = $$createField9_0($$parsedSource["safeMeta"]);
@@ -904,6 +986,73 @@ export class RunSummary {
     }
 }
 
+export class ScheduleTaskConfig {
+    /**
+     * Creates a new ScheduleTaskConfig instance.
+     * @param {Partial<ScheduleTaskConfig>} [$$source = {}] - The source object to create the ScheduleTaskConfig.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["id"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["name"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["spec"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["command"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["args"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["enabled"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ScheduleTaskConfig instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ScheduleTaskConfig}
+     */
+    static createFrom($$source = {}) {
+        const $$createField4_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("args" in $$parsedSource) {
+            $$parsedSource["args"] = $$createField4_0($$parsedSource["args"]);
+        }
+        return new ScheduleTaskConfig(/** @type {Partial<ScheduleTaskConfig>} */($$parsedSource));
+    }
+}
+
 export class SkillInfo {
     /**
      * Creates a new SkillInfo instance.
@@ -950,4 +1099,8 @@ export class SkillInfo {
 const $$createType0 = $Create.Array($Create.Any);
 const $$createType1 = ChannelConfig.createFrom;
 const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = $Create.Map($Create.Any, $Create.Any);
+const $$createType3 = MCPServerConfig.createFrom;
+const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = ScheduleTaskConfig.createFrom;
+const $$createType6 = $Create.Array($$createType5);
+const $$createType7 = $Create.Map($Create.Any, $Create.Any);

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Power, PowerOff, RefreshCcw, RotateCcw, Save } from 'lucide-vue-next'
 import ContextDropdown from '@/components/ui/ContextDropdown.vue'
 import SettingsMcpPanel from '@/components/settings/SettingsMcpPanel.vue'
+import SettingsSchedulePanel from '@/components/settings/SettingsSchedulePanel.vue'
 import { useAppStore } from '@/stores/app'
 
 const app = useAppStore()
@@ -353,4 +354,5 @@ function resetToDefault() {
     </div>
   </section>
   <SettingsMcpPanel v-else-if="section === 'mcp'" />
+  <SettingsSchedulePanel v-else-if="section === 'schedule'" />
 </template>

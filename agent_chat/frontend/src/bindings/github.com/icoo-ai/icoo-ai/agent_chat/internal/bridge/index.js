@@ -16,9 +16,11 @@ export {
     ChannelConfig,
     Conversation,
     GatewayStatus,
+    MCPServerConfig,
     MessageEvent,
     NewSessionRequest,
     PromptRequest,
     RunSummary,
+    ScheduleTaskConfig,
     SkillInfo
 } from "./models.js";

@@ -124,6 +124,44 @@ function normalizeMcpServers(rawServers) {
   })
 }
 
+function normalizeScheduleTask(rawTask = {}, sequence = 1) {
+  const fallbackID = `task_${sequence}`
+  const id = typeof rawTask?.id === 'string' ? rawTask.id.trim() : ''
+  const name = typeof rawTask?.name === 'string' ? rawTask.name.trim() : ''
+  const spec = typeof rawTask?.spec === 'string' ? rawTask.spec.trim() : ''
+  const command = typeof rawTask?.command === 'string' ? rawTask.command.trim() : ''
+  const args = Array.isArray(rawTask?.args)
+    ? rawTask.args.map((item) => String(item ?? '').trim()).filter(Boolean)
+    : []
+  return {
+    id: id || fallbackID,
+    name: name || id || fallbackID,
+    spec: spec || '*/5 * * * *',
+    command,
+    args,
+    enabled: Boolean(rawTask?.enabled),
+  }
+}
+
+function normalizeScheduleTasks(rawTasks) {
+  const source = Array.isArray(rawTasks) ? rawTasks : []
+  if (source.length === 0) return []
+  const used = new Map()
+  return source.map((rawTask, index) => {
+    const normalized = normalizeScheduleTask(rawTask, index + 1)
+    const baseID = normalized.id || `task_${index + 1}`
+    if (!used.has(baseID)) {
+      used.set(baseID, 1)
+      return { ...normalized, id: baseID, name: normalized.name || baseID }
+    }
+    const next = used.get(baseID) + 1
+    used.set(baseID, next)
+    const derivedID = `${baseID}_${next}`
+    used.set(derivedID, 1)
+    return { ...normalized, id: derivedID, name: normalized.name || derivedID }
+  })
+}
+
 export const useAppStore = defineStore('app', {
   state: () => ({
     activeNav: 'chats',
@@ -143,6 +181,7 @@ export const useAppStore = defineStore('app', {
     logFilePath: 'logs/agent_chat.log',
     channels: normalizeChannels([]),
     mcpServers: normalizeMcpServers([]),
+    scheduleTasks: normalizeScheduleTasks([]),
     settingsSaving: false,
     settingsError: null,
     toasts: [],
@@ -220,6 +259,7 @@ export const useAppStore = defineStore('app', {
         this.logFilePath = settings?.logFilePath || 'logs/agent_chat.log'
         this.channels = normalizeChannels(settings?.channels)
         this.mcpServers = normalizeMcpServers(settings?.mcpServers)
+        this.scheduleTasks = normalizeScheduleTasks(settings?.scheduleTasks)
       } catch (error) {
         this.settingsError = error?.message || '加载配置失败'
       }
@@ -240,6 +280,7 @@ export const useAppStore = defineStore('app', {
           logFilePath: payload.logFilePath ?? this.logFilePath ?? 'logs/agent_chat.log',
           channels: normalizeChannels(payload.channels ?? this.channels),
           mcpServers: normalizeMcpServers(payload.mcpServers ?? this.mcpServers),
+          scheduleTasks: normalizeScheduleTasks(payload.scheduleTasks ?? this.scheduleTasks),
         })
         this.gatewayBinaryPath = saved?.gatewayBinaryPath || ''
         this.gatewayHost = saved?.gatewayHost || '127.0.0.1'
@@ -253,6 +294,7 @@ export const useAppStore = defineStore('app', {
         this.logFilePath = saved?.logFilePath || 'logs/agent_chat.log'
         this.channels = normalizeChannels(saved?.channels)
         this.mcpServers = normalizeMcpServers(saved?.mcpServers)
+        this.scheduleTasks = normalizeScheduleTasks(saved?.scheduleTasks)
         return saved
       } catch (error) {
         this.settingsError = error?.message || '保存配置失败'
