@@ -6,7 +6,7 @@ import { useAppStore } from '@/stores/app'
 const app = useAppStore()
 const tasks = ref([])
 const disabled = computed(() => app.settingsSaving)
-const saveDisabled = computed(() => app.settingsSaving || !app.settingsLoaded)
+const saveDisabled = computed(() => app.settingsSaving || app.settingsLoading || !app.settingsLoaded)
 
 onMounted(async () => {
   await app.loadAppSettings()
@@ -72,7 +72,7 @@ async function onSave() {
     :extra-fields="extraFields"
     :table-columns="tableColumns"
     :detail-fields="detailFields"
-    :loading="app.settingsSaving"
+    :loading="app.settingsLoading"
     :error-text="app.settingsError || ''"
     :show-refresh="true"
     :save-disabled="saveDisabled"

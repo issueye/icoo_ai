@@ -6,7 +6,7 @@ import { useAppStore } from '@/stores/app'
 const app = useAppStore()
 const servers = ref([])
 const disabled = computed(() => app.settingsSaving)
-const saveDisabled = computed(() => app.settingsSaving || !app.settingsLoaded)
+const saveDisabled = computed(() => app.settingsSaving || app.settingsLoading || !app.settingsLoaded)
 
 const tableColumns = [
   { key: 'id', label: 'ID' },
@@ -64,7 +64,7 @@ async function onSave() {
     empty-text="暂无 MCP server，请先新增。"
     :table-columns="tableColumns"
     :detail-fields="detailFields"
-    :loading="app.settingsSaving"
+    :loading="app.settingsLoading"
     :error-text="app.settingsError || ''"
     :show-refresh="true"
     :save-disabled="saveDisabled"

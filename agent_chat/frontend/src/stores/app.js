@@ -178,6 +178,8 @@ export const useAppStore = defineStore('app', {
     channels: normalizeChannels([]),
     mcpServers: normalizeMcpServers([]),
     scheduleTasks: normalizeScheduleTasks([]),
+    settingsLoading: false,
+    settingsLoaded: false,
     settingsSaving: false,
     settingsError: null,
     toasts: [],
@@ -240,6 +242,7 @@ export const useAppStore = defineStore('app', {
       }
     },
     async loadAppSettings() {
+      this.settingsLoading = true
       this.settingsError = null
       try {
         const settings = await agentBridge.getAppSettings()
@@ -256,8 +259,12 @@ export const useAppStore = defineStore('app', {
         this.channels = normalizeChannels(settings?.channels)
         this.mcpServers = normalizeMcpServers(settings?.mcpServers)
         this.scheduleTasks = normalizeScheduleTasks(settings?.scheduleTasks)
+        this.settingsLoaded = true
       } catch (error) {
         this.settingsError = error?.message || '加载配置失败'
+        this.settingsLoaded = false
+      } finally {
+        this.settingsLoading = false
       }
     },
     async saveAppSettings(payload = {}) {
@@ -291,6 +298,7 @@ export const useAppStore = defineStore('app', {
         this.channels = normalizeChannels(saved?.channels)
         this.mcpServers = normalizeMcpServers(saved?.mcpServers)
         this.scheduleTasks = normalizeScheduleTasks(saved?.scheduleTasks)
+        this.settingsLoaded = true
         return saved
       } catch (error) {
         this.settingsError = error?.message || '保存配置失败'
