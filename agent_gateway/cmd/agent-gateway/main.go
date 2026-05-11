@@ -52,7 +52,10 @@ func run(args []string) error {
 }
 
 func parseConfigFromFlags(args []string) (config.Config, bool, error) {
-	cfg := config.Default()
+	cfg, err := config.LoadFile(config.DefaultConfigPath)
+	if err != nil {
+		return config.Config{}, false, fmt.Errorf("load config file %q: %w", config.DefaultConfigPath, err)
+	}
 	var once bool
 
 	flags := flag.NewFlagSet("agent-gateway", flag.ContinueOnError)
@@ -60,6 +63,9 @@ func parseConfigFromFlags(args []string) (config.Config, bool, error) {
 	flags.IntVar(&cfg.Port, "port", cfg.Port, "port to bind, 0 chooses a random port")
 	flags.BoolVar(&once, "once", false, "start, write endpoint files, then stop")
 	if err := flags.Parse(args); err != nil {
+		return config.Config{}, false, err
+	}
+	if err := cfg.Validate(); err != nil {
 		return config.Config{}, false, err
 	}
 	return cfg, once, nil

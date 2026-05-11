@@ -175,10 +175,10 @@ func (r *recordingStore) ListAuditEvents(ctx context.Context) ([]store.AuditEven
 	return r.base.ListAuditEvents(ctx)
 }
 
-func TestMockGatewayServiceWritesThroughStore(t *testing.T) {
+func TestGatewayServiceImplWritesThroughStore(t *testing.T) {
 	ctx := context.Background()
 	rec := newRecordingStore()
-	svc := NewMockGatewayServiceWithStore(rec)
+	svc := NewGatewayServiceWithStore(rec)
 
 	session, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "store-writes"})
 	if err != nil {
@@ -204,10 +204,10 @@ func TestMockGatewayServiceWritesThroughStore(t *testing.T) {
 	}
 }
 
-func TestMockGatewayServiceReadsThroughStore(t *testing.T) {
+func TestGatewayServiceImplReadsThroughStore(t *testing.T) {
 	ctx := context.Background()
 	rec := newRecordingStore()
-	svc := NewMockGatewayServiceWithStore(rec)
+	svc := NewGatewayServiceWithStore(rec)
 	now := time.Date(2026, 5, 9, 14, 0, 0, 0, time.UTC)
 
 	if err := rec.UpsertConversation(ctx, store.Conversation{
@@ -274,9 +274,9 @@ func TestMockGatewayServiceReadsThroughStore(t *testing.T) {
 	}
 }
 
-func TestMockGatewayServiceGetSessionAndListSkills(t *testing.T) {
+func TestGatewayServiceImplGetSessionAndListSkills(t *testing.T) {
 	ctx := context.Background()
-	svc := NewMockGatewayService()
+	svc := NewGatewayService()
 
 	session, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "lookup"})
 	if err != nil {

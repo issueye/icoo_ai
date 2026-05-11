@@ -28,7 +28,7 @@ func TestServerStartWritesEndpointAndServesHealth(t *testing.T) {
 		t.Fatalf("NewServer() error = %v", err)
 	}
 	server.gatewayServiceFactory = func(st store.Store) (service.GatewayService, error) {
-		return service.NewMockGatewayServiceWithStore(st), nil
+		return service.NewGatewayServiceWithStore(st), nil
 	}
 	if err := server.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -170,13 +170,14 @@ func TestServerCreateSessionReturnsStructuredErrorWhenACPConnectorFails(t *testi
 
 func TestServerProjectsPublishedEventsToStore(t *testing.T) {
 	cfg := config.Default()
+	cfg.DataDir = t.TempDir()
 	server, err := NewServer(cfg)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}
 	server.eventBus = events.NewBus(64)
 	server.gatewayServiceFactory = func(st store.Store) (service.GatewayService, error) {
-		return service.NewMockGatewayServiceWithStore(st), nil
+		return service.NewGatewayServiceWithStore(st), nil
 	}
 
 	if err := server.Start(); err != nil {
@@ -286,13 +287,14 @@ func TestServerProjectsPublishedEventsToStore(t *testing.T) {
 
 func TestServerShutdownStopsEventProjectionConsumption(t *testing.T) {
 	cfg := config.Default()
+	cfg.DataDir = t.TempDir()
 	server, err := NewServer(cfg)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}
 	server.eventBus = events.NewBus(64)
 	server.gatewayServiceFactory = func(st store.Store) (service.GatewayService, error) {
-		return service.NewMockGatewayServiceWithStore(st), nil
+		return service.NewGatewayServiceWithStore(st), nil
 	}
 
 	if err := server.Start(); err != nil {
@@ -356,7 +358,7 @@ func TestServerPersistsManagementSettingsAcrossRestart(t *testing.T) {
 			if err != nil {
 				return nil, err
 			}
-			return service.NewMockGatewayServiceWithAgentsStoreAndSettingsStore(
+			return service.NewGatewayServiceWithAgentsStoreAndSettingsStore(
 				nil,
 				st,
 				settingsStore,
@@ -415,6 +417,9 @@ func TestServerPersistsManagementSettingsAcrossRestart(t *testing.T) {
 	}
 	if len(settings.ScheduleTasks) != 1 || settings.ScheduleTasks[0].ID != "task_saved" {
 		t.Fatalf("schedule tasks were not restored after restart: %#v", settings)
+	}
+	if settings.ScheduleTasks[0].Content != "每15分钟同步一次状态" {
+		t.Fatalf("schedule task content was not restored after restart: %#v", settings.ScheduleTasks[0])
 	}
 	if len(settings.Agents) != 1 || settings.Agents[0].ID != "persisted_agent" {
 		t.Fatalf("agents were not restored after restart: %#v", settings)

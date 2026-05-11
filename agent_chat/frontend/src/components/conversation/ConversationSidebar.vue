@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search } from 'lucide-vue-next'
 import ConversationItem from './ConversationItem.vue'
+import ContextDropdown from '@/components/ui/ContextDropdown.vue'
 import { useConversationsStore } from '@/stores/conversations'
 
 const conversations = useConversationsStore()
@@ -19,13 +20,15 @@ const dialogOpen = ref(false)
 const formError = ref('')
 const sessionTitle = ref('新的 Agent 会话')
 const workspaceDir = ref('')
-const startupCommand = ref('icoo-ai')
 const selectedAgentId = ref('')
+const agentOptions = computed(() => conversations.agentProfiles.map((agent) => ({
+  id: agent.id,
+  label: `${agent.name} (${agent.id})`,
+})))
 
 function openCreateDialog() {
   sessionTitle.value = '新的 Agent 会话'
   workspaceDir.value = conversations.activeWorkspace?.path ?? ''
-  startupCommand.value = 'icoo-ai'
   selectedAgentId.value = conversations.activeMode?.id || conversations.agentProfiles[0]?.id || ''
   formError.value = ''
   dialogOpen.value = true
@@ -38,13 +41,8 @@ function closeCreateDialog() {
 
 async function createConversation() {
   const cwd = workspaceDir.value.trim()
-  const command = startupCommand.value.trim()
   if (!cwd) {
     formError.value = '请输入工作区目录'
-    return
-  }
-  if (!command) {
-    formError.value = '请输入启动命令'
     return
   }
   if (!selectedAgentId.value.trim()) {
@@ -57,7 +55,6 @@ async function createConversation() {
     const conversation = await conversations.createConversation({
       title: sessionTitle.value.trim() || '新的 Agent 会话',
       cwd,
-      startupCommand: command,
       agentId: selectedAgentId.value.trim(),
       mode: selectedAgentId.value.trim(),
     })
@@ -99,7 +96,7 @@ function selectConversation(sessionId) {
     </div>
 
     <div v-if="dialogOpen" class="qq-modal-backdrop">
-      <div class="qq-modal">
+      <div class="qq-modal qq-create-session-modal">
         <div class="qq-modal-header">
           <h3 class="qq-modal-title">新建会话</h3>
           <button class="qq-icon-button" type="button" aria-label="关闭弹窗" @click="closeCreateDialog">×</button>
@@ -115,15 +112,12 @@ function selectConversation(sessionId) {
           </label>
           <label class="qq-modal-field">
             <span class="qq-modal-label">Agent</span>
-            <select v-model="selectedAgentId" class="qq-settings-input">
-              <option v-for="agent in conversations.agentProfiles" :key="agent.id" :value="agent.id">
-                {{ agent.name }} ({{ agent.id }})
-              </option>
-            </select>
-          </label>
-          <label class="qq-modal-field">
-            <span class="qq-modal-label">启动命令</span>
-            <input v-model="startupCommand" class="qq-settings-input" type="text" placeholder="icoo-ai" />
+            <ContextDropdown
+              v-model="selectedAgentId"
+              class="qq-settings-dropdown"
+              label="Agent"
+              :options="agentOptions"
+            />
           </label>
           <p v-if="formError" class="qq-settings-error">{{ formError }}</p>
         </div>

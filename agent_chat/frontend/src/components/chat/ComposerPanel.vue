@@ -46,19 +46,6 @@ function handleKeydown(event) {
 <template>
   <footer class="qq-composer">
     <div class="qq-composer-dialog">
-      <div class="qq-composer-agent-bar">
-        <div class="qq-composer-agent-meta">
-          <div class="qq-composer-agent-avatar">AI</div>
-          <div class="min-w-0">
-            <p class="qq-composer-agent-title">智能助手</p>
-            <p class="qq-composer-agent-subtitle">一个友好、专业的 AI 助手，可以帮助你解决各种问题。</p>
-          </div>
-        </div>
-        <button class="qq-icon-button h-7 w-7" type="button" aria-label="展开助手信息">
-          <ChevronRight class="h-4 w-4" />
-        </button>
-      </div>
-
       <div class="qq-composer-inner qq-composer-inner-elevated">
         <textarea
           v-model="draft"

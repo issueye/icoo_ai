@@ -46,7 +46,7 @@ func NewError(code, message string) *Error {
 	return &Error{Code: code, Message: message}
 }
 
-type MockGatewayService struct {
+type GatewayServiceImpl struct {
 	mu               sync.Mutex
 	now              func() time.Time
 	nextID           int
@@ -61,7 +61,7 @@ type MockGatewayService struct {
 	management       ManagementSettings
 }
 
-func (s *MockGatewayService) Close() error {
+func (s *GatewayServiceImpl) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.managementStore != nil {
@@ -70,19 +70,19 @@ func (s *MockGatewayService) Close() error {
 	return nil
 }
 
-func NewMockGatewayService() *MockGatewayService {
-	return NewMockGatewayServiceWithStore(store.NewMemoryStore())
+func NewGatewayService() *GatewayServiceImpl {
+	return NewGatewayServiceWithStore(store.NewMemoryStore())
 }
 
-func NewMockGatewayServiceWithStore(st store.Store) *MockGatewayService {
-	return NewMockGatewayServiceWithAgentsAndStore(defaultAgents(), st)
+func NewGatewayServiceWithStore(st store.Store) *GatewayServiceImpl {
+	return NewGatewayServiceWithAgentsAndStore(defaultAgents(), st)
 }
 
-func NewMockGatewayServiceWithAgentsAndStore(agents []AgentProfile, st store.Store) *MockGatewayService {
-	return NewMockGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, NewMemoryManagementSettingsStore())
+func NewGatewayServiceWithAgentsAndStore(agents []AgentProfile, st store.Store) *GatewayServiceImpl {
+	return NewGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, NewMemoryManagementSettingsStore())
 }
 
-func NewMockGatewayServiceWithAgentsStoreAndSettingsStore(agents []AgentProfile, st store.Store, settingsStore ManagementSettingsStore) *MockGatewayService {
+func NewGatewayServiceWithAgentsStoreAndSettingsStore(agents []AgentProfile, st store.Store, settingsStore ManagementSettingsStore) *GatewayServiceImpl {
 	if len(agents) == 0 {
 		agents = defaultAgents()
 	}
@@ -90,7 +90,7 @@ func NewMockGatewayServiceWithAgentsStoreAndSettingsStore(agents []AgentProfile,
 		settingsStore = NewMemoryManagementSettingsStore()
 	}
 	bootstrapAgents := cloneAgentProfiles(agents)
-	return &MockGatewayService{
+	return &GatewayServiceImpl{
 		now:             time.Now,
 		nextID:          1,
 		agents:          cloneAgentProfiles(agents),
@@ -108,14 +108,14 @@ func NewMockGatewayServiceWithAgentsStoreAndSettingsStore(agents []AgentProfile,
 	}
 }
 
-func NewConnectorGatewayServiceWithAgentsAndStore(agents []AgentProfile, st store.Store, conn connector.AgentConnector) *MockGatewayService {
-	svc := NewMockGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, NewMemoryManagementSettingsStore())
+func NewConnectorGatewayServiceWithAgentsAndStore(agents []AgentProfile, st store.Store, conn connector.AgentConnector) *GatewayServiceImpl {
+	svc := NewGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, NewMemoryManagementSettingsStore())
 	svc.connector = conn
 	return svc
 }
 
-func NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore(agents []AgentProfile, st store.Store, settingsStore ManagementSettingsStore, conn connector.AgentConnector) *MockGatewayService {
-	svc := NewMockGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, settingsStore)
+func NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore(agents []AgentProfile, st store.Store, settingsStore ManagementSettingsStore, conn connector.AgentConnector) *GatewayServiceImpl {
+	svc := NewGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, settingsStore)
 	svc.connector = conn
 	return svc
 }
@@ -136,7 +136,7 @@ func defaultSkills() []Skill {
 	return []Skill{}
 }
 
-func (s *MockGatewayService) ListAgents(ctx context.Context) ([]AgentProfile, error) {
+func (s *GatewayServiceImpl) ListAgents(ctx context.Context) ([]AgentProfile, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -149,7 +149,7 @@ func (s *MockGatewayService) ListAgents(ctx context.Context) ([]AgentProfile, er
 	return cloneAgentProfiles(s.agents), nil
 }
 
-func (s *MockGatewayService) ListSkills(ctx context.Context) ([]Skill, error) {
+func (s *GatewayServiceImpl) ListSkills(ctx context.Context) ([]Skill, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -161,7 +161,7 @@ func (s *MockGatewayService) ListSkills(ctx context.Context) ([]Skill, error) {
 	return skills, nil
 }
 
-func (s *MockGatewayService) GetManagementSettings(ctx context.Context) (ManagementSettings, error) {
+func (s *GatewayServiceImpl) GetManagementSettings(ctx context.Context) (ManagementSettings, error) {
 	if err := ctx.Err(); err != nil {
 		return ManagementSettings{}, err
 	}
@@ -173,7 +173,7 @@ func (s *MockGatewayService) GetManagementSettings(ctx context.Context) (Managem
 	return cloneManagementSettings(s.management), nil
 }
 
-func (s *MockGatewayService) UpdateManagementSettings(ctx context.Context, in ManagementSettings) (ManagementSettings, error) {
+func (s *GatewayServiceImpl) UpdateManagementSettings(ctx context.Context, in ManagementSettings) (ManagementSettings, error) {
 	if err := ctx.Err(); err != nil {
 		return ManagementSettings{}, err
 	}
@@ -191,7 +191,7 @@ func (s *MockGatewayService) UpdateManagementSettings(ctx context.Context, in Ma
 	return cloneManagementSettings(s.management), nil
 }
 
-func (s *MockGatewayService) ensureManagementLoadedLocked(ctx context.Context) error {
+func (s *GatewayServiceImpl) ensureManagementLoadedLocked(ctx context.Context) error {
 	if s.managementLoaded {
 		return nil
 	}
@@ -385,7 +385,7 @@ func cloneAgentProfiles(in []AgentProfile) []AgentProfile {
 	return out
 }
 
-func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error) {
+func (s *GatewayServiceImpl) CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error) {
 	if err := ctx.Err(); err != nil {
 		return Session{}, err
 	}
@@ -472,7 +472,7 @@ func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessio
 	return session, nil
 }
 
-func (s *MockGatewayService) ListSessions(ctx context.Context) ([]Session, error) {
+func (s *GatewayServiceImpl) ListSessions(ctx context.Context) ([]Session, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -495,7 +495,7 @@ func (s *MockGatewayService) ListSessions(ctx context.Context) ([]Session, error
 	return sessions, nil
 }
 
-func (s *MockGatewayService) GetSession(ctx context.Context, sessionID string) (Session, error) {
+func (s *GatewayServiceImpl) GetSession(ctx context.Context, sessionID string) (Session, error) {
 	if err := ctx.Err(); err != nil {
 		return Session{}, err
 	}
@@ -509,7 +509,7 @@ func (s *MockGatewayService) GetSession(ctx context.Context, sessionID string) (
 	return fromStoreConversation(conversation), nil
 }
 
-func (s *MockGatewayService) ResumeSession(ctx context.Context, sessionID string, req ResumeSessionRequest) (Session, error) {
+func (s *GatewayServiceImpl) ResumeSession(ctx context.Context, sessionID string, req ResumeSessionRequest) (Session, error) {
 	if err := ctx.Err(); err != nil {
 		return Session{}, err
 	}
@@ -581,7 +581,7 @@ func (s *MockGatewayService) ResumeSession(ctx context.Context, sessionID string
 	return session, nil
 }
 
-func (s *MockGatewayService) CloseSession(ctx context.Context, sessionID string) (Session, error) {
+func (s *GatewayServiceImpl) CloseSession(ctx context.Context, sessionID string) (Session, error) {
 	if err := ctx.Err(); err != nil {
 		return Session{}, err
 	}
@@ -610,7 +610,7 @@ func (s *MockGatewayService) CloseSession(ctx context.Context, sessionID string)
 	return session, nil
 }
 
-func (s *MockGatewayService) SetSessionMode(ctx context.Context, sessionID string, req SetSessionModeRequest) (Session, error) {
+func (s *GatewayServiceImpl) SetSessionMode(ctx context.Context, sessionID string, req SetSessionModeRequest) (Session, error) {
 	if err := ctx.Err(); err != nil {
 		return Session{}, err
 	}
@@ -651,7 +651,7 @@ func (s *MockGatewayService) SetSessionMode(ctx context.Context, sessionID strin
 	return session, nil
 }
 
-func (s *MockGatewayService) SetSessionConfigOption(ctx context.Context, sessionID string, req SetSessionConfigOptionRequest) (Session, error) {
+func (s *GatewayServiceImpl) SetSessionConfigOption(ctx context.Context, sessionID string, req SetSessionConfigOptionRequest) (Session, error) {
 	if err := ctx.Err(); err != nil {
 		return Session{}, err
 	}
@@ -690,7 +690,7 @@ func (s *MockGatewayService) SetSessionConfigOption(ctx context.Context, session
 	return session, nil
 }
 
-func (s *MockGatewayService) ListMessages(ctx context.Context, sessionID string) ([]Message, error) {
+func (s *GatewayServiceImpl) ListMessages(ctx context.Context, sessionID string) ([]Message, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -711,7 +711,7 @@ func (s *MockGatewayService) ListMessages(ctx context.Context, sessionID string)
 	return messages, nil
 }
 
-func (s *MockGatewayService) Prompt(ctx context.Context, sessionID string, req PromptRequest) (PromptResponse, error) {
+func (s *GatewayServiceImpl) Prompt(ctx context.Context, sessionID string, req PromptRequest) (PromptResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return PromptResponse{}, err
 	}
@@ -764,7 +764,7 @@ func (s *MockGatewayService) Prompt(ctx context.Context, sessionID string, req P
 	return PromptResponse{}, NewError("connector_unavailable", "connector is not configured")
 }
 
-func (s *MockGatewayService) promptViaConnectorLocked(ctx context.Context, session Session, content string) (PromptResponse, error) {
+func (s *GatewayServiceImpl) promptViaConnectorLocked(ctx context.Context, session Session, content string) (PromptResponse, error) {
 	startedAt := s.now().UTC()
 	connReqID := s.idLocked("connreq")
 	connResp, err := s.connector.Prompt(ctx, connector.PromptRequest{
@@ -866,7 +866,7 @@ func (s *MockGatewayService) promptViaConnectorLocked(ctx context.Context, sessi
 	}, nil
 }
 
-func (s *MockGatewayService) Cancel(ctx context.Context, sessionID string) (Run, error) {
+func (s *GatewayServiceImpl) Cancel(ctx context.Context, sessionID string) (Run, error) {
 	if err := ctx.Err(); err != nil {
 		return Run{}, err
 	}
@@ -960,7 +960,7 @@ func (s *MockGatewayService) Cancel(ctx context.Context, sessionID string) (Run,
 	return run, nil
 }
 
-func (s *MockGatewayService) ListRuns(ctx context.Context) ([]Run, error) {
+func (s *GatewayServiceImpl) ListRuns(ctx context.Context) ([]Run, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -978,7 +978,7 @@ func (s *MockGatewayService) ListRuns(ctx context.Context) ([]Run, error) {
 	return runs, nil
 }
 
-func (s *MockGatewayService) ListApprovals(ctx context.Context) ([]Approval, error) {
+func (s *GatewayServiceImpl) ListApprovals(ctx context.Context) ([]Approval, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -996,7 +996,7 @@ func (s *MockGatewayService) ListApprovals(ctx context.Context) ([]Approval, err
 	return approvals, nil
 }
 
-func (s *MockGatewayService) DecideApproval(ctx context.Context, approvalID string, req ApprovalDecisionRequest) (Approval, error) {
+func (s *GatewayServiceImpl) DecideApproval(ctx context.Context, approvalID string, req ApprovalDecisionRequest) (Approval, error) {
 	if err := ctx.Err(); err != nil {
 		return Approval{}, err
 	}
@@ -1056,7 +1056,7 @@ func (s *MockGatewayService) DecideApproval(ctx context.Context, approvalID stri
 	return approval, nil
 }
 
-func (s *MockGatewayService) hasAgentLocked(agentID string) bool {
+func (s *GatewayServiceImpl) hasAgentLocked(agentID string) bool {
 	for _, agent := range s.agents {
 		if agent.ID == agentID {
 			return true
@@ -1065,7 +1065,7 @@ func (s *MockGatewayService) hasAgentLocked(agentID string) bool {
 	return false
 }
 
-func (s *MockGatewayService) latestRunIDLocked(ctx context.Context, sessionID string) (string, error) {
+func (s *GatewayServiceImpl) latestRunIDLocked(ctx context.Context, sessionID string) (string, error) {
 	runs, err := s.store.ListRuns(ctx, sessionID)
 	if err != nil {
 		return "", err
@@ -1079,7 +1079,7 @@ func (s *MockGatewayService) latestRunIDLocked(ctx context.Context, sessionID st
 	return runs[len(runs)-1].RunID, nil
 }
 
-func (s *MockGatewayService) syncSessionsFromConnector(ctx context.Context) error {
+func (s *GatewayServiceImpl) syncSessionsFromConnector(ctx context.Context) error {
 	resp, err := s.connector.ListSessions(ctx, connector.ListSessionsRequest{})
 	if err != nil {
 		return NewError("connector_request_failed", fmt.Sprintf("connector listSessions failed: %v", err))
@@ -1132,7 +1132,7 @@ func (s *MockGatewayService) syncSessionsFromConnector(ctx context.Context) erro
 	return nil
 }
 
-func (s *MockGatewayService) defaultAgentID(ctx context.Context) (string, error) {
+func (s *GatewayServiceImpl) defaultAgentID(ctx context.Context) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
@@ -1144,7 +1144,7 @@ func (s *MockGatewayService) defaultAgentID(ctx context.Context) (string, error)
 	return "icoo-ai-acp", nil
 }
 
-func (s *MockGatewayService) idLocked(prefix string) string {
+func (s *GatewayServiceImpl) idLocked(prefix string) string {
 	id := fmt.Sprintf("%s_%06d", prefix, s.nextID)
 	s.nextID++
 	return id

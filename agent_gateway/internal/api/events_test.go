@@ -19,7 +19,7 @@ import (
 )
 
 func TestEventStreamReceivesEnvelope(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := api.NewRouter(service.NewGatewayService())
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 
@@ -83,7 +83,7 @@ func TestEventStreamReceivesEnvelope(t *testing.T) {
 }
 
 func TestEventStreamConcurrentSubscribersKeepSessionIdentity(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := api.NewRouter(service.NewGatewayService())
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 
@@ -167,7 +167,7 @@ func TestEventStreamConcurrentSubscribersKeepSessionIdentity(t *testing.T) {
 }
 
 func TestEventStreamFiltersBySessionID(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := api.NewRouter(service.NewGatewayService())
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 
@@ -213,7 +213,7 @@ func TestEventStreamFiltersBySessionID(t *testing.T) {
 }
 
 func TestEventStreamFiltersByAgentID(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := api.NewRouter(service.NewGatewayService())
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 
@@ -260,7 +260,7 @@ func TestEventStreamFiltersByAgentID(t *testing.T) {
 
 func TestRunAndMessageEventsProjectedToHistoryAPI(t *testing.T) {
 	memStore := store.NewMemoryStore()
-	router := api.NewRouter(service.NewMockGatewayServiceWithStore(memStore))
+	router := api.NewRouter(service.NewGatewayServiceWithStore(memStore))
 	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
 		"title": "projection-history",
 	})

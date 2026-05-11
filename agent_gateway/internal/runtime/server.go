@@ -21,6 +21,11 @@ import (
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
+var defaultManagedAgents = []service.AgentProfile{
+	{ID: "icoo-ai-acp", Name: "Icoo AI", Protocol: "icoo_acp", Models: []string{"gpt-5.4"}, Description: "Icoo ACP agent profile."},
+	{ID: "agent-acp", Name: "Agent ACP", Protocol: "agent_acp", Models: []string{"gpt-5.4"}, Description: "Generic ACP agent profile."},
+}
+
 type Server struct {
 	cfg                   config.Config
 	startedAt             time.Time
@@ -57,12 +62,7 @@ func NewServer(cfg config.Config) (*Server, error) {
 func (s *Server) Start() error {
 	dataDir := s.cfg.DataDir
 	if dataDir == "" {
-		var err error
-		dataDir, err = DefaultDataDir()
-		if err != nil {
-			return err
-		}
-		s.cfg.DataDir = dataDir
+		return fmt.Errorf("data_dir is required")
 	}
 
 	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
@@ -142,22 +142,16 @@ func (s *Server) newGatewayService() (service.GatewayService, error) {
 	if err != nil {
 		return nil, err
 	}
-	defaultAgents := []service.AgentProfile{
-		{ID: "icoo-ai-acp", Name: "Icoo AI", Protocol: "icoo_acp", Models: []string{"gpt-5.4"}, Description: "Icoo ACP agent profile."},
-		{ID: "agent-acp", Name: "Agent ACP", Protocol: "agent_acp", Models: []string{"gpt-5.4"}, Description: "Generic ACP agent profile."},
-	}
-
 	if !s.cfg.ACP.Enabled {
-		return service.NewMockGatewayServiceWithAgentsStoreAndSettingsStore(defaultAgents, memStore, settingsStore), nil
+		return service.NewGatewayServiceWithAgentsStoreAndSettingsStore(defaultManagedAgents, memStore, settingsStore), nil
 	}
-
 	lazy := newLazyConnector(func() (connector.AgentConnector, error) {
 		return s.newACPConnector(memStore)
 	}, connector.InitializeRequest{
 		ClientName:    "agent-gateway",
 		ClientVersion: s.cfg.Version,
 	})
-	return service.NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore(defaultAgents, memStore, settingsStore, lazy), nil
+	return service.NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore(defaultManagedAgents, memStore, settingsStore, lazy), nil
 }
 
 func (s *Server) newACPConnector(memStore store.Store) (connector.AgentConnector, error) {

@@ -81,7 +81,7 @@ func newPromptReadyRouter(agents []service.AgentProfile) http.Handler {
 }
 
 func TestCreateAndListSessions(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := api.NewRouter(service.NewGatewayService())
 
 	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
 		"title":   "API slice",
@@ -105,7 +105,7 @@ func TestCreateAndListSessions(t *testing.T) {
 }
 
 func TestGetSessionByID(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := api.NewRouter(service.NewGatewayService())
 	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
 		"title": "By id",
 	})
@@ -117,7 +117,7 @@ func TestGetSessionByID(t *testing.T) {
 }
 
 func TestListSkills(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := api.NewRouter(service.NewGatewayService())
 	skills := doJSON[[]service.Skill](t, router, http.MethodGet, "/v1/skills", nil)
 	if len(skills) != 0 {
 		t.Fatalf("expected no skills, got %#v", skills)
@@ -125,7 +125,7 @@ func TestListSkills(t *testing.T) {
 }
 
 func TestManagementSettingsAndAgentsUseSameConfigSource(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := api.NewRouter(service.NewGatewayService())
 
 	updated := doJSON[service.ManagementSettings](t, router, http.MethodPut, "/v1/management/settings", service.ManagementSettings{
 		Channels: []service.ChannelConfig{
@@ -145,10 +145,16 @@ func TestManagementSettingsAndAgentsUseSameConfigSource(t *testing.T) {
 	if len(updated.Channels) != 1 || len(updated.MCPServers) != 1 || len(updated.ScheduleTasks) != 1 || len(updated.Agents) != 2 {
 		t.Fatalf("unexpected updated settings: %#v", updated)
 	}
+	if updated.ScheduleTasks[0].Content != "每天 8 点推送日报" {
+		t.Fatalf("expected schedule task content persisted, got %#v", updated.ScheduleTasks[0])
+	}
 
 	settings := doJSON[service.ManagementSettings](t, router, http.MethodGet, "/v1/management/settings", nil)
 	if len(settings.Agents) != 2 {
 		t.Fatalf("expected 2 agents in settings, got %#v", settings.Agents)
+	}
+	if len(settings.ScheduleTasks) != 1 || settings.ScheduleTasks[0].Content != "每天 8 点推送日报" {
+		t.Fatalf("expected schedule task content from GET settings, got %#v", settings.ScheduleTasks)
 	}
 
 	agents := doJSON[[]service.AgentProfile](t, router, http.MethodGet, "/v1/agents", nil)
@@ -164,7 +170,7 @@ func TestManagementSettingsAndAgentsUseSameConfigSource(t *testing.T) {
 }
 
 func TestPromptWithoutConnectorReturnsStructuredError(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := api.NewRouter(service.NewGatewayService())
 	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
 		"title": "No connector",
 	})
@@ -219,7 +225,7 @@ func TestPromptCreatesMessagesAndApproval(t *testing.T) {
 }
 
 func TestCancelCreatesCancelledRun(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := api.NewRouter(service.NewGatewayService())
 	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{
 		"title": "Cancel test",
 	})
@@ -302,7 +308,7 @@ func TestApprovalDecisionAfterCancelReturnsStructuredError(t *testing.T) {
 }
 
 func TestMissingSessionReturnsJSONError(t *testing.T) {
-	router := api.NewRouter(service.NewMockGatewayService())
+	router := api.NewRouter(service.NewGatewayService())
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/missing/messages", nil)
 	rec := httptest.NewRecorder()

@@ -20,10 +20,11 @@ go run ./cmd/agent-gateway
 ```
 
 CLI flags are intentionally limited to `-host` / `-port` (plus `-once` for one-shot tests).
+Gateway loads base config from `config/agent-gateway.toml` first, then applies CLI host/port overrides.
 
 Gateway configuration template:
 
-- `config/agent-gateway.example.toml`
+- `config/agent-gateway.toml.example`
 - Includes only basic runtime settings (`host`, `port`, `data_dir`).
 - Current binary still accepts only `-host`/`-port` CLI overrides; this template is the standard config baseline for gateway-managed settings.
 

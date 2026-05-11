@@ -1868,6 +1868,10 @@
     overflow: hidden;
   }
 
+  .qq-create-session-modal {
+    overflow: visible;
+  }
+
   .qq-modal-header {
     display: flex;
     align-items: center;

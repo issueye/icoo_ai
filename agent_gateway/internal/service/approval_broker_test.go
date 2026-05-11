@@ -71,7 +71,7 @@ func (f *approvalBrokerFakeConnector) Close() error {
 	return nil
 }
 
-func newApprovalBrokerPromptService() *MockGatewayService {
+func newApprovalBrokerPromptService() *GatewayServiceImpl {
 	return NewConnectorGatewayServiceWithAgentsAndStore(defaultAgents(), store.NewMemoryStore(), &approvalBrokerFakeConnector{})
 }
 

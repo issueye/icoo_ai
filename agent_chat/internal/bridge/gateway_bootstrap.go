@@ -180,18 +180,57 @@ func (b *gatewayBootstrapper) StopManagedProcess() error {
 }
 
 func (b *gatewayBootstrapper) discoverHealthy(ctx context.Context) (*gatewayProxy, gatewayclient.Endpoint, error) {
-	endpoint, token, err := b.discover(b.discoveryPath)
-	if err != nil {
-		return nil, gatewayclient.Endpoint{}, err
+	var lastErr error
+	for _, discoveryPath := range b.discoveryPaths() {
+		endpoint, token, err := b.discover(discoveryPath)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if err := b.healthCheck(ctx, endpoint, token); err != nil {
+			lastErr = err
+			continue
+		}
+		return &gatewayProxy{
+			client:  http.DefaultClient,
+			baseURL: strings.TrimRight(endpoint.BaseURL, "/"),
+			token:   strings.TrimSpace(token),
+		}, endpoint, nil
 	}
-	if err := b.healthCheck(ctx, endpoint, token); err != nil {
-		return nil, gatewayclient.Endpoint{}, err
+	if lastErr == nil {
+		lastErr = errors.New("gateway endpoint not found")
 	}
-	return &gatewayProxy{
-		client:  http.DefaultClient,
-		baseURL: strings.TrimRight(endpoint.BaseURL, "/"),
-		token:   strings.TrimSpace(token),
-	}, endpoint, nil
+	return nil, gatewayclient.Endpoint{}, lastErr
+}
+
+func (b *gatewayBootstrapper) discoveryPaths() []string {
+	if b != nil && strings.TrimSpace(b.discoveryPath) != "" {
+		return []string{strings.TrimSpace(b.discoveryPath)}
+	}
+
+	paths := []string{""}
+	if repoRoot, err := resolveRepoRoot(); err == nil {
+		paths = append(paths, filepath.Join(repoRoot, "agent_gateway", ".agent_gateway"))
+	}
+	return uniqueNonEmptyPaths(paths)
+}
+
+func uniqueNonEmptyPaths(in []string) []string {
+	out := make([]string, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, path := range in {
+		trimmed := strings.TrimSpace(path)
+		if trimmed == "" {
+			trimmed = ""
+		}
+		key := strings.ToLower(trimmed)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 func (b *gatewayBootstrapper) defaultHealthCheck(ctx context.Context, endpoint gatewayclient.Endpoint, token string) error {
@@ -268,7 +307,7 @@ func resolveGatewayCommand(devMode bool) (gatewayCommandSpec, error) {
 		if !fileExists(bin) {
 			return gatewayCommandSpec{}, fmt.Errorf("configured gateway_binary_path not found: %s", bin)
 		}
-		return gatewayCommandSpec{command: bin, args: launchArgs}, nil
+		return gatewayCommandSpec{command: bin, args: launchArgs, dir: resolveGatewayWorkingDir(bin)}, nil
 	}
 
 	names := []string{"agent-gateway"}
@@ -280,7 +319,7 @@ func resolveGatewayCommand(devMode bool) (gatewayCommandSpec, error) {
 		if exe, err := os.Executable(); err == nil {
 			candidate := filepath.Join(filepath.Dir(exe), name)
 			if fileExists(candidate) {
-				return gatewayCommandSpec{command: candidate, args: launchArgs}, nil
+				return gatewayCommandSpec{command: candidate, args: launchArgs, dir: resolveGatewayWorkingDir(candidate)}, nil
 			}
 		}
 	}
@@ -293,7 +332,7 @@ func resolveGatewayCommand(devMode bool) (gatewayCommandSpec, error) {
 		}
 		for _, candidate := range candidates {
 			if fileExists(candidate) {
-				return gatewayCommandSpec{command: candidate, args: launchArgs}, nil
+				return gatewayCommandSpec{command: candidate, args: launchArgs, dir: resolveGatewayWorkingDir(candidate)}, nil
 			}
 		}
 	}
@@ -372,4 +411,24 @@ func openGatewayBootstrapLog() (string, *os.File, error) {
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+func resolveGatewayWorkingDir(commandPath string) string {
+	commandPath = strings.TrimSpace(commandPath)
+	if commandPath == "" {
+		return ""
+	}
+	dir := filepath.Dir(commandPath)
+	if dir == "" || dir == "." {
+		return ""
+	}
+
+	parent := filepath.Dir(dir)
+	if strings.EqualFold(filepath.Base(dir), "dist") && fileExists(filepath.Join(parent, "config", "agent-gateway.toml")) {
+		return parent
+	}
+	if fileExists(filepath.Join(dir, "config", "agent-gateway.toml")) {
+		return dir
+	}
+	return ""
 }

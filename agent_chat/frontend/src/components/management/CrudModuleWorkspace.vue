@@ -184,8 +184,17 @@ function confirmDelete() {
     cancelDelete()
     return
   }
+  const previousItems = copyItems(localItems.value)
   localItems.value.splice(pendingDeleteIndex.value, 1)
-  emit('update:items', copyItems(localItems.value))
+  const nextItems = copyItems(localItems.value)
+  emit('update:items', nextItems)
+  if (props.persistOnApply) {
+    Promise.resolve(emit('save', nextItems)).catch((saveError) => {
+      localItems.value = previousItems
+      emit('update:items', previousItems)
+      emit('error', saveError instanceof Error ? saveError.message : '保存失败')
+    })
+  }
   cancelDelete()
 }
 
@@ -193,8 +202,17 @@ function toggleItem(index) {
   if (!props.allowToggle || props.readonly) return
   const item = localItems.value[index]
   if (!item) return
+  const previousItems = copyItems(localItems.value)
   item.enabled = !item.enabled
-  emit('update:items', copyItems(localItems.value))
+  const nextItems = copyItems(localItems.value)
+  emit('update:items', nextItems)
+  if (props.persistOnApply) {
+    Promise.resolve(emit('save', nextItems)).catch((saveError) => {
+      localItems.value = previousItems
+      emit('update:items', previousItems)
+      emit('error', saveError instanceof Error ? saveError.message : '保存失败')
+    })
+  }
 }
 
 async function applyDraft() {
