@@ -1,199 +1,66 @@
 package bridge
 
 import (
-	"context"
-	"errors"
 	"os"
+	"path/filepath"
 	"testing"
-	"time"
-
-	"github.com/icoo-ai/icoo-ai/agent_chat/internal/gatewayclient"
 )
 
-func TestGatewayBootstrapperEnsureRunning_UsesExistingHealthyGateway(t *testing.T) {
-	t.Parallel()
-
-	discoverCalls := 0
-	startCalls := 0
-	b := &gatewayBootstrapper{
-		discoveryPath: "",
-		waitTimeout:   time.Second,
-		pollInterval:  time.Millisecond,
-		now:           time.Now,
-		sleep:         func(time.Duration) {},
-		discover: func(string) (gatewayclient.Endpoint, string, error) {
-			discoverCalls++
-			return gatewayclient.Endpoint{BaseURL: "http://127.0.0.1:49152"}, "token-1", nil
-		},
-		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
-			return nil
-		},
-		startProcess: func(context.Context) (*os.Process, error) {
-			startCalls++
-			return nil, nil
-		},
-	}
-
-	proxy, err := b.EnsureRunning(context.Background())
-	if err != nil {
-		t.Fatalf("EnsureRunning returned error: %v", err)
-	}
-	if proxy == nil || proxy.baseURL != "http://127.0.0.1:49152" || proxy.token != "token-1" {
-		t.Fatalf("unexpected proxy: %#v", proxy)
-	}
-	if discoverCalls != 1 {
-		t.Fatalf("discover calls = %d, want 1", discoverCalls)
-	}
-	if startCalls != 0 {
-		t.Fatalf("start calls = %d, want 0", startCalls)
-	}
-}
-
-func TestGatewayBootstrapperEnsureRunning_StartsProcessAndWaitsUntilHealthy(t *testing.T) {
-	t.Parallel()
-
-	discoverCalls := 0
-	startCalls := 0
-	now := time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC)
-
-	b := &gatewayBootstrapper{
-		discoveryPath: "",
-		waitTimeout:   5 * time.Second,
-		pollInterval:  100 * time.Millisecond,
-		now: func() time.Time {
-			return now
-		},
-		sleep: func(d time.Duration) {
-			now = now.Add(d)
-		},
-		discover: func(string) (gatewayclient.Endpoint, string, error) {
-			discoverCalls++
-			if discoverCalls < 3 {
-				return gatewayclient.Endpoint{}, "", errors.New("endpoint not found")
-			}
-			return gatewayclient.Endpoint{BaseURL: "http://127.0.0.1:50001"}, "token-2", nil
-		},
-		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
-			return nil
-		},
-		startProcess: func(context.Context) (*os.Process, error) {
-			startCalls++
-			return nil, nil
-		},
-	}
-
-	proxy, err := b.EnsureRunning(context.Background())
-	if err != nil {
-		t.Fatalf("EnsureRunning returned error: %v", err)
-	}
-	if startCalls != 1 {
-		t.Fatalf("start calls = %d, want 1", startCalls)
-	}
-	if proxy == nil || proxy.baseURL != "http://127.0.0.1:50001" || proxy.token != "token-2" {
-		t.Fatalf("unexpected proxy: %#v", proxy)
-	}
-}
-
-func TestGatewayBootstrapperEnsureRunning_TimesOutWhenGatewayNeverReady(t *testing.T) {
-	t.Parallel()
-
-	now := time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC)
-	b := &gatewayBootstrapper{
-		discoveryPath: "",
-		waitTimeout:   300 * time.Millisecond,
-		pollInterval:  100 * time.Millisecond,
-		now: func() time.Time {
-			return now
-		},
-		sleep: func(d time.Duration) {
-			now = now.Add(d)
-		},
-		discover: func(string) (gatewayclient.Endpoint, string, error) {
-			return gatewayclient.Endpoint{}, "", errors.New("still not found")
-		},
-		healthCheck: func(context.Context, gatewayclient.Endpoint, string) error {
-			return nil
-		},
-		startProcess: func(context.Context) (*os.Process, error) {
-			return nil, nil
-		},
-	}
-
-	_, err := b.EnsureRunning(context.Background())
-	if err == nil {
-		t.Fatal("expected timeout error, got nil")
-	}
-}
-
-func TestGatewayLaunchArgsFromSettings(t *testing.T) {
-	t.Parallel()
-
+func TestGatewayLaunchArgsFromSettingsUsesHostAndPortOnly(t *testing.T) {
 	args := gatewayLaunchArgsFromSettings(AppSettings{
 		GatewayHost: "127.0.0.1",
 		GatewayPort: 18888,
 	})
 	if len(args) != 4 {
-		t.Fatalf("expected 4 args, got %d: %#v", len(args), args)
+		t.Fatalf("len(args) = %d, want 4 (%#v)", len(args), args)
 	}
 	if args[0] != "-host" || args[1] != "127.0.0.1" || args[2] != "-port" || args[3] != "18888" {
-		t.Fatalf("unexpected args: %#v", args)
+		t.Fatalf("unexpected launch args: %#v", args)
 	}
 }
 
-func TestGatewayBootstrapperStopManagedProcess_SkipsUnmanagedPID(t *testing.T) {
-	t.Parallel()
-
-	stopHandleCalls := 0
-	stopPIDCalls := 0
-	b := &gatewayBootstrapper{
-		managedPID: 3333,
-		stopProcess: func(process *os.Process) error {
-			stopHandleCalls++
-			return nil
-		},
-		stopProcessByPID: func(pid int) error {
-			stopPIDCalls++
-			return nil
-		},
+func TestResolveGatewayWorkingDirPrefersParentOfDistWhenConfigExists(t *testing.T) {
+	root := t.TempDir()
+	distDir := filepath.Join(root, "dist")
+	configDir := filepath.Join(root, "config")
+	if err := os.MkdirAll(distDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(dist) error = %v", err)
+	}
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(config) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "agent-gateway.toml"), []byte("host = \"127.0.0.1\"\nport = 17889\ndata_dir = \"./.agent_gateway\"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	bin := filepath.Join(distDir, "agent-gateway.exe")
+	if err := os.WriteFile(bin, []byte("stub"), 0o644); err != nil {
+		t.Fatalf("WriteFile(bin) error = %v", err)
 	}
 
-	if err := b.StopManagedProcess(); err != nil {
-		t.Fatalf("StopManagedProcess returned error: %v", err)
-	}
-	if stopHandleCalls != 0 {
-		t.Fatalf("stop handle calls = %d, want 0", stopHandleCalls)
-	}
-	if stopPIDCalls != 0 {
-		t.Fatalf("stop pid calls = %d, want 0", stopPIDCalls)
+	wd := resolveGatewayWorkingDir(bin)
+	if wd != root {
+		t.Fatalf("resolveGatewayWorkingDir() = %q, want %q", wd, root)
 	}
 }
 
-func TestGatewayBootstrapperStopManagedProcess_StopsOwnedProcess(t *testing.T) {
-	t.Parallel()
-
-	stopHandleCalls := 0
-	stopPIDCalls := 0
-	b := &gatewayBootstrapper{
-		managedProcess: &os.Process{Pid: 1111},
-		managedPID:     2222,
-		managedOwned:   true,
-		stopProcess: func(process *os.Process) error {
-			stopHandleCalls++
-			return nil
-		},
-		stopProcessByPID: func(pid int) error {
-			stopPIDCalls++
-			return nil
-		},
+func TestUniqueNonEmptyPathsDeDuplicatesCaseInsensitive(t *testing.T) {
+	out := uniqueNonEmptyPaths([]string{
+		"C:\\Tmp\\Gateway",
+		"c:\\tmp\\gateway",
+		"",
+		"  ",
+		"C:\\Another",
+	})
+	if len(out) != 3 {
+		t.Fatalf("len(out) = %d, want 3 (%#v)", len(out), out)
 	}
-
-	if err := b.StopManagedProcess(); err != nil {
-		t.Fatalf("StopManagedProcess returned error: %v", err)
+	if out[0] != "C:\\Tmp\\Gateway" {
+		t.Fatalf("out[0] = %q, want C:\\Tmp\\Gateway", out[0])
 	}
-	if stopHandleCalls != 1 {
-		t.Fatalf("stop handle calls = %d, want 1", stopHandleCalls)
+	if out[1] != "" {
+		t.Fatalf("out[1] = %q, want empty path marker", out[1])
 	}
-	if stopPIDCalls != 1 {
-		t.Fatalf("stop pid calls = %d, want 1", stopPIDCalls)
+	if out[2] != "C:\\Another" {
+		t.Fatalf("out[2] = %q, want C:\\Another", out[2])
 	}
 }

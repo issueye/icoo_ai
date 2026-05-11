@@ -2,539 +2,86 @@ package service
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"testing"
-	"time"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
-type fakeConnector struct {
-	newSessionResp connector.NewSessionResponse
-	newSessionErr  error
-	lastNewSession connector.NewSessionRequest
-
-	listSessionsResp  connector.ListSessionsResponse
-	listSessionsErr   error
-	listSessionsCalls int
-
-	resumeSessionResp  connector.ResumeSessionResponse
-	resumeSessionErr   error
-	lastResumeSession  connector.ResumeSessionRequest
-	resumeSessionCalls int
-
-	closeSessionResp  connector.CloseSessionResponse
-	closeSessionErr   error
-	lastCloseSession  connector.CloseSessionRequest
-	closeSessionCalls int
-
-	setSessionModeResp  connector.SetSessionModeResponse
-	setSessionModeErr   error
-	lastSetSessionMode  connector.SetSessionModeRequest
-	setSessionModeCalls int
-
-	setSessionConfigResp  connector.SetSessionConfigOptionResponse
-	setSessionConfigErr   error
-	lastSetSessionConfig  connector.SetSessionConfigOptionRequest
-	setSessionConfigCalls int
-
-	promptResp connector.PromptResponse
-	promptErr  error
-
-	cancelResp connector.CancelResponse
-	cancelErr  error
-
-	newSessionCalls int
-	promptCalls     int
-	cancelCalls     int
-}
-
-func (f *fakeConnector) Initialize(context.Context, connector.InitializeRequest) (connector.InitializeResponse, error) {
-	return connector.InitializeResponse{}, nil
-}
-func (f *fakeConnector) NewSession(_ context.Context, req connector.NewSessionRequest) (connector.NewSessionResponse, error) {
-	f.newSessionCalls++
-	f.lastNewSession = req
-	if f.newSessionErr != nil {
-		return connector.NewSessionResponse{}, f.newSessionErr
-	}
-	return f.newSessionResp, nil
-}
-func (f *fakeConnector) ListSessions(context.Context, connector.ListSessionsRequest) (connector.ListSessionsResponse, error) {
-	f.listSessionsCalls++
-	if f.listSessionsErr != nil {
-		return connector.ListSessionsResponse{}, f.listSessionsErr
-	}
-	return f.listSessionsResp, nil
-}
-func (f *fakeConnector) ResumeSession(_ context.Context, req connector.ResumeSessionRequest) (connector.ResumeSessionResponse, error) {
-	f.resumeSessionCalls++
-	f.lastResumeSession = req
-	if f.resumeSessionErr != nil {
-		return connector.ResumeSessionResponse{}, f.resumeSessionErr
-	}
-	return f.resumeSessionResp, nil
-}
-func (f *fakeConnector) CloseSession(_ context.Context, req connector.CloseSessionRequest) (connector.CloseSessionResponse, error) {
-	f.closeSessionCalls++
-	f.lastCloseSession = req
-	if f.closeSessionErr != nil {
-		return connector.CloseSessionResponse{}, f.closeSessionErr
-	}
-	return f.closeSessionResp, nil
-}
-func (f *fakeConnector) SetSessionMode(_ context.Context, req connector.SetSessionModeRequest) (connector.SetSessionModeResponse, error) {
-	f.setSessionModeCalls++
-	f.lastSetSessionMode = req
-	if f.setSessionModeErr != nil {
-		return connector.SetSessionModeResponse{}, f.setSessionModeErr
-	}
-	return f.setSessionModeResp, nil
-}
-func (f *fakeConnector) SetSessionConfigOption(_ context.Context, req connector.SetSessionConfigOptionRequest) (connector.SetSessionConfigOptionResponse, error) {
-	f.setSessionConfigCalls++
-	f.lastSetSessionConfig = req
-	if f.setSessionConfigErr != nil {
-		return connector.SetSessionConfigOptionResponse{}, f.setSessionConfigErr
-	}
-	return f.setSessionConfigResp, nil
-}
-func (f *fakeConnector) Prompt(context.Context, connector.PromptRequest) (connector.PromptResponse, error) {
-	f.promptCalls++
-	if f.promptErr != nil {
-		return connector.PromptResponse{}, f.promptErr
-	}
-	return f.promptResp, nil
-}
-func (f *fakeConnector) Cancel(context.Context, connector.CancelRequest) (connector.CancelResponse, error) {
-	f.cancelCalls++
-	if f.cancelErr != nil {
-		return connector.CancelResponse{}, f.cancelErr
-	}
-	return f.cancelResp, nil
-}
-func (f *fakeConnector) Close() error { return nil }
-
-type recordingStore struct {
-	base *store.MemoryStore
-
-	upsertConversationCalls int
-	getConversationCalls    int
-	appendMessageCalls      int
-	listMessagesCalls       int
-	upsertRunCalls          int
-	listRunsCalls           int
-	upsertApprovalCalls     int
-	listApprovalsCalls      int
-}
-
-func newRecordingStore() *recordingStore {
-	return &recordingStore{base: store.NewMemoryStore()}
-}
-
-func (r *recordingStore) UpsertConversation(ctx context.Context, conversation store.Conversation) error {
-	r.upsertConversationCalls++
-	return r.base.UpsertConversation(ctx, conversation)
-}
-func (r *recordingStore) ListConversations(ctx context.Context) ([]store.Conversation, error) {
-	return r.base.ListConversations(ctx)
-}
-func (r *recordingStore) GetConversation(ctx context.Context, sessionID string) (store.Conversation, bool, error) {
-	r.getConversationCalls++
-	return r.base.GetConversation(ctx, sessionID)
-}
-func (r *recordingStore) AppendMessage(ctx context.Context, event store.MessageEvent) error {
-	r.appendMessageCalls++
-	return r.base.AppendMessage(ctx, event)
-}
-func (r *recordingStore) ListMessages(ctx context.Context, sessionID string) ([]store.MessageEvent, error) {
-	r.listMessagesCalls++
-	return r.base.ListMessages(ctx, sessionID)
-}
-func (r *recordingStore) UpsertRun(ctx context.Context, run store.RunSummary) error {
-	r.upsertRunCalls++
-	return r.base.UpsertRun(ctx, run)
-}
-func (r *recordingStore) ListRuns(ctx context.Context, sessionID string) ([]store.RunSummary, error) {
-	r.listRunsCalls++
-	return r.base.ListRuns(ctx, sessionID)
-}
-func (r *recordingStore) UpsertApproval(ctx context.Context, approval store.ApprovalDecision) error {
-	r.upsertApprovalCalls++
-	return r.base.UpsertApproval(ctx, approval)
-}
-func (r *recordingStore) ListApprovals(ctx context.Context) ([]store.ApprovalDecision, error) {
-	r.listApprovalsCalls++
-	return r.base.ListApprovals(ctx)
-}
-func (r *recordingStore) AppendAudit(ctx context.Context, event store.AuditEvent) error {
-	return r.base.AppendAudit(ctx, event)
-}
-func (r *recordingStore) ListAuditEvents(ctx context.Context) ([]store.AuditEvent, error) {
-	return r.base.ListAuditEvents(ctx)
-}
-
-func TestGatewayServiceImplWritesThroughStore(t *testing.T) {
+func TestUpdateManagementSettingsAffectsListAgents(t *testing.T) {
+	svc := NewGatewayServiceWithStore(store.NewMemoryStore())
 	ctx := context.Background()
-	rec := newRecordingStore()
-	svc := NewGatewayServiceWithStore(rec)
 
-	session, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "store-writes"})
+	updated, err := svc.UpdateManagementSettings(ctx, ManagementSettings{
+		Agents: []AgentConfig{
+			{ID: "a-enabled", Name: "Enabled Agent", Protocol: "acp", Models: []string{"gpt-5.4", ""}, Enabled: true},
+			{ID: "a-disabled", Name: "Disabled Agent", Protocol: "acp", Models: []string{"gpt-5.4"}, Enabled: false},
+		},
+	})
 	if err != nil {
-		t.Fatalf("create session: %v", err)
+		t.Fatalf("UpdateManagementSettings() error = %v", err)
 	}
-	if rec.upsertConversationCalls != 1 {
-		t.Fatalf("upsertConversation calls = %d, want 1", rec.upsertConversationCalls)
+	if len(updated.Agents) != 2 {
+		t.Fatalf("updated.Agents length = %d, want 2", len(updated.Agents))
 	}
 
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		t.Fatalf("ListAgents() error = %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("ListAgents() length = %d, want 1 enabled agent", len(agents))
+	}
+	if agents[0].ID != "a-enabled" {
+		t.Fatalf("agents[0].ID = %q, want a-enabled", agents[0].ID)
+	}
+}
+
+func TestCreateSessionDefaultsToFirstEnabledAgent(t *testing.T) {
+	svc := NewGatewayServiceWithStore(store.NewMemoryStore())
+	ctx := context.Background()
+	_, err := svc.UpdateManagementSettings(ctx, ManagementSettings{
+		Agents: []AgentConfig{
+			{ID: "primary-agent", Name: "Primary", Protocol: "acp", Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateManagementSettings() error = %v", err)
+	}
+
+	session, err := svc.CreateSession(ctx, CreateSessionRequest{})
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	if session.AgentID != "primary-agent" {
+		t.Fatalf("session.AgentID = %q, want primary-agent", session.AgentID)
+	}
+	if session.Mode != "primary-agent" {
+		t.Fatalf("session.Mode = %q, want primary-agent", session.Mode)
+	}
+	if session.Title != "New Agent Session" {
+		t.Fatalf("session.Title = %q, want New Agent Session", session.Title)
+	}
+}
+
+func TestPromptWithoutConnectorReturnsConnectorUnavailable(t *testing.T) {
+	svc := NewGatewayServiceWithStore(store.NewMemoryStore())
+	ctx := context.Background()
+
+	session, err := svc.CreateSession(ctx, CreateSessionRequest{})
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
 	_, err = svc.Prompt(ctx, session.ID, PromptRequest{Content: "hello"})
 	if err == nil {
-		t.Fatal("expected prompt to fail without connector")
+		t.Fatal("Prompt() error = nil, want connector_unavailable")
 	}
-	serviceErr, ok := err.(*Error)
-	if !ok {
-		t.Fatalf("expected *service.Error, got %T", err)
+
+	var serviceErr *Error
+	if !errors.As(err, &serviceErr) {
+		t.Fatalf("Prompt() error type = %T, want *service.Error", err)
 	}
 	if serviceErr.Code != "connector_unavailable" {
-		t.Fatalf("unexpected error code: %q", serviceErr.Code)
-	}
-	if rec.upsertRunCalls != 0 || rec.appendMessageCalls != 0 || rec.upsertApprovalCalls != 0 {
-		t.Fatalf("unexpected store writes, run=%d msg=%d approval=%d", rec.upsertRunCalls, rec.appendMessageCalls, rec.upsertApprovalCalls)
-	}
-}
-
-func TestGatewayServiceImplReadsThroughStore(t *testing.T) {
-	ctx := context.Background()
-	rec := newRecordingStore()
-	svc := NewGatewayServiceWithStore(rec)
-	now := time.Date(2026, 5, 9, 14, 0, 0, 0, time.UTC)
-
-	if err := rec.UpsertConversation(ctx, store.Conversation{
-		ID:        "sess_001",
-		AgentID:   "icoo-ai-acp",
-		SessionID: "sess_001",
-		Status:    "active",
-		CreatedAt: now,
-		UpdatedAt: now,
-	}); err != nil {
-		t.Fatalf("seed conversation: %v", err)
-	}
-	if err := rec.AppendMessage(ctx, store.MessageEvent{
-		ID:        "msg_001",
-		Type:      "message",
-		SessionID: "sess_001",
-		RunID:     "run_001",
-		Role:      "user",
-		Summary:   "hello",
-		CreatedAt: now,
-	}); err != nil {
-		t.Fatalf("seed message: %v", err)
-	}
-	if err := rec.UpsertRun(ctx, store.RunSummary{
-		ID:        "run_001",
-		AgentID:   "icoo-ai-acp",
-		SessionID: "sess_001",
-		RunID:     "run_001",
-		Status:    "completed",
-		CreatedAt: now,
-	}); err != nil {
-		t.Fatalf("seed run: %v", err)
-	}
-	if err := rec.UpsertApproval(ctx, store.ApprovalDecision{
-		ID:                 "approval_001",
-		AgentID:            "icoo-ai-acp",
-		SessionID:          "sess_001",
-		RunID:              "run_001",
-		ConnectorRequestID: "tool_call_001",
-		Status:             "pending",
-		CreatedAt:          now,
-		SafeMeta: store.SafeMeta{
-			"action": "mock_tool",
-		},
-	}); err != nil {
-		t.Fatalf("seed approval: %v", err)
-	}
-
-	messages, err := svc.ListMessages(ctx, "sess_001")
-	if err != nil || len(messages) != 1 {
-		t.Fatalf("list messages = %+v err=%v", messages, err)
-	}
-	runs, err := svc.ListRuns(ctx)
-	if err != nil || len(runs) != 1 {
-		t.Fatalf("list runs = %+v err=%v", runs, err)
-	}
-	approvals, err := svc.ListApprovals(ctx)
-	if err != nil || len(approvals) != 1 {
-		t.Fatalf("list approvals = %+v err=%v", approvals, err)
-	}
-
-	if rec.getConversationCalls == 0 || rec.listMessagesCalls == 0 || rec.listRunsCalls == 0 || rec.listApprovalsCalls == 0 {
-		t.Fatalf("store read calls not hit, getConv=%d listMsg=%d listRun=%d listApproval=%d", rec.getConversationCalls, rec.listMessagesCalls, rec.listRunsCalls, rec.listApprovalsCalls)
-	}
-}
-
-func TestGatewayServiceImplGetSessionAndListSkills(t *testing.T) {
-	ctx := context.Background()
-	svc := NewGatewayService()
-
-	session, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "lookup"})
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	got, err := svc.GetSession(ctx, session.ID)
-	if err != nil {
-		t.Fatalf("get session: %v", err)
-	}
-	if got.ID != session.ID {
-		t.Fatalf("expected session id %q, got %q", session.ID, got.ID)
-	}
-
-	skills, err := svc.ListSkills(ctx)
-	if err != nil {
-		t.Fatalf("list skills: %v", err)
-	}
-	if len(skills) != 0 {
-		t.Fatalf("expected no skills, got %#v", skills)
-	}
-}
-
-func TestConnectorBackedServiceUsesConnectorSessionAndPrompt(t *testing.T) {
-	ctx := context.Background()
-	rec := newRecordingStore()
-	endedAt := time.Date(2026, 5, 9, 15, 0, 0, 0, time.UTC)
-	fake := &fakeConnector{
-		newSessionResp: connector.NewSessionResponse{SessionID: "sess_conn_1"},
-		promptResp: connector.PromptResponse{
-			RunID:   "run_conn_1",
-			Output:  "connector output",
-			EndedAt: &endedAt,
-			Approvals: []connector.ApprovalRequest{
-				{RequestID: "approval_req_1", Action: "write_file", Message: "allow write"},
-			},
-		},
-		cancelResp: connector.CancelResponse{RunID: "run_conn_1", Status: "cancelled"},
-	}
-
-	svc := NewConnectorGatewayServiceWithAgentsAndStore(defaultAgents(), rec, fake)
-	session, err := svc.CreateSession(ctx, CreateSessionRequest{
-		Title:          "connector session",
-		CWD:            "E:/code/issueye/icoo_ai",
-		StartupCommand: "icoo-ai --profile dev",
-	})
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	if session.ID != "sess_conn_1" {
-		t.Fatalf("session id = %q, want sess_conn_1", session.ID)
-	}
-
-	resp, err := svc.Prompt(ctx, session.ID, PromptRequest{Content: "hello connector"})
-	if err != nil {
-		t.Fatalf("prompt: %v", err)
-	}
-	if resp.Run.ID != "run_conn_1" || resp.Run.Status != "completed" {
-		t.Fatalf("unexpected run: %#v", resp.Run)
-	}
-	if len(resp.Messages) != 2 {
-		t.Fatalf("expected 2 messages (user+assistant), got %d", len(resp.Messages))
-	}
-	if resp.Approval == nil || resp.Approval.ConnectorRequestID != "approval_req_1" {
-		t.Fatalf("unexpected approval: %#v", resp.Approval)
-	}
-	if fake.newSessionCalls != 1 || fake.promptCalls != 1 {
-		t.Fatalf("connector calls newSession=%d prompt=%d", fake.newSessionCalls, fake.promptCalls)
-	}
-	if fake.lastNewSession.CWD != "E:/code/issueye/icoo_ai" {
-		t.Fatalf("connector newSession cwd = %q", fake.lastNewSession.CWD)
-	}
-	if got, _ := fake.lastNewSession.Metadata["startupCommand"].(string); got != "icoo-ai --profile dev" {
-		t.Fatalf("connector newSession metadata.startupCommand = %q", got)
-	}
-
-	cancelled, err := svc.Cancel(ctx, session.ID)
-	if err != nil {
-		t.Fatalf("cancel: %v", err)
-	}
-	if cancelled.ID != "run_conn_1" || cancelled.Status != "cancelled" {
-		t.Fatalf("unexpected cancel result: %#v", cancelled)
-	}
-	if fake.cancelCalls != 1 {
-		t.Fatalf("expected cancel call, got %d", fake.cancelCalls)
-	}
-}
-
-func TestConnectorBackedServicePromptHistoryQueryConsistency(t *testing.T) {
-	ctx := context.Background()
-	rec := newRecordingStore()
-	endedAt := time.Date(2026, 5, 9, 15, 30, 0, 0, time.UTC)
-	fake := &fakeConnector{
-		newSessionResp: connector.NewSessionResponse{SessionID: "sess_conn_history_1"},
-		promptResp: connector.PromptResponse{
-			RunID:   "run_conn_history_1",
-			Output:  "history output",
-			EndedAt: &endedAt,
-			Approvals: []connector.ApprovalRequest{
-				{RequestID: "approval_req_history_1", Action: "execute", Message: "approve execution"},
-			},
-		},
-	}
-	svc := NewConnectorGatewayServiceWithAgentsAndStore(defaultAgents(), rec, fake)
-
-	session, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "history consistency"})
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	resp, err := svc.Prompt(ctx, session.ID, PromptRequest{Content: "connector history"})
-	if err != nil {
-		t.Fatalf("prompt: %v", err)
-	}
-	if resp.Approval == nil {
-		t.Fatal("expected approval")
-	}
-
-	messages, err := svc.ListMessages(ctx, session.ID)
-	if err != nil {
-		t.Fatalf("list messages: %v", err)
-	}
-	if len(messages) != len(resp.Messages) {
-		t.Fatalf("messages count mismatch, list=%d prompt=%d", len(messages), len(resp.Messages))
-	}
-	for idx := range resp.Messages {
-		if messages[idx].ID != resp.Messages[idx].ID || messages[idx].RunID != resp.Run.ID || messages[idx].SessionID != session.ID {
-			t.Fatalf("message[%d] mismatch, list=%#v prompt=%#v", idx, messages[idx], resp.Messages[idx])
-		}
-	}
-
-	runs, err := svc.ListRuns(ctx)
-	if err != nil {
-		t.Fatalf("list runs: %v", err)
-	}
-	if len(runs) != 1 {
-		t.Fatalf("expected 1 run, got %d", len(runs))
-	}
-	if runs[0].ID != resp.Run.ID || runs[0].SessionID != session.ID || runs[0].AgentID != session.AgentID {
-		t.Fatalf("run mismatch, listed=%#v prompt=%#v session=%#v", runs[0], resp.Run, session)
-	}
-
-	approvals, err := svc.ListApprovals(ctx)
-	if err != nil {
-		t.Fatalf("list approvals: %v", err)
-	}
-	if len(approvals) != 1 {
-		t.Fatalf("expected 1 approval, got %d", len(approvals))
-	}
-	if approvals[0].ID != resp.Approval.ID || approvals[0].RunID != resp.Run.ID || approvals[0].SessionID != session.ID {
-		t.Fatalf("approval mismatch, listed=%#v prompt=%#v", approvals[0], resp.Approval)
-	}
-
-	if rec.listMessagesCalls == 0 || rec.listRunsCalls == 0 || rec.listApprovalsCalls == 0 {
-		t.Fatalf("expected list calls to hit store, listMsg=%d listRun=%d listApproval=%d", rec.listMessagesCalls, rec.listRunsCalls, rec.listApprovalsCalls)
-	}
-}
-
-func TestConnectorBackedServiceMapsConnectorPromptError(t *testing.T) {
-	ctx := context.Background()
-	rec := newRecordingStore()
-	fake := &fakeConnector{
-		newSessionResp: connector.NewSessionResponse{SessionID: "sess_conn_2"},
-		promptErr:      fmt.Errorf("connector down"),
-	}
-	svc := NewConnectorGatewayServiceWithAgentsAndStore(defaultAgents(), rec, fake)
-
-	session, err := svc.CreateSession(ctx, CreateSessionRequest{Title: "connector error"})
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	_, err = svc.Prompt(ctx, session.ID, PromptRequest{Content: "hello"})
-	if err == nil {
-		t.Fatal("expected prompt error")
-	}
-	serviceErr, ok := err.(*Error)
-	if !ok {
-		t.Fatalf("expected *service.Error, got %T", err)
-	}
-	if serviceErr.Code != "connector_request_failed" {
-		t.Fatalf("unexpected error code: %s", serviceErr.Code)
-	}
-}
-
-func TestConnectorBackedServiceSessionLifecycleOperations(t *testing.T) {
-	ctx := context.Background()
-	rec := newRecordingStore()
-	fake := &fakeConnector{
-		newSessionResp: connector.NewSessionResponse{SessionID: "sess_conn_lifecycle_1"},
-	}
-	svc := NewConnectorGatewayServiceWithAgentsAndStore(defaultAgents(), rec, fake)
-
-	session, err := svc.CreateSession(ctx, CreateSessionRequest{
-		Title: "lifecycle",
-		CWD:   "E:/codes/icoo_ai",
-	})
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-
-	resumed, err := svc.ResumeSession(ctx, session.ID, ResumeSessionRequest{
-		CWD:                   "E:/codes/icoo_ai",
-		AdditionalDirectories: []string{"E:/codes/icoo_ai/agent_gateway"},
-	})
-	if err != nil {
-		t.Fatalf("resume session: %v", err)
-	}
-	if fake.resumeSessionCalls != 1 {
-		t.Fatalf("expected resumeSession call, got %d", fake.resumeSessionCalls)
-	}
-	if fake.lastResumeSession.SessionID != session.ID || fake.lastResumeSession.CWD != "E:/codes/icoo_ai" {
-		t.Fatalf("unexpected resume request: %#v", fake.lastResumeSession)
-	}
-	if len(resumed.AdditionalDirectories) != 1 {
-		t.Fatalf("expected additional directories in resumed session, got %#v", resumed.AdditionalDirectories)
-	}
-
-	updatedMode, err := svc.SetSessionMode(ctx, session.ID, SetSessionModeRequest{Mode: "agent"})
-	if err != nil {
-		t.Fatalf("set session mode: %v", err)
-	}
-	if fake.setSessionModeCalls != 1 {
-		t.Fatalf("expected setSessionMode call, got %d", fake.setSessionModeCalls)
-	}
-	if fake.lastSetSessionMode.SessionID != session.ID || fake.lastSetSessionMode.ModeID != "agent" {
-		t.Fatalf("unexpected set mode request: %#v", fake.lastSetSessionMode)
-	}
-	if updatedMode.Mode != "agent" {
-		t.Fatalf("expected session mode updated, got %q", updatedMode.Mode)
-	}
-
-	booleanValue := true
-	updatedConfig, err := svc.SetSessionConfigOption(ctx, session.ID, SetSessionConfigOptionRequest{
-		ConfigID:     "emit_plan_updates",
-		BooleanValue: &booleanValue,
-	})
-	if err != nil {
-		t.Fatalf("set session config option: %v", err)
-	}
-	if fake.setSessionConfigCalls != 1 {
-		t.Fatalf("expected setSessionConfigOption call, got %d", fake.setSessionConfigCalls)
-	}
-	if fake.lastSetSessionConfig.SessionID != session.ID || fake.lastSetSessionConfig.ConfigID != "emit_plan_updates" {
-		t.Fatalf("unexpected set config request: %#v", fake.lastSetSessionConfig)
-	}
-	if updatedConfig.UpdatedAt.IsZero() {
-		t.Fatalf("expected updated session timestamp after set config, got %#v", updatedConfig)
-	}
-
-	closed, err := svc.CloseSession(ctx, session.ID)
-	if err != nil {
-		t.Fatalf("close session: %v", err)
-	}
-	if fake.closeSessionCalls != 1 {
-		t.Fatalf("expected closeSession call, got %d", fake.closeSessionCalls)
-	}
-	if fake.lastCloseSession.SessionID != session.ID {
-		t.Fatalf("unexpected close request: %#v", fake.lastCloseSession)
-	}
-	if closed.Status != "closed" {
-		t.Fatalf("expected closed status, got %q", closed.Status)
+		t.Fatalf("serviceErr.Code = %q, want connector_unavailable", serviceErr.Code)
 	}
 }

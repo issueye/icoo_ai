@@ -6,10 +6,11 @@ import (
 	"testing"
 )
 
-func TestLoadFile(t *testing.T) {
+func TestLoadFileParsesCurrentKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agent-gateway.toml")
-	if err := os.WriteFile(path, []byte("host = \"127.0.0.1\"\nport = 17889\ndata_dir = \"./.agent_gateway\"\n"), 0o644); err != nil {
+	content := "host = \"127.0.0.1\"\nport = 17889\ndata_dir = \"./.agent_gateway\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -23,19 +24,33 @@ func TestLoadFile(t *testing.T) {
 	if cfg.Port != 17889 {
 		t.Fatalf("cfg.Port = %d, want 17889", cfg.Port)
 	}
-	if cfg.DataDir == "" {
-		t.Fatal("cfg.DataDir is empty")
+	if cfg.DataDir != ".agent_gateway" {
+		t.Fatalf("cfg.DataDir = %q, want .agent_gateway", cfg.DataDir)
 	}
 }
 
 func TestLoadFileRejectsUnsupportedKey(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agent-gateway.toml")
-	if err := os.WriteFile(path, []byte("host = \"127.0.0.1\"\nport = 17889\ndata_dir = \"./.agent_gateway\"\nfoo = \"bar\"\n"), 0o644); err != nil {
+	content := "host = \"127.0.0.1\"\nport = 17889\ndata_dir = \"./.agent_gateway\"\nfoo = \"bar\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
 	if _, err := LoadFile(path); err == nil {
-		t.Fatal("LoadFile() error = nil, want unsupported key error")
+		t.Fatal("LoadFile() error = nil, want unsupported config key error")
+	}
+}
+
+func TestLoadFileRejectsUnquotedStringValues(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent-gateway.toml")
+	content := "host = 127.0.0.1\nport = 17889\ndata_dir = \"./.agent_gateway\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if _, err := LoadFile(path); err == nil {
+		t.Fatal("LoadFile() error = nil, want host parse error")
 	}
 }

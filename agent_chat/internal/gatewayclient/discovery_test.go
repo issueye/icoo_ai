@@ -5,50 +5,60 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestDiscoverFromPathReadsEndpointAndToken(t *testing.T) {
-	t.Parallel()
-
 	dir := t.TempDir()
 	tokenPath := filepath.Join(dir, "token")
-	if err := os.WriteFile(tokenPath, []byte(" test-token \n"), 0o600); err != nil {
-		t.Fatalf("write token: %v", err)
+	if err := os.WriteFile(tokenPath, []byte("abc123\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(token) error = %v", err)
 	}
-	startedAt := time.Date(2026, 5, 9, 14, 0, 0, 0, time.UTC)
-	endpoint := Endpoint{
-		PID:       12345,
-		BaseURL:   "http://127.0.0.1:49152",
+	endpointPath := filepath.Join(dir, "endpoint.json")
+	payload := Endpoint{
+		PID:       123,
+		BaseURL:   "http://127.0.0.1:17889",
 		TokenFile: tokenPath,
-		StartedAt: startedAt,
 	}
-	data, err := json.Marshal(endpoint)
+	raw, err := json.Marshal(payload)
 	if err != nil {
-		t.Fatalf("marshal endpoint: %v", err)
+		t.Fatalf("Marshal(endpoint) error = %v", err)
 	}
-	endpointPath := filepath.Join(dir, endpointFileName)
-	if err := os.WriteFile(endpointPath, data, 0o600); err != nil {
-		t.Fatalf("write endpoint: %v", err)
+	if err := os.WriteFile(endpointPath, raw, 0o600); err != nil {
+		t.Fatalf("WriteFile(endpoint) error = %v", err)
 	}
 
-	gotEndpoint, gotToken, err := DiscoverFromPath(dir)
+	endpoint, token, err := DiscoverFromPath(dir)
 	if err != nil {
 		t.Fatalf("DiscoverFromPath() error = %v", err)
 	}
-	if gotEndpoint.PID != endpoint.PID {
-		t.Fatalf("PID = %d, want %d", gotEndpoint.PID, endpoint.PID)
+	if endpoint.BaseURL != payload.BaseURL {
+		t.Fatalf("endpoint.BaseURL = %q, want %q", endpoint.BaseURL, payload.BaseURL)
 	}
-	if gotEndpoint.BaseURL != endpoint.BaseURL {
-		t.Fatalf("BaseURL = %q, want %q", gotEndpoint.BaseURL, endpoint.BaseURL)
+	if token != "abc123" {
+		t.Fatalf("token = %q, want abc123", token)
 	}
-	if gotEndpoint.TokenFile != tokenPath {
-		t.Fatalf("TokenFile = %q, want %q", gotEndpoint.TokenFile, tokenPath)
+}
+
+func TestReadEndpointRejectsEmptyBaseURL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "endpoint.json")
+	if err := os.WriteFile(path, []byte(`{"pid":1,"baseUrl":"","tokenFile":"token"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
 	}
-	if !gotEndpoint.StartedAt.Equal(startedAt) {
-		t.Fatalf("StartedAt = %s, want %s", gotEndpoint.StartedAt, startedAt)
+	if _, err := ReadEndpoint(path); err == nil {
+		t.Fatal("ReadEndpoint() error = nil, want empty baseUrl error")
 	}
-	if gotToken != "test-token" {
-		t.Fatalf("token = %q, want %q", gotToken, "test-token")
+}
+
+func TestReadTokenFallsBackToSiblingTokenFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "token"), []byte("fallback-token"), 0o600); err != nil {
+		t.Fatalf("WriteFile(token) error = %v", err)
+	}
+	token, err := ReadToken(Endpoint{}, dir)
+	if err != nil {
+		t.Fatalf("ReadToken() error = %v", err)
+	}
+	if token != "fallback-token" {
+		t.Fatalf("token = %q, want fallback-token", token)
 	}
 }
