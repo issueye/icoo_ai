@@ -322,7 +322,7 @@ function clearQuery() {
       </div>
     </div>
 
-    <div v-if="modalOpen" class="qq-modal-backdrop" @click.self="closeModal">
+    <div v-if="modalOpen" class="qq-modal-backdrop">
       <div class="qq-modal" role="dialog" aria-modal="true">
         <div class="qq-modal-header">
           <h3 class="qq-modal-title">

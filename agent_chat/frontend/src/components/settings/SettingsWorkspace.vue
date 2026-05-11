@@ -284,7 +284,7 @@ function resetToDefault() {
       </div>
     </div>
 
-    <div v-if="confirmDialogOpen" class="qq-modal-backdrop" @click.self="resolveGatewayConfirmation(false)">
+    <div v-if="confirmDialogOpen" class="qq-modal-backdrop">
       <div class="qq-modal" role="dialog" aria-modal="true" aria-labelledby="gatewayConfirmTitle">
         <div class="qq-modal-header">
           <h3 id="gatewayConfirmTitle" class="qq-modal-title">{{ confirmDialogTitle }}</h3>

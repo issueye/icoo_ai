@@ -327,7 +327,7 @@ async function saveChannelDetail() {
       <p v-if="app.settingsError" class="qq-settings-error">{{ app.settingsError }}</p>
     </div>
 
-    <div v-if="editorOpen && editorDraft" class="qq-modal-backdrop" @click.self="closeEditor">
+    <div v-if="editorOpen && editorDraft" class="qq-modal-backdrop">
       <div class="qq-modal" role="dialog" aria-modal="true" aria-labelledby="channelEditorTitle">
         <div class="qq-modal-header">
           <h3 id="channelEditorTitle" class="qq-modal-title">

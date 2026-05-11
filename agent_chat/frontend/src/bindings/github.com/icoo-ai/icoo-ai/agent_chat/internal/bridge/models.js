@@ -223,22 +223,22 @@ export class AppSettings {
      * @returns {AppSettings}
      */
     static createFrom($$source = {}) {
-        const $$createField9_0 = $$createType2;
-        const $$createField10_0 = $$createType4;
-        const $$createField11_0 = $$createType6;
-        const $$createField12_0 = $$createType8;
+        const $$createField6_0 = $$createType2;
+        const $$createField7_0 = $$createType4;
+        const $$createField8_0 = $$createType6;
+        const $$createField9_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("channels" in $$parsedSource) {
-            $$parsedSource["channels"] = $$createField9_0($$parsedSource["channels"]);
+            $$parsedSource["channels"] = $$createField6_0($$parsedSource["channels"]);
         }
         if ("agents" in $$parsedSource) {
-            $$parsedSource["agents"] = $$createField10_0($$parsedSource["agents"]);
+            $$parsedSource["agents"] = $$createField7_0($$parsedSource["agents"]);
         }
         if ("mcpServers" in $$parsedSource) {
-            $$parsedSource["mcpServers"] = $$createField11_0($$parsedSource["mcpServers"]);
+            $$parsedSource["mcpServers"] = $$createField8_0($$parsedSource["mcpServers"]);
         }
         if ("scheduleTasks" in $$parsedSource) {
-            $$parsedSource["scheduleTasks"] = $$createField12_0($$parsedSource["scheduleTasks"]);
+            $$parsedSource["scheduleTasks"] = $$createField9_0($$parsedSource["scheduleTasks"]);
         }
         return new AppSettings(/** @type {Partial<AppSettings>} */($$parsedSource));
     }
@@ -675,7 +675,14 @@ export class MCPServerConfig {
              * @member
              * @type {string | undefined}
              */
-            this["content"] = undefined;
+            this["command"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["args"] = undefined;
         }
         if (/** @type {any} */(false)) {
             /**

@@ -61,7 +61,6 @@ async function createConversation() {
       agentId: selectedAgentId.value.trim(),
       mode: selectedAgentId.value.trim(),
     })
-    dialogOpen.value = false
     router.push(`/chats/${conversation.id}`)
   } catch (error) {
     formError.value = error?.message ?? '创建会话失败'
@@ -99,7 +98,7 @@ function selectConversation(sessionId) {
       <div v-if="!filtered.length" class="qq-event-card text-center text-sm">没有找到匹配会话</div>
     </div>
 
-    <div v-if="dialogOpen" class="qq-modal-backdrop" @click.self="closeCreateDialog">
+    <div v-if="dialogOpen" class="qq-modal-backdrop">
       <div class="qq-modal">
         <div class="qq-modal-header">
           <h3 class="qq-modal-title">新建会话</h3>
