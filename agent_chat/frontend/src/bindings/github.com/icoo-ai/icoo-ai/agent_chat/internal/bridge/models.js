@@ -169,6 +169,13 @@ export class AppSettings {
              * @member
              * @type {string | undefined}
              */
+            this["gatewayToken"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
             this["logLevel"] = undefined;
         }
         if (/** @type {any} */(false)) {
@@ -223,22 +230,22 @@ export class AppSettings {
      * @returns {AppSettings}
      */
     static createFrom($$source = {}) {
-        const $$createField6_0 = $$createType2;
-        const $$createField7_0 = $$createType4;
-        const $$createField8_0 = $$createType6;
-        const $$createField9_0 = $$createType8;
+        const $$createField7_0 = $$createType2;
+        const $$createField8_0 = $$createType4;
+        const $$createField9_0 = $$createType6;
+        const $$createField10_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("channels" in $$parsedSource) {
-            $$parsedSource["channels"] = $$createField6_0($$parsedSource["channels"]);
+            $$parsedSource["channels"] = $$createField7_0($$parsedSource["channels"]);
         }
         if ("agents" in $$parsedSource) {
-            $$parsedSource["agents"] = $$createField7_0($$parsedSource["agents"]);
+            $$parsedSource["agents"] = $$createField8_0($$parsedSource["agents"]);
         }
         if ("mcpServers" in $$parsedSource) {
-            $$parsedSource["mcpServers"] = $$createField8_0($$parsedSource["mcpServers"]);
+            $$parsedSource["mcpServers"] = $$createField9_0($$parsedSource["mcpServers"]);
         }
         if ("scheduleTasks" in $$parsedSource) {
-            $$parsedSource["scheduleTasks"] = $$createField9_0($$parsedSource["scheduleTasks"]);
+            $$parsedSource["scheduleTasks"] = $$createField10_0($$parsedSource["scheduleTasks"]);
         }
         return new AppSettings(/** @type {Partial<AppSettings>} */($$parsedSource));
     }
@@ -486,6 +493,52 @@ export class ChannelConfig {
     static createFrom($$source = {}) {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new ChannelConfig(/** @type {Partial<ChannelConfig>} */($$parsedSource));
+    }
+}
+
+export class ConnectSessionRequest {
+    /**
+     * Creates a new ConnectSessionRequest instance.
+     * @param {Partial<ConnectSessionRequest>} [$$source = {}] - The source object to create the ConnectSessionRequest.
+     */
+    constructor($$source = {}) {
+        if (!("sessionId" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["sessionId"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["cwd"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["additionalDirectories"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConnectSessionRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ConnectSessionRequest}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("additionalDirectories" in $$parsedSource) {
+            $$parsedSource["additionalDirectories"] = $$createField2_0($$parsedSource["additionalDirectories"]);
+        }
+        return new ConnectSessionRequest(/** @type {Partial<ConnectSessionRequest>} */($$parsedSource));
     }
 }
 

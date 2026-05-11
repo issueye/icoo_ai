@@ -3,11 +3,11 @@ import { GitBranch, MessageCircle } from 'lucide-vue-next'
 import { formatShortTime } from '@/lib/utils'
 
 defineProps({ conversation: { type: Object, required: true }, active: { type: Boolean, default: false } })
-defineEmits(['select'])
+defineEmits(['select', 'connect', 'disconnect', 'delete'])
 </script>
 
 <template>
-  <button class="qq-conversation-item" :class="{ 'is-active': active }" @click="$emit('select')">
+  <article class="qq-conversation-item" :class="{ 'is-active': active }" @click="$emit('select')">
     <div class="flex items-start gap-3">
       <div class="qq-avatar" :class="{ 'is-subagent': conversation.id.startsWith('subsess_') }">
         <GitBranch v-if="conversation.id.startsWith('subsess_')" class="h-5 w-5" />
@@ -22,17 +22,33 @@ defineEmits(['select'])
         <div class="mt-2 flex items-center gap-2 text-[10px] font-medium">
           <span class="qq-session-pill" :class="{ 'is-subagent': conversation.id.startsWith('subsess_') }">{{ conversation.id.startsWith('subsess_') ? 'subsess_' : 'sess_' }}</span>
           <span class="opacity-70">{{ conversation.status }}</span>
-          <span class="ml-auto">
+          <div class="ml-auto qq-conversation-actions">
             <button
-              class="qq-secondary-action h-6 px-2 text-[10px]"
+              class="qq-secondary-action h-6 px-2 text-[10px] disabled:cursor-not-allowed disabled:opacity-55"
               type="button"
-              @click.stop="$emit('select')"
+              :disabled="conversation.status === 'active'"
+              @click.stop="$emit('connect')"
             >
               连接
             </button>
-          </span>
+            <button
+              class="qq-secondary-action h-6 px-2 text-[10px] disabled:cursor-not-allowed disabled:opacity-55"
+              type="button"
+              :disabled="conversation.status !== 'active'"
+              @click.stop="$emit('disconnect')"
+            >
+              断开
+            </button>
+            <button
+              class="qq-secondary-action qq-crud-danger h-6 px-2 text-[10px]"
+              type="button"
+              @click.stop="$emit('delete')"
+            >
+              删除
+            </button>
+          </div>
         </div>
       </div>
     </div>
-  </button>
+  </article>
 </template>

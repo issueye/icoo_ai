@@ -14,6 +14,7 @@ defineProps({
 const gatewayPath = ref('')
 const gatewayHost = ref('127.0.0.1')
 const gatewayPort = ref(17889)
+const gatewayToken = ref('')
 const logLevel = ref('info')
 const logFormat = ref('text')
 const logFilePath = ref('logs/agent_chat.log')
@@ -42,6 +43,7 @@ onMounted(async () => {
   gatewayPath.value = app.gatewayBinaryPath || ''
   gatewayHost.value = app.gatewayHost || '127.0.0.1'
   gatewayPort.value = Number(app.gatewayPort || 17889)
+  gatewayToken.value = app.gatewayToken || ''
   logLevel.value = app.logLevel || 'info'
   logFormat.value = app.logFormat || 'text'
   logFilePath.value = app.logFilePath || 'logs/agent_chat.log'
@@ -101,6 +103,7 @@ async function saveSettings() {
     const normalizedHost = gatewayHost.value.trim() || '127.0.0.1'
     const normalizedBinaryPath = gatewayPath.value.trim()
     const normalizedGatewayPort = Number.isFinite(normalizedPort) ? normalizedPort : 17889
+    const normalizedGatewayToken = gatewayToken.value.trim()
     const normalizedLogLevel = ['debug', 'info', 'warn', 'error'].includes((logLevel.value || '').trim().toLowerCase())
       ? (logLevel.value || '').trim().toLowerCase()
       : 'info'
@@ -112,6 +115,7 @@ async function saveSettings() {
       normalizedBinaryPath !== (app.gatewayBinaryPath || '') ||
       normalizedHost !== (app.gatewayHost || '127.0.0.1') ||
       normalizedGatewayPort !== Number(app.gatewayPort || 17889) ||
+      normalizedGatewayToken !== (app.gatewayToken || '') ||
       normalizedLogLevel !== (app.logLevel || 'info') ||
       normalizedLogFormat !== (app.logFormat || 'text') ||
       normalizedLogFilePath !== (app.logFilePath || 'logs/agent_chat.log')
@@ -120,6 +124,7 @@ async function saveSettings() {
       gatewayBinaryPath: normalizedBinaryPath,
       gatewayHost: normalizedHost,
       gatewayPort: normalizedGatewayPort,
+      gatewayToken: normalizedGatewayToken,
       logLevel: normalizedLogLevel,
       logFormat: normalizedLogFormat,
       logFilePath: normalizedLogFilePath,
@@ -194,6 +199,7 @@ function resetToDefault() {
   gatewayPath.value = ''
   gatewayHost.value = '127.0.0.1'
   gatewayPort.value = 17889
+  gatewayToken.value = ''
   logLevel.value = 'info'
   logFormat.value = 'text'
   logFilePath.value = 'logs/agent_chat.log'
@@ -237,6 +243,14 @@ function resetToDefault() {
           max="65535"
           class="qq-settings-input"
           placeholder="17889"
+        />
+        <label class="qq-settings-label" for="gatewayToken">网关 Token</label>
+        <input
+          id="gatewayToken"
+          v-model="gatewayToken"
+          type="password"
+          class="qq-settings-input"
+          placeholder="可选：手动配置网关鉴权 token"
         />
         <label class="qq-settings-label" for="logLevel">日志级别</label>
         <ContextDropdown

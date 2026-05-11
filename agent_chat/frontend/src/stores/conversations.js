@@ -156,6 +156,39 @@ export const useConversationsStore = defineStore('conversations', {
     setFilter(filter) {
       this.filter = filter
     },
+    async connectConversation(sessionId, payload = {}) {
+      const normalizedSessionId = String(sessionId || '').trim()
+      if (!normalizedSessionId) throw new Error('sessionId is required')
+      const current = this.items.find((item) => item.id === normalizedSessionId)
+      const cwd = String(payload.cwd || current?.cwd || '').trim()
+      const additionalDirectories = Array.isArray(payload.additionalDirectories)
+        ? payload.additionalDirectories.map((item) => String(item || '').trim()).filter(Boolean)
+        : []
+      const conversation = await agentBridge.connectSession({
+        sessionId: normalizedSessionId,
+        cwd,
+        additionalDirectories,
+      })
+      this.upsertConversation(conversation)
+      this.activeSessionId = normalizedSessionId
+      return conversation
+    },
+    async disconnectConversation(sessionId) {
+      const normalizedSessionId = String(sessionId || '').trim()
+      if (!normalizedSessionId) throw new Error('sessionId is required')
+      const conversation = await agentBridge.disconnectSession(normalizedSessionId)
+      this.upsertConversation(conversation)
+      return conversation
+    },
+    async deleteConversation(sessionId) {
+      const normalizedSessionId = String(sessionId || '').trim()
+      if (!normalizedSessionId) throw new Error('sessionId is required')
+      await agentBridge.deleteSession(normalizedSessionId)
+      this.items = this.items.filter((item) => item.id !== normalizedSessionId)
+      if (this.activeSessionId === normalizedSessionId) {
+        this.activeSessionId = this.items[0]?.id ?? null
+      }
+    },
     updateActiveContext(patch) {
       if (!this.activeSessionId) return
       const index = this.items.findIndex((item) => item.id === this.activeSessionId)

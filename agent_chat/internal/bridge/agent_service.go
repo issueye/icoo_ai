@@ -27,33 +27,33 @@ const (
 )
 
 type AgentService struct {
-	mu               sync.RWMutex
-	messages         []MessageEvent
-	auditEvents      []AuditEvent
-	gateway          *gatewayProxy
-	bootstrap        *gatewayBootstrapper
-	lastEventID      string
-	currentSessionID string
-	activeSessions   map[string]struct{}
-	eventSink        func(MessageEvent)
-	gatewayStatus    string
-	gatewaySummary   string
-	gatewayUpdatedAt time.Time
-	serviceCtx       context.Context
-	streamMu         sync.Mutex
-	streamCancel     context.CancelFunc
-	probeEventStream func(context.Context, *gatewayProxy) error
+	mu                sync.RWMutex
+	messages          []MessageEvent
+	auditEvents       []AuditEvent
+	gateway           *gatewayProxy
+	bootstrap         *gatewayBootstrapper
+	lastEventID       string
+	currentSessionID  string
+	activeSessions    map[string]struct{}
+	eventSink         func(MessageEvent)
+	gatewayStatus     string
+	gatewaySummary    string
+	gatewayUpdatedAt  time.Time
+	serviceCtx        context.Context
+	streamMu          sync.Mutex
+	streamCancel      context.CancelFunc
+	probeEventStream  func(context.Context, *gatewayProxy) error
 	manualGatewayMode bool
 }
 
 func NewAgentService() *AgentService {
 	logger.Debug("creating agent service")
 	return &AgentService{
-		messages:       make([]MessageEvent, 0, 32),
-		auditEvents:    make([]AuditEvent, 0, 16),
-		gateway:        loadGatewayProxy(),
-		bootstrap:      newGatewayBootstrapper(),
-		activeSessions: make(map[string]struct{}),
+		messages:          make([]MessageEvent, 0, 32),
+		auditEvents:       make([]AuditEvent, 0, 16),
+		gateway:           loadGatewayProxy(),
+		bootstrap:         newGatewayBootstrapper(),
+		activeSessions:    make(map[string]struct{}),
 		manualGatewayMode: detectWailsDevMode(),
 		probeEventStream: func(ctx context.Context, proxy *gatewayProxy) error {
 			return probeGatewayEventStream(ctx, proxy)
@@ -355,6 +355,53 @@ func (s *AgentService) NewSession(ctx context.Context, req NewSessionRequest) (C
 	}
 	conversation := mapGatewaySessionToConversation(out)
 	s.setCurrentStreamSessionID(conversation.ID)
+	return conversation, nil
+}
+
+func (s *AgentService) ConnectSession(ctx context.Context, req ConnectSessionRequest) (Conversation, error) {
+	req.SessionID = strings.TrimSpace(req.SessionID)
+	if req.SessionID == "" {
+		return Conversation{}, &BridgeError{Code: ErrorCodeInvalidArgument, Message: "sessionId is required", Retryable: false}
+	}
+	var out gatewaySessionDTO
+	if err := s.gatewayJSON(
+		ctx,
+		http.MethodPost,
+		"/v1/sessions/"+url.PathEscape(req.SessionID)+"/resume",
+		mapConnectSessionRequest(req),
+		&out,
+	); err != nil {
+		return Conversation{}, err
+	}
+	conversation := mapGatewaySessionToConversation(out)
+	s.setCurrentStreamSessionID(req.SessionID)
+	return conversation, nil
+}
+
+func (s *AgentService) DisconnectSession(ctx context.Context, sessionID string) (Conversation, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return Conversation{}, &BridgeError{Code: ErrorCodeInvalidArgument, Message: "sessionId is required", Retryable: false}
+	}
+	var out gatewaySessionDTO
+	if err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/close", nil, &out); err != nil {
+		return Conversation{}, err
+	}
+	conversation := mapGatewaySessionToConversation(out)
+	s.setCurrentStreamSessionID(sessionID)
+	return conversation, nil
+}
+
+func (s *AgentService) DeleteSession(ctx context.Context, sessionID string) (Conversation, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return Conversation{}, &BridgeError{Code: ErrorCodeInvalidArgument, Message: "sessionId is required", Retryable: false}
+	}
+	var out gatewaySessionDTO
+	if err := s.gatewayJSON(ctx, http.MethodDelete, "/v1/sessions/"+url.PathEscape(sessionID), nil, &out); err != nil {
+		return Conversation{}, err
+	}
+	conversation := mapGatewaySessionToConversation(out)
 	return conversation, nil
 }
 
@@ -850,6 +897,11 @@ type gatewayCreateSessionRequest struct {
 	Model          string `json:"model,omitempty"`
 }
 
+type gatewayResumeSessionRequest struct {
+	CWD                   string   `json:"cwd,omitempty"`
+	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
+}
+
 type gatewayPromptRequest struct {
 	Content     string `json:"content"`
 	CWD         string `json:"cwd,omitempty"`
@@ -936,6 +988,13 @@ func mapPromptRequest(in PromptRequest) gatewayPromptRequest {
 		Mode:        mode,
 		AgentID:     resolveAgentIDFromMode(mode),
 		Model:       strings.TrimSpace(in.Model),
+	}
+}
+
+func mapConnectSessionRequest(in ConnectSessionRequest) gatewayResumeSessionRequest {
+	return gatewayResumeSessionRequest{
+		CWD:                   strings.TrimSpace(in.Cwd),
+		AdditionalDirectories: append([]string(nil), in.AdditionalDirectories...),
 	}
 }
 
@@ -1164,6 +1223,11 @@ func loadGatewayProxy() *gatewayProxy {
 	endpoint, token, err := gatewayclient.DiscoverFromPath("")
 	if err != nil {
 		return nil
+	}
+	if settings, settingsErr := loadAppSettings(); settingsErr == nil {
+		if configured := strings.TrimSpace(settings.GatewayToken); configured != "" {
+			token = configured
+		}
 	}
 	return &gatewayProxy{
 		client:  http.DefaultClient,

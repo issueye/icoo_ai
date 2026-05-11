@@ -15,6 +15,7 @@ export {
     ApprovalDecisionRequest,
     AuditEvent,
     ChannelConfig,
+    ConnectSessionRequest,
     Conversation,
     GatewayStatus,
     MCPServerConfig,

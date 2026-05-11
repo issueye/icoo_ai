@@ -5,8 +5,12 @@ import { Search } from 'lucide-vue-next'
 import ConversationItem from './ConversationItem.vue'
 import ContextDropdown from '@/components/ui/ContextDropdown.vue'
 import { useConversationsStore } from '@/stores/conversations'
+import { useMessagesStore } from '@/stores/messages'
+import { useAppStore } from '@/stores/app'
 
 const conversations = useConversationsStore()
+const messages = useMessagesStore()
+const app = useAppStore()
 const router = useRouter()
 const keyword = ref('')
 const filters = [
@@ -70,6 +74,47 @@ function selectConversation(sessionId) {
   conversations.setActiveSession(sessionId)
   router.push(`/chats/${sessionId}`)
 }
+
+async function connectConversation(item) {
+  try {
+    const conversation = await conversations.connectConversation(item.id, {
+      cwd: item.cwd || conversations.activeWorkspace?.path || '',
+    })
+    await messages.loadMessages(conversation.id)
+    router.push(`/chats/${conversation.id}`)
+    app.pushToast({ type: 'success', message: '已通过 ACP 连接会话' })
+  } catch (error) {
+    app.pushToast({ type: 'error', message: error?.message || '连接会话失败' })
+  }
+}
+
+async function disconnectConversation(item) {
+  const confirmed = window.confirm(`确认断开会话「${item.title || item.id}」吗？`)
+  if (!confirmed) return
+  try {
+    await conversations.disconnectConversation(item.id)
+    app.pushToast({ type: 'success', message: '会话已断开' })
+  } catch (error) {
+    app.pushToast({ type: 'error', message: error?.message || '断开会话失败' })
+  }
+}
+
+async function deleteConversation(item) {
+  const confirmed = window.confirm(`确认删除会话「${item.title || item.id}」吗？此操作不可恢复。`)
+  if (!confirmed) return
+  try {
+    await conversations.deleteConversation(item.id)
+    messages.clearSession(item.id)
+    if (conversations.activeSessionId) {
+      router.push(`/chats/${conversations.activeSessionId}`)
+    } else {
+      router.push('/chats')
+    }
+    app.pushToast({ type: 'success', message: '会话已删除' })
+  } catch (error) {
+    app.pushToast({ type: 'error', message: error?.message || '删除会话失败' })
+  }
+}
 </script>
 
 <template>
@@ -91,7 +136,16 @@ function selectConversation(sessionId) {
       </button>
     </div>
     <div class="scrollbar-thin-blue flex h-[calc(100vh-var(--global-header-height)-150px)] flex-col gap-2 overflow-y-auto pr-1">
-      <ConversationItem v-for="item in filtered" :key="item.id" :conversation="item" :active="item.id === conversations.activeSessionId" @select="selectConversation(item.id)" />
+      <ConversationItem
+        v-for="item in filtered"
+        :key="item.id"
+        :conversation="item"
+        :active="item.id === conversations.activeSessionId"
+        @select="selectConversation(item.id)"
+        @connect="connectConversation(item)"
+        @disconnect="disconnectConversation(item)"
+        @delete="deleteConversation(item)"
+      />
       <div v-if="!filtered.length" class="qq-event-card text-center text-sm">没有找到匹配会话</div>
     </div>
 

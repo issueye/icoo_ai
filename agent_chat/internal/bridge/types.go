@@ -63,6 +63,12 @@ type NewSessionRequest struct {
 	Model          string `json:"model,omitempty"`
 }
 
+type ConnectSessionRequest struct {
+	SessionID             string   `json:"sessionId"`
+	Cwd                   string   `json:"cwd,omitempty"`
+	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
+}
+
 type PromptRequest struct {
 	SessionID   string `json:"sessionId"`
 	Content     string `json:"content"`

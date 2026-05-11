@@ -568,6 +568,12 @@
     color: var(--qq-text-inverse);
   }
 
+  .qq-conversation-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
   .qq-chat-workspace {
     display: flex;
     min-width: 0;

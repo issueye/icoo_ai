@@ -50,6 +50,7 @@ type AppSettings struct {
 	GatewayBinaryPath string               `json:"gatewayBinaryPath,omitempty"`
 	GatewayHost       string               `json:"gatewayHost,omitempty"`
 	GatewayPort       int                  `json:"gatewayPort,omitempty"`
+	GatewayToken      string               `json:"gatewayToken,omitempty"`
 	LogLevel          string               `json:"logLevel,omitempty"`
 	LogFormat         string               `json:"logFormat,omitempty"`
 	LogFilePath       string               `json:"logFilePath,omitempty"`
@@ -244,6 +245,12 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 				return AppSettings{}, err
 			}
 			settings.GatewayPort = parsed
+		case "gateway_token":
+			unquoted, err := strconv.Unquote(value)
+			if err != nil {
+				return AppSettings{}, err
+			}
+			settings.GatewayToken = strings.TrimSpace(unquoted)
 		case "log_level":
 			unquoted, err := strconv.Unquote(value)
 			if err != nil {
@@ -276,6 +283,7 @@ func encodeSettingsTOML(settings AppSettings) []byte {
 	fmt.Fprintf(&builder, "gateway_binary_path = %s\n", strconv.Quote(normalized.GatewayBinaryPath))
 	fmt.Fprintf(&builder, "gateway_host = %s\n", strconv.Quote(normalized.GatewayHost))
 	fmt.Fprintf(&builder, "gateway_port = %d\n", normalized.GatewayPort)
+	fmt.Fprintf(&builder, "gateway_token = %s\n", strconv.Quote(normalized.GatewayToken))
 	fmt.Fprintf(&builder, "log_level = %s\n", strconv.Quote(normalized.LogLevel))
 	fmt.Fprintf(&builder, "log_format = %s\n", strconv.Quote(normalized.LogFormat))
 	fmt.Fprintf(&builder, "log_file_path = %s\n", strconv.Quote(normalized.LogFilePath))
@@ -298,6 +306,7 @@ func normalizeAppSettings(in AppSettings) AppSettings {
 		GatewayBinaryPath: strings.TrimSpace(in.GatewayBinaryPath),
 		GatewayHost:       strings.TrimSpace(in.GatewayHost),
 		GatewayPort:       in.GatewayPort,
+		GatewayToken:      strings.TrimSpace(in.GatewayToken),
 		LogLevel:          strings.TrimSpace(in.LogLevel),
 		LogFormat:         strings.TrimSpace(in.LogFormat),
 		LogFilePath:       strings.TrimSpace(in.LogFilePath),

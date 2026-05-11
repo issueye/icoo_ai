@@ -7,17 +7,21 @@ import (
 
 func TestNormalizeAppSettingsAppliesDefaultsAndSanitizesInvalidValues(t *testing.T) {
 	normalized := normalizeAppSettings(AppSettings{
-		GatewayHost: "",
-		GatewayPort: -1,
-		LogLevel:    "verbose",
-		LogFormat:   "yaml",
-		LogFilePath: "",
+		GatewayHost:  "",
+		GatewayPort:  -1,
+		GatewayToken: "  demo-token  ",
+		LogLevel:     "verbose",
+		LogFormat:    "yaml",
+		LogFilePath:  "",
 	})
 	if normalized.GatewayHost != "127.0.0.1" {
 		t.Fatalf("GatewayHost = %q, want 127.0.0.1", normalized.GatewayHost)
 	}
 	if normalized.GatewayPort != 17889 {
 		t.Fatalf("GatewayPort = %d, want 17889", normalized.GatewayPort)
+	}
+	if normalized.GatewayToken != "demo-token" {
+		t.Fatalf("GatewayToken = %q, want demo-token", normalized.GatewayToken)
 	}
 	if normalized.LogLevel != "info" {
 		t.Fatalf("LogLevel = %q, want info", normalized.LogLevel)
@@ -50,6 +54,7 @@ func TestEncodeSettingsTOMLIncludesOnlyLocalGatewayAndLogKeys(t *testing.T) {
 		"gateway_binary_path = ",
 		"gateway_host = ",
 		"gateway_port = 18080",
+		"gateway_token = ",
 		"log_level = ",
 		"log_format = ",
 		"log_file_path = ",
@@ -60,8 +65,6 @@ func TestEncodeSettingsTOMLIncludesOnlyLocalGatewayAndLogKeys(t *testing.T) {
 		}
 	}
 	disallowed := []string{
-		"acp_enabled",
-		"acp_command",
 		"[[channels]]",
 		"[[agents]]",
 	}
@@ -77,6 +80,7 @@ func TestDecodeSettingsTOMLReadsCurrentKeys(t *testing.T) {
 		"gateway_binary_path = \"E:/bin/agent-gateway.exe\"\n" +
 			"gateway_host = \"127.0.0.1\"\n" +
 			"gateway_port = 18080\n" +
+			"gateway_token = \"test-token\"\n" +
 			"log_level = \"debug\"\n" +
 			"log_format = \"json\"\n" +
 			"log_file_path = \"logs/custom.log\"\n",
@@ -90,6 +94,9 @@ func TestDecodeSettingsTOMLReadsCurrentKeys(t *testing.T) {
 	}
 	if settings.GatewayHost != "127.0.0.1" || settings.GatewayPort != 18080 {
 		t.Fatalf("gateway endpoint mismatch: host=%q port=%d", settings.GatewayHost, settings.GatewayPort)
+	}
+	if settings.GatewayToken != "test-token" {
+		t.Fatalf("GatewayToken = %q, want test-token", settings.GatewayToken)
 	}
 	if settings.LogLevel != "debug" || settings.LogFormat != "json" || settings.LogFilePath != "logs/custom.log" {
 		t.Fatalf("log settings mismatch: %#v", settings)
