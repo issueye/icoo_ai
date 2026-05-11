@@ -2,6 +2,7 @@ agent_chat/.task/*
 *.exe
 *.log
 *.txt
+*.toml
 
 agent/*
 dist/*

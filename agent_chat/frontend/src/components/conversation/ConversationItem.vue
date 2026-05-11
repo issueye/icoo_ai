@@ -22,6 +22,15 @@ defineEmits(['select'])
         <div class="mt-2 flex items-center gap-2 text-[10px] font-medium">
           <span class="qq-session-pill" :class="{ 'is-subagent': conversation.id.startsWith('subsess_') }">{{ conversation.id.startsWith('subsess_') ? 'subsess_' : 'sess_' }}</span>
           <span class="opacity-70">{{ conversation.status }}</span>
+          <span class="ml-auto">
+            <button
+              class="qq-secondary-action h-6 px-2 text-[10px]"
+              type="button"
+              @click.stop="$emit('select')"
+            >
+              连接
+            </button>
+          </span>
         </div>
       </div>
     </div>

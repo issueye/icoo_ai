@@ -7,9 +7,10 @@ const app = useAppStore()
 const agents = ref([])
 const disabled = computed(() => app.settingsSaving)
 const saveDisabled = computed(() => app.settingsSaving || app.settingsLoading || !app.settingsLoaded)
+const agentProtocolTypes = ['acp', 'agent_acp', 'icoo_acp']
 
 const extraFields = [
-  { key: 'protocol', label: '协议', placeholder: 'acp', defaultValue: '' },
+  { key: 'protocol', label: '协议', placeholder: 'acp / agent_acp / icoo_acp', defaultValue: 'acp' },
   { key: 'description', label: '描述', placeholder: 'Agent 描述', defaultValue: '' },
 ]
 
@@ -61,6 +62,9 @@ onMounted(async () => {
 
 function validateAgent(item) {
   if (!item.name) return '请填写名称'
+  const protocol = String(item.protocol || '').trim()
+  if (!protocol) return '请填写协议类型'
+  if (!agentProtocolTypes.includes(protocol)) return `协议仅支持：${agentProtocolTypes.join(' / ')}`
   return ''
 }
 

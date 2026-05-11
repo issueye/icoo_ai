@@ -28,7 +28,6 @@ type Server struct {
 	endpoint              Endpoint
 	http                  *http.Server
 	listener              net.Listener
-	acpConn               connector.AgentConnector
 	store                 store.Store
 	eventBus              *events.Bus
 	projector             *eventProjector
@@ -118,12 +117,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.projector != nil {
 		s.projector.Stop()
 	}
-	if s.acpConn != nil {
-		if err := s.acpConn.Close(); err != nil {
-			shutdownErr = errors.Join(shutdownErr, err)
-		}
-		s.acpConn = nil
-	}
 	if s.gatewayServiceCloser != nil {
 		if err := s.gatewayServiceCloser.Close(); err != nil {
 			shutdownErr = errors.Join(shutdownErr, err)
@@ -145,40 +138,26 @@ func (s *Server) newGatewayService() (service.GatewayService, error) {
 	if s.gatewayServiceFactory != nil {
 		return s.gatewayServiceFactory(memStore)
 	}
-	if !s.cfg.ACP.Enabled {
-		return nil, connector.NewError(
-			connector.ErrCodeInvalidConnectorConfig,
-			"acp connector is disabled in runtime config",
-		)
-	}
-	conn, err := s.newACPConnector(memStore)
-	if err != nil {
-		return nil, err
-	}
-	initCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if _, err := conn.Initialize(initCtx, connector.InitializeRequest{
-		ClientName:    "agent-gateway",
-		ClientVersion: s.cfg.Version,
-	}); err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	s.acpConn = conn
 	settingsStore, err := service.NewSQLiteManagementSettingsStore(filepath.Join(s.cfg.DataDir, "management.db"))
 	if err != nil {
-		_ = conn.Close()
 		return nil, err
 	}
-	return service.NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore([]service.AgentProfile{
-		{
-			ID:          "icoo-ai-acp",
-			Name:        "Icoo AI",
-			Protocol:    "acp",
-			Models:      []string{"gpt-5.4"},
-			Description: "Default ACP connector profile.",
-		},
-	}, memStore, settingsStore, conn), nil
+	defaultAgents := []service.AgentProfile{
+		{ID: "icoo-ai-acp", Name: "Icoo AI", Protocol: "icoo_acp", Models: []string{"gpt-5.4"}, Description: "Icoo ACP agent profile."},
+		{ID: "agent-acp", Name: "Agent ACP", Protocol: "agent_acp", Models: []string{"gpt-5.4"}, Description: "Generic ACP agent profile."},
+	}
+
+	if !s.cfg.ACP.Enabled {
+		return service.NewMockGatewayServiceWithAgentsStoreAndSettingsStore(defaultAgents, memStore, settingsStore), nil
+	}
+
+	lazy := newLazyConnector(func() (connector.AgentConnector, error) {
+		return s.newACPConnector(memStore)
+	}, connector.InitializeRequest{
+		ClientName:    "agent-gateway",
+		ClientVersion: s.cfg.Version,
+	})
+	return service.NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore(defaultAgents, memStore, settingsStore, lazy), nil
 }
 
 func (s *Server) newACPConnector(memStore store.Store) (connector.AgentConnector, error) {

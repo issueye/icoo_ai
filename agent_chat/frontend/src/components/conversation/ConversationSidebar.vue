@@ -20,11 +20,13 @@ const formError = ref('')
 const sessionTitle = ref('新的 Agent 会话')
 const workspaceDir = ref('')
 const startupCommand = ref('icoo-ai')
+const selectedAgentId = ref('')
 
 function openCreateDialog() {
   sessionTitle.value = '新的 Agent 会话'
   workspaceDir.value = conversations.activeWorkspace?.path ?? ''
   startupCommand.value = 'icoo-ai'
+  selectedAgentId.value = conversations.activeMode?.id || conversations.agentProfiles[0]?.id || ''
   formError.value = ''
   dialogOpen.value = true
 }
@@ -45,6 +47,10 @@ async function createConversation() {
     formError.value = '请输入启动命令'
     return
   }
+  if (!selectedAgentId.value.trim()) {
+    formError.value = '请选择 Agent'
+    return
+  }
   creating.value = true
   formError.value = ''
   try {
@@ -52,6 +58,8 @@ async function createConversation() {
       title: sessionTitle.value.trim() || '新的 Agent 会话',
       cwd,
       startupCommand: command,
+      agentId: selectedAgentId.value.trim(),
+      mode: selectedAgentId.value.trim(),
     })
     dialogOpen.value = false
     router.push(`/chats/${conversation.id}`)
@@ -105,6 +113,14 @@ function selectConversation(sessionId) {
           <label class="qq-modal-field">
             <span class="qq-modal-label">工作区目录</span>
             <input v-model="workspaceDir" class="qq-settings-input" type="text" placeholder="E:/codes/icoo_ai" />
+          </label>
+          <label class="qq-modal-field">
+            <span class="qq-modal-label">Agent</span>
+            <select v-model="selectedAgentId" class="qq-settings-input">
+              <option v-for="agent in conversations.agentProfiles" :key="agent.id" :value="agent.id">
+                {{ agent.name }} ({{ agent.id }})
+              </option>
+            </select>
           </label>
           <label class="qq-modal-field">
             <span class="qq-modal-label">启动命令</span>

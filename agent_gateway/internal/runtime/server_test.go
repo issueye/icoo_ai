@@ -13,7 +13,6 @@ import (
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/api"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/config"
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
@@ -104,28 +103,32 @@ func TestServerStartWritesEndpointAndServesHealth(t *testing.T) {
 	}
 }
 
-func TestServerStartReturnsStructuredErrorWhenACPDisabled(t *testing.T) {
+func TestServerStartWhenACPDisabledStillServesManagementAPI(t *testing.T) {
 	cfg := config.Default()
+	cfg.DataDir = t.TempDir()
 
 	server, err := NewServer(cfg)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}
-	err = server.Start()
-	if err == nil {
-		t.Fatal("Start() error = nil, want structured disabled connector error")
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
 	}
-	structured, ok := err.(*connector.Error)
-	if !ok {
-		t.Fatalf("expected *connector.Error, got %T", err)
-	}
-	if structured.Code != connector.ErrCodeInvalidConnectorConfig {
-		t.Fatalf("error code = %q, want %q", structured.Code, connector.ErrCodeInvalidConnectorConfig)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+	})
+
+	settings := mustAuthorizedJSON[service.ManagementSettings](t, server, http.MethodGet, "/v1/management/settings", nil)
+	if len(settings.Agents) == 0 {
+		t.Fatalf("expected default agents when acp disabled, got %#v", settings)
 	}
 }
 
-func TestServerStartReturnsStructuredErrorWhenACPConnectorFails(t *testing.T) {
+func TestServerCreateSessionReturnsStructuredErrorWhenACPConnectorFails(t *testing.T) {
 	cfg := config.Default()
+	cfg.DataDir = t.TempDir()
 	cfg.ACP.Enabled = true
 	cfg.ACP.Command = "definitely-not-a-real-command-12345"
 
@@ -133,16 +136,35 @@ func TestServerStartReturnsStructuredErrorWhenACPConnectorFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}
-	err = server.Start()
-	if err == nil {
-		t.Fatal("Start() error = nil, want structured connector error")
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
 	}
-	structured, ok := err.(*connector.Error)
-	if !ok {
-		t.Fatalf("expected *connector.Error, got %T", err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+	})
+
+	var reqBody = map[string]string{
+		"title":   "lazy connect fail",
+		"cwd":     "E:/code/issueye/icoo_ai",
+		"agentId": "icoo-ai-acp",
 	}
-	if structured.Code != "connector_start_failed" {
-		t.Fatalf("error code = %q, want connector_start_failed", structured.Code)
+	reqRaw, _ := json.Marshal(reqBody)
+	req, err := http.NewRequest(http.MethodPost, server.Endpoint().BaseURL+"/v1/sessions", bytes.NewReader(reqRaw))
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /v1/sessions error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway {
+		data, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 502, body=%s", resp.StatusCode, string(data))
 	}
 }
 

@@ -23,8 +23,8 @@ CLI flags are intentionally limited to `-host` / `-port` (plus `-once` for one-s
 
 Gateway configuration template:
 
-- `config/agent-gateway.example.json`
-- Includes ACP runtime settings and management settings (`agents`, `mcpServers`, `scheduleTasks`).
+- `config/agent-gateway.example.toml`
+- Includes only basic runtime settings (`host`, `port`, `data_dir`).
 - Current binary still accepts only `-host`/`-port` CLI overrides; this template is the standard config baseline for gateway-managed settings.
 
 Smoke check:
