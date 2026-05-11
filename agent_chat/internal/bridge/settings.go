@@ -92,8 +92,7 @@ func (s *AgentService) GetAppSettings() (AppSettings, error) {
 	}
 	remote, remoteErr := s.fetchGatewayManagementSettings(context.Background())
 	if remoteErr != nil {
-		logger.Warn("load management settings from gateway failed, fallback to local settings", "error", remoteErr)
-		return settings, nil
+		return AppSettings{}, remoteErr
 	}
 	settings.Agents = normalizeAgents(remote.Agents)
 	settings.MCPServers = normalizeMCPServers(remote.MCPServers)
@@ -211,9 +210,6 @@ func (s *AgentService) updateGatewayManagementSettings(ctx context.Context, payl
 func decodeSettingsTOML(data []byte) (AppSettings, error) {
 	settings := AppSettings{}
 	currentChannelIndex := -1
-	currentMCPServerIndex := -1
-	currentScheduleTaskIndex := -1
-	currentAgentIndex := -1
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -231,30 +227,8 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 			if line == "[[channels]]" {
 				settings.Channels = append(settings.Channels, ChannelConfig{})
 				currentChannelIndex = len(settings.Channels) - 1
-				currentMCPServerIndex = -1
-				currentScheduleTaskIndex = -1
-			} else if line == "[[mcp_servers]]" {
-				settings.MCPServers = append(settings.MCPServers, MCPServerConfig{})
-				currentMCPServerIndex = len(settings.MCPServers) - 1
-				currentChannelIndex = -1
-				currentScheduleTaskIndex = -1
-			} else if line == "[[schedule_tasks]]" {
-				settings.ScheduleTasks = append(settings.ScheduleTasks, ScheduleTaskConfig{})
-				currentScheduleTaskIndex = len(settings.ScheduleTasks) - 1
-				currentMCPServerIndex = -1
-				currentChannelIndex = -1
-				currentAgentIndex = -1
-			} else if line == "[[agents]]" {
-				settings.Agents = append(settings.Agents, AgentConfig{})
-				currentAgentIndex = len(settings.Agents) - 1
-				currentMCPServerIndex = -1
-				currentScheduleTaskIndex = -1
-				currentChannelIndex = -1
 			} else {
 				currentChannelIndex = -1
-				currentMCPServerIndex = -1
-				currentScheduleTaskIndex = -1
-				currentAgentIndex = -1
 			}
 			continue
 		}
@@ -321,144 +295,6 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 			}
 			if handled {
 				settings.Channels[currentChannelIndex] = channel
-				continue
-			}
-		}
-		if currentMCPServerIndex >= 0 {
-			server := settings.MCPServers[currentMCPServerIndex]
-			handled := true
-			switch key {
-			case "id":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				server.ID = strings.TrimSpace(unquoted)
-			case "name":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				server.Name = strings.TrimSpace(unquoted)
-			case "command":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				server.Command = strings.TrimSpace(unquoted)
-			case "enabled":
-				parsed, err := strconv.ParseBool(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				server.Enabled = parsed
-			case "args":
-				parsedArgs, err := parseTOMLStringArray(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				server.Args = parsedArgs
-			default:
-				handled = false
-			}
-			if handled {
-				settings.MCPServers[currentMCPServerIndex] = server
-				continue
-			}
-		}
-		if currentScheduleTaskIndex >= 0 {
-			task := settings.ScheduleTasks[currentScheduleTaskIndex]
-			handled := true
-			switch key {
-			case "id":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				task.ID = strings.TrimSpace(unquoted)
-			case "name":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				task.Name = strings.TrimSpace(unquoted)
-			case "spec":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				task.Spec = strings.TrimSpace(unquoted)
-			case "command":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				task.Command = strings.TrimSpace(unquoted)
-			case "enabled":
-				parsed, err := strconv.ParseBool(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				task.Enabled = parsed
-			case "args":
-				parsedArgs, err := parseTOMLStringArray(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				task.Args = parsedArgs
-			default:
-				handled = false
-			}
-			if handled {
-				settings.ScheduleTasks[currentScheduleTaskIndex] = task
-				continue
-			}
-		}
-		if currentAgentIndex >= 0 {
-			agent := settings.Agents[currentAgentIndex]
-			handled := true
-			switch key {
-			case "id":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				agent.ID = strings.TrimSpace(unquoted)
-			case "name":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				agent.Name = strings.TrimSpace(unquoted)
-			case "protocol":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				agent.Protocol = strings.TrimSpace(unquoted)
-			case "description":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				agent.Description = strings.TrimSpace(unquoted)
-			case "enabled":
-				parsed, err := strconv.ParseBool(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				agent.Enabled = parsed
-			case "models":
-				parsedModels, err := parseTOMLStringArray(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				agent.Models = parsedModels
-			default:
-				handled = false
-			}
-			if handled {
-				settings.Agents[currentAgentIndex] = agent
 				continue
 			}
 		}
@@ -547,32 +383,6 @@ func encodeSettingsTOML(settings AppSettings) []byte {
 		fmt.Fprintf(&builder, "app_secret = %s\n", strconv.Quote(channel.AppSecret))
 		fmt.Fprintf(&builder, "bot_token = %s\n", strconv.Quote(channel.BotToken))
 		fmt.Fprintf(&builder, "webhook_url = %s\n", strconv.Quote(channel.WebhookURL))
-	}
-	for _, server := range normalized.MCPServers {
-		builder.WriteString("\n[[mcp_servers]]\n")
-		fmt.Fprintf(&builder, "id = %s\n", strconv.Quote(server.ID))
-		fmt.Fprintf(&builder, "name = %s\n", strconv.Quote(server.Name))
-		fmt.Fprintf(&builder, "command = %s\n", strconv.Quote(server.Command))
-		fmt.Fprintf(&builder, "args = %s\n", encodeTOMLStringArray(server.Args))
-		fmt.Fprintf(&builder, "enabled = %t\n", server.Enabled)
-	}
-	for _, task := range normalized.ScheduleTasks {
-		builder.WriteString("\n[[schedule_tasks]]\n")
-		fmt.Fprintf(&builder, "id = %s\n", strconv.Quote(task.ID))
-		fmt.Fprintf(&builder, "name = %s\n", strconv.Quote(task.Name))
-		fmt.Fprintf(&builder, "spec = %s\n", strconv.Quote(task.Spec))
-		fmt.Fprintf(&builder, "command = %s\n", strconv.Quote(task.Command))
-		fmt.Fprintf(&builder, "args = %s\n", encodeTOMLStringArray(task.Args))
-		fmt.Fprintf(&builder, "enabled = %t\n", task.Enabled)
-	}
-	for _, agent := range normalized.Agents {
-		builder.WriteString("\n[[agents]]\n")
-		fmt.Fprintf(&builder, "id = %s\n", strconv.Quote(agent.ID))
-		fmt.Fprintf(&builder, "name = %s\n", strconv.Quote(agent.Name))
-		fmt.Fprintf(&builder, "protocol = %s\n", strconv.Quote(agent.Protocol))
-		fmt.Fprintf(&builder, "description = %s\n", strconv.Quote(agent.Description))
-		fmt.Fprintf(&builder, "models = %s\n", encodeTOMLStringArray(agent.Models))
-		fmt.Fprintf(&builder, "enabled = %t\n", agent.Enabled)
 	}
 	return []byte(builder.String())
 }
