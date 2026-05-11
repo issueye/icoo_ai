@@ -1,4 +1,4 @@
-package api
+package handlers
 
 import (
 	"bytes"
@@ -7,7 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
+	legacy "github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/services"
 )
 
 func doRequest(t *testing.T, h http.Handler, method, path string, payload any) *httptest.ResponseRecorder {
@@ -36,10 +38,15 @@ func decodeResponse[T any](t *testing.T, rr *httptest.ResponseRecorder) T {
 	return out
 }
 
+func newRouter() http.Handler {
+	core := legacy.NewGatewayService()
+	return NewRouter(services.NewGateway(core))
+}
+
 func TestManagementSettingsPutThenGet(t *testing.T) {
-	router := NewRouter(service.NewGatewayService())
-	payload := service.ManagementSettings{
-		Agents: []service.AgentConfig{
+	router := newRouter()
+	payload := models.ManagementSettings{
+		Agents: []models.AgentConfig{
 			{ID: "a1", Name: "Agent One", Protocol: "acp", Models: []string{"gpt-5.4"}, Enabled: true},
 		},
 	}
@@ -53,22 +60,22 @@ func TestManagementSettingsPutThenGet(t *testing.T) {
 	if getResp.Code != http.StatusOK {
 		t.Fatalf("GET status = %d, want 200 body=%s", getResp.Code, getResp.Body.String())
 	}
-	got := decodeResponse[service.ManagementSettings](t, getResp)
+	got := decodeResponse[models.ManagementSettings](t, getResp)
 	if len(got.Agents) != 1 || got.Agents[0].ID != "a1" {
 		t.Fatalf("unexpected settings agents: %#v", got.Agents)
 	}
 }
 
-func TestPromptRouteReturnsServiceUnavailableWithoutConnector(t *testing.T) {
-	router := NewRouter(service.NewGatewayService())
+func TestSessionMessagesCreateWithoutConnectorReturnsServiceUnavailable(t *testing.T) {
+	router := newRouter()
 
-	createResp := doRequest(t, router, http.MethodPost, "/v1/sessions", service.CreateSessionRequest{Title: "demo"})
+	createResp := doRequest(t, router, http.MethodPost, "/v1/sessions", models.CreateSessionRequest{Title: "demo"})
 	if createResp.Code != http.StatusCreated {
 		t.Fatalf("create session status = %d, want 201 body=%s", createResp.Code, createResp.Body.String())
 	}
-	session := decodeResponse[service.Session](t, createResp)
+	session := decodeResponse[models.Session](t, createResp)
 
-	promptResp := doRequest(t, router, http.MethodPost, "/v1/sessions/"+session.ID+"/prompt", service.PromptRequest{Content: "hello"})
+	promptResp := doRequest(t, router, http.MethodPost, "/v1/sessions/"+session.ID+"/messages", models.PromptRequest{Content: "hello"})
 	if promptResp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("prompt status = %d, want 503 body=%s", promptResp.Code, promptResp.Body.String())
 	}
@@ -78,10 +85,16 @@ func TestPromptRouteReturnsServiceUnavailableWithoutConnector(t *testing.T) {
 	}
 }
 
-func TestManagementSettingsRejectsUnsupportedMethod(t *testing.T) {
-	router := NewRouter(service.NewGatewayService())
-	resp := doRequest(t, router, http.MethodPost, "/v1/management/settings", nil)
-	if resp.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want 405 body=%s", resp.Code, resp.Body.String())
+func TestSessionModeUsesPutOnly(t *testing.T) {
+	router := newRouter()
+	createResp := doRequest(t, router, http.MethodPost, "/v1/sessions", models.CreateSessionRequest{Title: "demo"})
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create session status = %d, want 201 body=%s", createResp.Code, createResp.Body.String())
+	}
+	session := decodeResponse[models.Session](t, createResp)
+
+	postResp := doRequest(t, router, http.MethodPost, "/v1/sessions/"+session.ID+"/mode", models.SetSessionModeRequest{Mode: "x"})
+	if postResp.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405 body=%s", postResp.Code, postResp.Body.String())
 	}
 }

@@ -7,12 +7,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/security"
 )
 
 const DefaultConfigPath = "config/agent-gateway.toml"
 
 // LoadFile reads a minimal TOML config used by gateway runtime.
-// Supported keys: host, port, data_dir.
+// Supported keys: host, port, data_dir, auth_token.
 func LoadFile(path string) (Config, error) {
 	cfg := Default()
 
@@ -60,6 +62,12 @@ func LoadFile(path string) (Config, error) {
 				return Config{}, fmt.Errorf("invalid data_dir at line %d: %w", lineNo, err)
 			}
 			cfg.DataDir = filepath.Clean(value)
+		case "auth_token":
+			value, err := parseTomlString(rawValue)
+			if err != nil {
+				return Config{}, fmt.Errorf("invalid auth_token at line %d: %w", lineNo, err)
+			}
+			cfg.AuthToken = strings.TrimSpace(value)
 		default:
 			return Config{}, fmt.Errorf("unsupported config key %q at line %d", key, lineNo)
 		}
@@ -77,4 +85,33 @@ func parseTomlString(raw string) (string, error) {
 		return "", fmt.Errorf("must be a quoted string")
 	}
 	return raw[1 : len(raw)-1], nil
+}
+
+func SaveFile(path string, cfg Config) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	content := fmt.Sprintf(
+		"host = %q\nport = %d\ndata_dir = %q\nauth_token = %q\n",
+		cfg.Host,
+		cfg.Port,
+		cfg.DataDir,
+		strings.TrimSpace(cfg.AuthToken),
+	)
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+func EnsureAuthToken(path string, cfg Config) (Config, error) {
+	if strings.TrimSpace(cfg.AuthToken) != "" {
+		return cfg, nil
+	}
+	token, err := security.GenerateToken()
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.AuthToken = token
+	if err := SaveFile(path, cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }

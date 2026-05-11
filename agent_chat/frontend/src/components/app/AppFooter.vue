@@ -1,8 +1,9 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 
 const app = useAppStore()
+const reconnecting = ref(false)
 
 const statusText = computed(() => {
   const mapping = {
@@ -23,6 +24,24 @@ const statusClass = computed(() => {
   }
   return mapping[app.gatewayStatus] ?? 'is-connecting'
 })
+
+const canReconnect = computed(() => app.gatewayStatus === 'gateway_failed')
+
+async function reconnectGateway() {
+  if (!canReconnect.value || reconnecting.value) return
+  reconnecting.value = true
+  try {
+    const reconnectAction = typeof app.reconnectGateway === 'function'
+      ? app.reconnectGateway
+      : app.restartGateway
+    await reconnectAction()
+    app.pushToast({ type: 'success', message: '网关重新连接成功' })
+  } catch (error) {
+    app.pushToast({ type: 'error', message: error?.message || '网关重新连接失败' })
+  } finally {
+    reconnecting.value = false
+  }
+}
 </script>
 
 <template>
@@ -33,10 +52,18 @@ const statusClass = computed(() => {
         <span class="qq-footer-dot" />
         <span>{{ statusText }}</span>
       </span>
+      <button
+        v-if="canReconnect"
+        class="qq-footer-reconnect"
+        type="button"
+        :disabled="reconnecting"
+        @click="reconnectGateway"
+      >
+        {{ reconnecting ? '重连中…' : '重新连接' }}
+      </button>
     </div>
     <div class="qq-footer-summary">
       {{ app.gatewaySummary || '等待状态更新' }}
     </div>
   </footer>
 </template>
-

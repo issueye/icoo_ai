@@ -1,4 +1,4 @@
-package api
+package handlers
 
 import (
 	"encoding/json"
@@ -17,7 +17,7 @@ func HealthHandler(version string, startedAt time.Time) http.Handler {
 	response := HealthResponse{
 		Status:       "ok",
 		Version:      version,
-		Capabilities: []string{"health", "local-auth", "endpoint-file"},
+		Capabilities: []string{"health", "local-auth", "endpoint-file", "crud-handlers"},
 		StartedAt:    startedAt,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

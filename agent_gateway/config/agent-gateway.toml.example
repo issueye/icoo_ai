@@ -1,3 +1,4 @@
 host = "127.0.0.1"
 port = 17889
 data_dir = "./.agent_gateway"
+auth_token = ""

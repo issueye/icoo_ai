@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Power, PowerOff, RefreshCcw, RotateCcw, Save } from 'lucide-vue-next'
+import { Save } from 'lucide-vue-next'
 import ContextDropdown from '@/components/ui/ContextDropdown.vue'
 import { useAppStore } from '@/stores/app'
 
@@ -128,6 +128,7 @@ async function saveSettings() {
       logLevel: normalizedLogLevel,
       logFormat: normalizedLogFormat,
       logFilePath: normalizedLogFilePath,
+      localOnly: true,
     })
 
     if (settingsChanged) {
@@ -154,57 +155,6 @@ async function saveSettings() {
   }
 }
 
-async function refreshGatewayStatus() {
-  await app.refreshGatewayStatus()
-  const isReady = app.gatewayStatus === 'gateway_ready'
-  app.pushToast({
-    type: isReady ? 'success' : 'info',
-    message: isReady ? '网关刷新成功，连接正常' : `网关状态已刷新：${statusLabel.value}`,
-  })
-}
-
-async function restartGateway() {
-  try {
-    const confirmed = await requestGatewayConfirmation({
-      title: '重启网关',
-      lines: ['将停止当前网关并重新拉起。', '是否继续重启？'],
-      confirmLabel: '确认重启',
-      cancelLabel: '取消',
-    })
-    if (!confirmed) return
-    await app.restartGateway()
-    app.pushToast({ type: 'success', message: '网关重启完成' })
-  } catch {
-    app.pushToast({ type: 'error', message: app.gatewaySummary || '网关重启失败' })
-  }
-}
-
-async function stopGateway() {
-  try {
-    const confirmed = await requestGatewayConfirmation({
-      title: '关闭网关',
-      lines: ['关闭后将中断当前网关连接。', '是否确认关闭网关服务？'],
-      confirmLabel: '确认关闭',
-      cancelLabel: '取消',
-    })
-    if (!confirmed) return
-    await app.stopGateway()
-    app.pushToast({ type: 'success', message: '网关已关闭' })
-  } catch {
-    app.pushToast({ type: 'error', message: app.gatewaySummary || '网关关闭失败' })
-  }
-}
-
-function resetToDefault() {
-  gatewayPath.value = ''
-  gatewayHost.value = '127.0.0.1'
-  gatewayPort.value = 17889
-  gatewayToken.value = ''
-  logLevel.value = 'info'
-  logFormat.value = 'text'
-  logFilePath.value = 'logs/agent_chat.log'
-  app.pushToast({ type: 'info', message: '已恢复默认配置，请保存后重启网关' })
-}
 </script>
 
 <template>
@@ -277,18 +227,6 @@ function resetToDefault() {
           placeholder="logs/agent_chat.log"
         />
         <div class="qq-settings-actions">
-          <button class="qq-icon-button" :disabled="disabled" aria-label="恢复默认路径" @click="resetToDefault">
-            <RotateCcw class="h-4 w-4" />
-          </button>
-          <button class="qq-icon-button" :disabled="disabled" aria-label="重启网关服务" @click="restartGateway">
-            <Power class="h-4 w-4" />
-          </button>
-          <button class="qq-icon-button" :disabled="disabled" aria-label="关闭网关服务" @click="stopGateway">
-            <PowerOff class="h-4 w-4" />
-          </button>
-          <button class="qq-icon-button" :disabled="disabled" aria-label="刷新网关状态" @click="refreshGatewayStatus">
-            <RefreshCcw class="h-4 w-4" />
-          </button>
           <button class="qq-primary-action h-9 px-4" :disabled="disabled" @click="saveSettings">
             <Save class="h-4 w-4" />
             <span>{{ app.settingsSaving ? '保存中' : '保存配置' }}</span>

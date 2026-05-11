@@ -1,4 +1,4 @@
-package api
+package handlers
 
 import (
 	"encoding/json"
@@ -8,11 +8,11 @@ import (
 	"strings"
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/services"
 )
 
 type Handler struct {
-	service service.GatewayService
+	service services.GatewayCRUD
 	bus     *events.Bus
 }
 
@@ -21,15 +21,15 @@ type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
-func NewRouter(gateway service.GatewayService) http.Handler {
+func NewRouter(gateway services.GatewayCRUD) http.Handler {
 	h := &Handler{
 		service: gateway,
 		bus:     events.DefaultBus(),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/agents", h.handleAgents)
-	mux.HandleFunc("/v1/management/settings", h.handleManagementSettings)
 	mux.HandleFunc("/v1/skills", h.handleSkills)
+	mux.HandleFunc("/v1/management/settings", h.handleManagementSettings)
 	mux.HandleFunc("/v1/sessions", h.handleSessions)
 	mux.HandleFunc("/v1/sessions/", h.handleSessionAction)
 	mux.HandleFunc("/v1/runs", h.handleRuns)
@@ -50,9 +50,9 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 }
 
 func writeServiceError(w http.ResponseWriter, err error) {
-	var serviceErr *service.Error
-	if errors.As(err, &serviceErr) {
-		writeError(w, statusForServiceCode(serviceErr.Code), serviceErr.Code, serviceErr.Message)
+	var gatewayErr *services.GatewayError
+	if errors.As(err, &gatewayErr) {
+		writeError(w, statusForServiceCode(gatewayErr.Code), gatewayErr.Code, gatewayErr.Message)
 		return
 	}
 	writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
@@ -62,9 +62,7 @@ func statusForServiceCode(code string) int {
 	switch code {
 	case "agent_not_found", "session_not_found", "approval_not_found":
 		return http.StatusNotFound
-	case "invalid_prompt", "invalid_decision":
-		return http.StatusBadRequest
-	case "invalid_session", "invalid_session_config":
+	case "invalid_prompt", "invalid_decision", "invalid_session", "invalid_session_config":
 		return http.StatusBadRequest
 	case "connector_unavailable":
 		return http.StatusServiceUnavailable
@@ -87,23 +85,21 @@ func decodeJSON(r *http.Request, dst any) error {
 	return nil
 }
 
-func sessionPath(path string) (string, string, bool) {
-	rest := strings.TrimPrefix(path, "/v1/sessions/")
+func splitPath(path, prefix string) ([]string, bool) {
+	rest := strings.TrimPrefix(path, prefix)
+	if rest == path {
+		return nil, false
+	}
+	if strings.TrimSpace(rest) == "" {
+		return []string{}, true
+	}
 	parts := strings.Split(rest, "/")
-	if len(parts) == 1 && parts[0] != "" {
-		return parts[0], "", true
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			continue
+		}
+		out = append(out, part)
 	}
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", false
-	}
-	return parts[0], parts[1], true
-}
-
-func approvalSubpath(path string) (string, string, bool) {
-	rest := strings.TrimPrefix(path, "/v1/approvals/")
-	parts := strings.Split(rest, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", false
-	}
-	return parts[0], parts[1], true
+	return out, true
 }

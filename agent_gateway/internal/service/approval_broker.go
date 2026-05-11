@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 type approvalRouteKey struct {
@@ -29,7 +31,7 @@ func NewApprovalBroker() *ApprovalBroker {
 	}
 }
 
-func (b *ApprovalBroker) Register(approval Approval) error {
+func (b *ApprovalBroker) Register(approval models.Approval) error {
 	key := keyFromApproval(approval)
 	if err := validateApprovalRoute(approval.ID, key); err != nil {
 		return err
@@ -57,32 +59,32 @@ func (b *ApprovalBroker) Register(approval Approval) error {
 	return nil
 }
 
-func (b *ApprovalBroker) Decide(approvalID string, req ApprovalDecisionRequest, approvals map[string]Approval, now time.Time) (Approval, error) {
+func (b *ApprovalBroker) Decide(approvalID string, req models.ApprovalDecisionRequest, approvals map[string]models.Approval, now time.Time) (models.Approval, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	key, ok := b.byApprovalID[approvalID]
 	if !ok {
 		if approval, exists := approvals[approvalID]; exists && approval.Status != "pending" {
-			return Approval{}, NewError("invalid_decision", fmt.Sprintf("approval %q is already %s", approvalID, approval.Status))
+			return models.Approval{}, NewError("invalid_decision", fmt.Sprintf("approval %q is already %s", approvalID, approval.Status))
 		}
-		return Approval{}, NewError("approval_not_found", fmt.Sprintf("approval %q was not found", approvalID))
+		return models.Approval{}, NewError("approval_not_found", fmt.Sprintf("approval %q was not found", approvalID))
 	}
 
 	approval, ok := approvals[approvalID]
 	if !ok {
-		return Approval{}, NewError("approval_not_found", fmt.Sprintf("approval %q was not found", approvalID))
+		return models.Approval{}, NewError("approval_not_found", fmt.Sprintf("approval %q was not found", approvalID))
 	}
 	if keyFromApproval(approval) != key {
-		return Approval{}, NewError("approval_not_found", fmt.Sprintf("approval %q was not found", approvalID))
+		return models.Approval{}, NewError("approval_not_found", fmt.Sprintf("approval %q was not found", approvalID))
 	}
 	if approval.Status != "pending" {
-		return Approval{}, NewError("invalid_decision", fmt.Sprintf("approval %q is already %s", approvalID, approval.Status))
+		return models.Approval{}, NewError("invalid_decision", fmt.Sprintf("approval %q is already %s", approvalID, approval.Status))
 	}
 
 	decision, err := normalizeDecision(req.Decision)
 	if err != nil {
-		return Approval{}, err
+		return models.Approval{}, err
 	}
 	approval.Status = decision
 	approval.Decision = decision
@@ -95,7 +97,7 @@ func (b *ApprovalBroker) Decide(approvalID string, req ApprovalDecisionRequest, 
 	return approval, nil
 }
 
-func (b *ApprovalBroker) ExpirePendingBySession(sessionID string, approvals map[string]Approval, now time.Time) int {
+func (b *ApprovalBroker) ExpirePendingBySession(sessionID string, approvals map[string]models.Approval, now time.Time) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -148,7 +150,7 @@ func validateApprovalRoute(approvalID string, key approvalRouteKey) error {
 	return nil
 }
 
-func keyFromApproval(approval Approval) approvalRouteKey {
+func keyFromApproval(approval models.Approval) approvalRouteKey {
 	return approvalRouteKey{
 		agentID:            approval.AgentID,
 		sessionID:          approval.SessionID,

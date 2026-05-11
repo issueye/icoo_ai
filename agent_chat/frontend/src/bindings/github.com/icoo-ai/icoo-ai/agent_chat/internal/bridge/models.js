@@ -195,6 +195,13 @@ export class AppSettings {
         if (/** @type {any} */(false)) {
             /**
              * @member
+             * @type {boolean | undefined}
+             */
+            this["localOnly"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
              * @type {ChannelConfig[] | undefined}
              */
             this["channels"] = undefined;
@@ -230,22 +237,22 @@ export class AppSettings {
      * @returns {AppSettings}
      */
     static createFrom($$source = {}) {
-        const $$createField7_0 = $$createType2;
-        const $$createField8_0 = $$createType4;
-        const $$createField9_0 = $$createType6;
-        const $$createField10_0 = $$createType8;
+        const $$createField8_0 = $$createType2;
+        const $$createField9_0 = $$createType4;
+        const $$createField10_0 = $$createType6;
+        const $$createField11_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("channels" in $$parsedSource) {
-            $$parsedSource["channels"] = $$createField7_0($$parsedSource["channels"]);
+            $$parsedSource["channels"] = $$createField8_0($$parsedSource["channels"]);
         }
         if ("agents" in $$parsedSource) {
-            $$parsedSource["agents"] = $$createField8_0($$parsedSource["agents"]);
+            $$parsedSource["agents"] = $$createField9_0($$parsedSource["agents"]);
         }
         if ("mcpServers" in $$parsedSource) {
-            $$parsedSource["mcpServers"] = $$createField9_0($$parsedSource["mcpServers"]);
+            $$parsedSource["mcpServers"] = $$createField10_0($$parsedSource["mcpServers"]);
         }
         if ("scheduleTasks" in $$parsedSource) {
-            $$parsedSource["scheduleTasks"] = $$createField10_0($$parsedSource["scheduleTasks"]);
+            $$parsedSource["scheduleTasks"] = $$createField11_0($$parsedSource["scheduleTasks"]);
         }
         return new AppSettings(/** @type {Partial<AppSettings>} */($$parsedSource));
     }

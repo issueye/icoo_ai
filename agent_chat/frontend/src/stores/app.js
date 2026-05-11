@@ -257,6 +257,15 @@ export const useAppStore = defineStore('app', {
         throw error
       }
     },
+    async reconnectGateway() {
+      this.settingsError = null
+      this.applyGatewayStatusSnapshot({
+        status: 'gateway_reconnecting',
+        summary: '正在重新连接网关',
+        updatedAt: new Date().toISOString(),
+      })
+      return this.restartGateway()
+    },
     async stopGateway() {
       this.settingsError = null
       try {
@@ -311,6 +320,7 @@ export const useAppStore = defineStore('app', {
           logLevel: payload.logLevel ?? this.logLevel ?? 'info',
           logFormat: payload.logFormat ?? this.logFormat ?? 'text',
           logFilePath: payload.logFilePath ?? this.logFilePath ?? 'logs/agent_chat.log',
+          localOnly: Boolean(payload.localOnly),
           channels: normalizeChannels(payload.channels ?? this.channels),
           agents: normalizeAgents(payload.agents ?? this.agents),
           mcpServers: normalizeMcpServers(payload.mcpServers ?? this.mcpServers),

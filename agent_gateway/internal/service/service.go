@@ -9,7 +9,10 @@ import (
 	"sync"
 	"time"
 
+	channelmodels "github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/models"
+	channelservices "github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/services"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
@@ -18,6 +21,9 @@ type GatewayService interface {
 	ListSkills(ctx context.Context) ([]Skill, error)
 	GetManagementSettings(ctx context.Context) (ManagementSettings, error)
 	UpdateManagementSettings(ctx context.Context, in ManagementSettings) (ManagementSettings, error)
+	GetChannelStatuses(ctx context.Context) ([]ChannelRuntimeStatus, error)
+	StartChannels(ctx context.Context) error
+	StopChannels(ctx context.Context) error
 	CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error)
 	ListSessions(ctx context.Context) ([]Session, error)
 	GetSession(ctx context.Context, sessionID string) (Session, error)
@@ -59,11 +65,15 @@ type GatewayServiceImpl struct {
 	managementStore  ManagementSettingsStore
 	managementLoaded bool
 	management       ManagementSettings
+	channelManager   *channelservices.Manager
 }
 
 func (s *GatewayServiceImpl) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.channelManager != nil {
+		_ = s.channelManager.StopAll(context.Background())
+	}
 	if s.managementStore != nil {
 		return s.managementStore.Close()
 	}
@@ -78,11 +88,11 @@ func NewGatewayServiceWithStore(st store.Store) *GatewayServiceImpl {
 	return NewGatewayServiceWithAgentsAndStore(defaultAgents(), st)
 }
 
-func NewGatewayServiceWithAgentsAndStore(agents []AgentProfile, st store.Store) *GatewayServiceImpl {
+func NewGatewayServiceWithAgentsAndStore(agents []models.AgentProfile, st store.Store) *GatewayServiceImpl {
 	return NewGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, NewMemoryManagementSettingsStore())
 }
 
-func NewGatewayServiceWithAgentsStoreAndSettingsStore(agents []AgentProfile, st store.Store, settingsStore ManagementSettingsStore) *GatewayServiceImpl {
+func NewGatewayServiceWithAgentsStoreAndSettingsStore(agents []models.AgentProfile, st store.Store, settingsStore ManagementSettingsStore) *GatewayServiceImpl {
 	if len(agents) == 0 {
 		agents = defaultAgents()
 	}
@@ -99,29 +109,30 @@ func NewGatewayServiceWithAgentsStoreAndSettingsStore(agents []AgentProfile, st 
 		store:           st,
 		approvalBroker:  NewApprovalBroker(),
 		managementStore: settingsStore,
-		management: ManagementSettings{
-			Channels:      []ChannelConfig{},
-			MCPServers:    []MCPServerConfig{},
-			ScheduleTasks: []ScheduleTaskConfig{},
+		management: models.ManagementSettings{
+			Channels:      []models.ChannelConfig{},
+			MCPServers:    []models.MCPServerConfig{},
+			ScheduleTasks: []models.ScheduleTaskConfig{},
 			Agents:        toAgentConfigs(bootstrapAgents),
 		},
+		channelManager: channelservices.NewManager(channelservices.NewDefaultFactoryRegistry(), nil),
 	}
 }
 
-func NewConnectorGatewayServiceWithAgentsAndStore(agents []AgentProfile, st store.Store, conn connector.AgentConnector) *GatewayServiceImpl {
+func NewConnectorGatewayServiceWithAgentsAndStore(agents []models.AgentProfile, st store.Store, conn connector.AgentConnector) *GatewayServiceImpl {
 	svc := NewGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, NewMemoryManagementSettingsStore())
 	svc.connector = conn
 	return svc
 }
 
-func NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore(agents []AgentProfile, st store.Store, settingsStore ManagementSettingsStore, conn connector.AgentConnector) *GatewayServiceImpl {
+func NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore(agents []models.AgentProfile, st store.Store, settingsStore ManagementSettingsStore, conn connector.AgentConnector) *GatewayServiceImpl {
 	svc := NewGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, settingsStore)
 	svc.connector = conn
 	return svc
 }
 
-func defaultAgents() []AgentProfile {
-	return []AgentProfile{
+func defaultAgents() []models.AgentProfile {
+	return []models.AgentProfile{
 		{
 			ID:          "icoo-ai-acp",
 			Name:        "Icoo AI",
@@ -132,11 +143,11 @@ func defaultAgents() []AgentProfile {
 	}
 }
 
-func defaultSkills() []Skill {
-	return []Skill{}
+func defaultSkills() []models.Skill {
+	return []models.Skill{}
 }
 
-func (s *GatewayServiceImpl) ListAgents(ctx context.Context) ([]AgentProfile, error) {
+func (s *GatewayServiceImpl) ListAgents(ctx context.Context) ([]models.AgentProfile, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -149,46 +160,92 @@ func (s *GatewayServiceImpl) ListAgents(ctx context.Context) ([]AgentProfile, er
 	return cloneAgentProfiles(s.agents), nil
 }
 
-func (s *GatewayServiceImpl) ListSkills(ctx context.Context) ([]Skill, error) {
+func (s *GatewayServiceImpl) ListSkills(ctx context.Context) ([]models.Skill, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	skills := make([]Skill, len(s.skills))
+	skills := make([]models.Skill, len(s.skills))
 	copy(skills, s.skills)
 	return skills, nil
 }
 
-func (s *GatewayServiceImpl) GetManagementSettings(ctx context.Context) (ManagementSettings, error) {
+func (s *GatewayServiceImpl) GetManagementSettings(ctx context.Context) (models.ManagementSettings, error) {
 	if err := ctx.Err(); err != nil {
-		return ManagementSettings{}, err
+		return models.ManagementSettings{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
-		return ManagementSettings{}, err
+		return models.ManagementSettings{}, err
 	}
 	return cloneManagementSettings(s.management), nil
 }
 
-func (s *GatewayServiceImpl) UpdateManagementSettings(ctx context.Context, in ManagementSettings) (ManagementSettings, error) {
+func (s *GatewayServiceImpl) UpdateManagementSettings(ctx context.Context, in models.ManagementSettings) (models.ManagementSettings, error) {
 	if err := ctx.Err(); err != nil {
-		return ManagementSettings{}, err
+		return models.ManagementSettings{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
-		return ManagementSettings{}, err
+		return models.ManagementSettings{}, err
 	}
 	updated := normalizeManagementSettings(in)
+	if err := s.applyChannelsLocked(ctx, updated.Channels); err != nil {
+		return models.ManagementSettings{}, err
+	}
 	if err := s.managementStore.Save(ctx, updated); err != nil {
-		return ManagementSettings{}, err
+		return models.ManagementSettings{}, err
 	}
 	s.management = updated
 	s.agents = toAgentProfiles(s.management.Agents)
 	return cloneManagementSettings(s.management), nil
+}
+
+func (s *GatewayServiceImpl) GetChannelStatuses(ctx context.Context) ([]models.ChannelRuntimeStatus, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
+		return nil, err
+	}
+	if s.channelManager == nil {
+		return []models.ChannelRuntimeStatus{}, nil
+	}
+	statuses := s.channelManager.Status()
+	return append([]models.ChannelRuntimeStatus(nil), statuses...), nil
+}
+
+func (s *GatewayServiceImpl) StartChannels(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
+		return err
+	}
+	if s.channelManager == nil {
+		return nil
+	}
+	return s.channelManager.StartEnabled(ctx)
+}
+
+func (s *GatewayServiceImpl) StopChannels(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.channelManager == nil {
+		return nil
+	}
+	return s.channelManager.StopAll(ctx)
 }
 
 func (s *GatewayServiceImpl) ensureManagementLoadedLocked(ctx context.Context) error {
@@ -198,6 +255,9 @@ func (s *GatewayServiceImpl) ensureManagementLoadedLocked(ctx context.Context) e
 	if s.managementStore == nil {
 		s.management = normalizeManagementSettings(s.management)
 		s.agents = toAgentProfiles(s.management.Agents)
+		if err := s.applyChannelsLocked(ctx, s.management.Channels); err != nil {
+			return err
+		}
 		s.managementLoaded = true
 		return nil
 	}
@@ -207,10 +267,10 @@ func (s *GatewayServiceImpl) ensureManagementLoadedLocked(ctx context.Context) e
 		if !errors.Is(err, ErrManagementSettingsNotFound) {
 			return err
 		}
-		seed := normalizeManagementSettings(ManagementSettings{
-			Channels:      []ChannelConfig{},
-			MCPServers:    []MCPServerConfig{},
-			ScheduleTasks: []ScheduleTaskConfig{},
+		seed := normalizeManagementSettings(models.ManagementSettings{
+			Channels:      []models.ChannelConfig{},
+			MCPServers:    []models.MCPServerConfig{},
+			ScheduleTasks: []models.ScheduleTaskConfig{},
 			Agents:        toAgentConfigs(s.bootstrapAgents),
 		})
 		if err := s.managementStore.Save(ctx, seed); err != nil {
@@ -218,22 +278,51 @@ func (s *GatewayServiceImpl) ensureManagementLoadedLocked(ctx context.Context) e
 		}
 		s.management = seed
 		s.agents = toAgentProfiles(s.management.Agents)
+		if err := s.applyChannelsLocked(ctx, s.management.Channels); err != nil {
+			return err
+		}
 		s.managementLoaded = true
 		return nil
 	}
 
 	s.management = normalizeManagementSettings(settings)
 	s.agents = toAgentProfiles(s.management.Agents)
+	if err := s.applyChannelsLocked(ctx, s.management.Channels); err != nil {
+		return err
+	}
 	s.managementLoaded = true
 	return nil
 }
 
-func normalizeManagementSettings(in ManagementSettings) ManagementSettings {
-	out := ManagementSettings{
-		Channels:      make([]ChannelConfig, 0, len(in.Channels)),
-		MCPServers:    make([]MCPServerConfig, 0, len(in.MCPServers)),
-		ScheduleTasks: make([]ScheduleTaskConfig, 0, len(in.ScheduleTasks)),
-		Agents:        make([]AgentConfig, 0, len(in.Agents)),
+func (s *GatewayServiceImpl) applyChannelsLocked(ctx context.Context, configs []models.ChannelConfig) error {
+	if s.channelManager == nil {
+		return nil
+	}
+	channelConfigs := make([]channelmodels.ChannelConfig, 0, len(configs))
+	for _, cfg := range configs {
+		channelConfigs = append(channelConfigs, channelmodels.ChannelConfig{
+			ID:         cfg.ID,
+			Name:       cfg.Name,
+			Type:       channelmodels.ChannelType(cfg.Type),
+			Enabled:    cfg.Enabled,
+			AppID:      cfg.AppID,
+			AppSecret:  cfg.AppSecret,
+			BotToken:   cfg.BotToken,
+			WebhookURL: cfg.WebhookURL,
+		})
+	}
+	if err := s.channelManager.Initialize(ctx, channelConfigs); err != nil {
+		return err
+	}
+	return s.channelManager.StartEnabled(ctx)
+}
+
+func normalizeManagementSettings(in models.ManagementSettings) models.ManagementSettings {
+	out := models.ManagementSettings{
+		Channels:      make([]models.ChannelConfig, 0, len(in.Channels)),
+		MCPServers:    make([]models.MCPServerConfig, 0, len(in.MCPServers)),
+		ScheduleTasks: make([]models.ScheduleTaskConfig, 0, len(in.ScheduleTasks)),
+		Agents:        make([]models.AgentConfig, 0, len(in.Agents)),
 	}
 	for index, item := range in.Channels {
 		id := strings.TrimSpace(item.ID)
@@ -248,7 +337,7 @@ func normalizeManagementSettings(in ManagementSettings) ManagementSettings {
 		if channelType == "" {
 			channelType = "qq"
 		}
-		out.Channels = append(out.Channels, ChannelConfig{
+		out.Channels = append(out.Channels, models.ChannelConfig{
 			ID:         id,
 			Name:       name,
 			Type:       channelType,
@@ -276,7 +365,7 @@ func normalizeManagementSettings(in ManagementSettings) ManagementSettings {
 			}
 			args = append(args, text)
 		}
-		out.MCPServers = append(out.MCPServers, MCPServerConfig{
+		out.MCPServers = append(out.MCPServers, models.MCPServerConfig{
 			ID: id, Name: name, Command: strings.TrimSpace(item.Command), Args: args, Enabled: item.Enabled,
 		})
 	}
@@ -293,7 +382,7 @@ func normalizeManagementSettings(in ManagementSettings) ManagementSettings {
 		if spec == "" {
 			spec = "*/5 * * * *"
 		}
-		out.ScheduleTasks = append(out.ScheduleTasks, ScheduleTaskConfig{
+		out.ScheduleTasks = append(out.ScheduleTasks, models.ScheduleTaskConfig{
 			ID: id, Name: name, Spec: spec, Content: strings.TrimSpace(item.Content), Enabled: item.Enabled,
 		})
 	}
@@ -306,16 +395,16 @@ func normalizeManagementSettings(in ManagementSettings) ManagementSettings {
 		if name == "" {
 			name = id
 		}
-		models := make([]string, 0, len(item.Models))
+		modelList := make([]string, 0, len(item.Models))
 		for _, model := range item.Models {
 			text := strings.TrimSpace(model)
 			if text == "" {
 				continue
 			}
-			models = append(models, text)
+			modelList = append(modelList, text)
 		}
-		out.Agents = append(out.Agents, AgentConfig{
-			ID: id, Name: name, Protocol: strings.TrimSpace(item.Protocol), Description: strings.TrimSpace(item.Description), Models: models, Enabled: item.Enabled,
+		out.Agents = append(out.Agents, models.AgentConfig{
+			ID: id, Name: name, Protocol: strings.TrimSpace(item.Protocol), Description: strings.TrimSpace(item.Description), Models: modelList, Enabled: item.Enabled,
 		})
 	}
 	return out

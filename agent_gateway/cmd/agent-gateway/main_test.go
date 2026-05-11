@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -29,7 +30,7 @@ func withConfigFile(t *testing.T, content string) {
 }
 
 func TestParseConfigFromFlags_CurrentCLIContract(t *testing.T) {
-	withConfigFile(t, "host = \"127.0.0.1\"\nport = 19000\ndata_dir = \"./.agent_gateway\"\n")
+	withConfigFile(t, "host = \"127.0.0.1\"\nport = 19000\ndata_dir = \"./.agent_gateway\"\nauth_token = \"fixed-token\"\n")
 
 	cfg, once, err := parseConfigFromFlags([]string{
 		"-host", "127.0.0.1",
@@ -45,13 +46,16 @@ func TestParseConfigFromFlags_CurrentCLIContract(t *testing.T) {
 	if cfg.Port != 17889 {
 		t.Fatalf("cfg.Port = %d, want 17889", cfg.Port)
 	}
+	if cfg.AuthToken != "fixed-token" {
+		t.Fatalf("cfg.AuthToken = %q, want fixed-token", cfg.AuthToken)
+	}
 	if !once {
 		t.Fatal("once = false, want true")
 	}
 }
 
 func TestParseConfigFromFlags_RejectsRemovedLegacyFlags(t *testing.T) {
-	withConfigFile(t, "host = \"127.0.0.1\"\nport = 19000\ndata_dir = \"./.agent_gateway\"\n")
+	withConfigFile(t, "host = \"127.0.0.1\"\nport = 19000\ndata_dir = \"./.agent_gateway\"\nauth_token = \"\"\n")
 
 	tests := [][]string{
 		{"-data-dir", "./tmp"},
@@ -64,6 +68,26 @@ func TestParseConfigFromFlags_RejectsRemovedLegacyFlags(t *testing.T) {
 		if _, _, err := parseConfigFromFlags(args); err == nil {
 			t.Fatalf("parseConfigFromFlags(%v) error = nil, want error", args)
 		}
+	}
+}
+
+func TestParseConfigFromFlags_GeneratesAuthTokenWhenMissing(t *testing.T) {
+	withConfigFile(t, "host = \"127.0.0.1\"\nport = 19000\ndata_dir = \"./.agent_gateway\"\nauth_token = \"\"\n")
+
+	cfg, _, err := parseConfigFromFlags(nil)
+	if err != nil {
+		t.Fatalf("parseConfigFromFlags() error = %v", err)
+	}
+	if cfg.AuthToken == "" {
+		t.Fatal("cfg.AuthToken = empty, want generated token")
+	}
+
+	data, err := os.ReadFile(filepath.Join("config", "agent-gateway.toml"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(data), "auth_token = \"") || strings.Contains(string(data), "auth_token = \"\"") {
+		t.Fatalf("config file auth_token not persisted, content=%s", string(data))
 	}
 }
 

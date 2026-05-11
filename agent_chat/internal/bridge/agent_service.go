@@ -20,6 +20,7 @@ import (
 
 const (
 	maxGatewayStreamFailures   = 8
+	maxGatewayAuthFailures     = 3
 	gatewayStreamProbeAttempts = 5
 	gatewayStreamProbeTimeout  = 1200 * time.Millisecond
 	gatewayStreamProbeBackoff  = 250 * time.Millisecond
@@ -539,13 +540,31 @@ func (s *AgentService) GetGatewayStatus(ctx context.Context) (GatewayStatus, err
 
 func (s *AgentService) streamGatewayEvents(ctx context.Context) {
 	logger.Info("gateway event stream started")
-	client := gatewayclient.New(s.gateway.baseURL, s.gateway.token)
 	backoff := time.Second
 	failures := 0
+	authFailures := 0
 	for {
 		if ctx.Err() != nil {
 			return
 		}
+		proxy := s.currentGatewayProxy()
+		if proxy == nil {
+			recoverCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			recoverErr := s.ensureGatewayRunning(recoverCtx)
+			cancel()
+			if recoverErr != nil {
+				s.emitGatewayStatus(GatewayStatusFailed, "网关连接丢失", map[string]any{
+					"error": recoverErr.Error(),
+				})
+				return
+			}
+			proxy = s.currentGatewayProxy()
+		}
+		if proxy == nil {
+			s.emitGatewayStatus(GatewayStatusFailed, "网关代理不可用", nil)
+			return
+		}
+		client := gatewayclient.New(proxy.baseURL, proxy.token)
 		if failures > 0 {
 			s.emitGatewayStatus(GatewayStatusReconnecting, "网关事件流重连中", map[string]any{
 				"attempt": failures + 1,
@@ -558,6 +577,9 @@ func (s *AgentService) streamGatewayEvents(ctx context.Context) {
 				backoff = time.Second
 				s.emitGatewayStatus(GatewayStatusReady, "网关事件流已恢复", nil)
 			}
+			if authFailures > 0 {
+				authFailures = 0
+			}
 			return s.forwardGatewayEvent(event)
 		})
 		if ctx.Err() != nil {
@@ -565,13 +587,50 @@ func (s *AgentService) streamGatewayEvents(ctx context.Context) {
 		}
 		bridgeErr := s.mapGatewayStreamError(err)
 		if bridgeErr != nil && bridgeErr.Code == ErrorCodeGatewayAuthFailed {
-			logger.Error("gateway event stream auth failed", "error", bridgeErr.Message, "status", bridgeErr.StatusCode)
-			s.emitGatewayStatus(GatewayStatusFailed, "网关鉴权失败", map[string]any{
-				"code":   bridgeErr.Code,
-				"status": bridgeErr.StatusCode,
-				"error":  bridgeErr.Message,
-			})
-			return
+			authFailures++
+			logger.Warn("gateway event stream auth failed, try refresh gateway proxy", "error", bridgeErr.Message, "status", bridgeErr.StatusCode, "authFailures", authFailures)
+			recoverCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			recoverErr := s.refreshGatewayProxy(recoverCtx)
+			cancel()
+			if recoverErr != nil {
+				logger.Error("gateway event stream auth failed after refresh", "error", bridgeErr.Message, "status", bridgeErr.StatusCode, "refreshError", recoverErr)
+				s.emitGatewayStatus(GatewayStatusFailed, "网关鉴权失败", map[string]any{
+					"code":   bridgeErr.Code,
+					"status": bridgeErr.StatusCode,
+					"error":  bridgeErr.Message,
+				})
+				return
+			}
+
+			if authFailures >= maxGatewayAuthFailures {
+				logger.Warn("gateway auth failed repeatedly, try hard restart recovery", "authFailures", authFailures)
+				restartCtx, restartCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				restartErr := s.restartGatewayForAuthRecovery(restartCtx)
+				restartCancel()
+				if restartErr != nil {
+					logger.Error("gateway hard restart recovery failed after auth errors", "error", restartErr)
+					s.emitGatewayStatus(GatewayStatusFailed, "网关鉴权失败", map[string]any{
+						"code":         bridgeErr.Code,
+						"status":       bridgeErr.StatusCode,
+						"error":        bridgeErr.Message,
+						"recoverError": restartErr.Error(),
+					})
+					return
+				}
+				authFailures = 0
+			}
+
+			failures++
+			if failures > 0 {
+				s.emitGatewayStatus(GatewayStatusReconnecting, "网关事件流重连中", map[string]any{
+					"attempt":      failures + 1,
+					"authFailures": authFailures,
+				})
+			}
+			if !waitGatewayReconnectBackoff(ctx, &backoff) {
+				return
+			}
+			continue
 		}
 		if bridgeErr != nil {
 			failures++
@@ -587,18 +646,69 @@ func (s *AgentService) streamGatewayEvents(ctx context.Context) {
 				return
 			}
 		}
-		select {
-		case <-ctx.Done():
+		if !waitGatewayReconnectBackoff(ctx, &backoff) {
 			return
-		case <-time.After(backoff):
-		}
-		if backoff < 10*time.Second {
-			backoff *= 2
-			if backoff > 10*time.Second {
-				backoff = 10 * time.Second
-			}
 		}
 	}
+}
+
+func waitGatewayReconnectBackoff(ctx context.Context, backoff *time.Duration) bool {
+	if backoff == nil {
+		return true
+	}
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(*backoff):
+	}
+	*backoff = nextGatewayReconnectBackoff(*backoff)
+	return true
+}
+
+func nextGatewayReconnectBackoff(current time.Duration) time.Duration {
+	if current < 10*time.Second {
+		current *= 2
+		if current > 10*time.Second {
+			current = 10 * time.Second
+		}
+	}
+	return current
+}
+
+func (s *AgentService) refreshGatewayProxy(ctx context.Context) error {
+	if s == nil {
+		return fmt.Errorf("agent service is nil")
+	}
+	if s.bootstrap == nil {
+		return fmt.Errorf("gateway bootstrap is not configured")
+	}
+	proxy, _, err := s.bootstrap.discoverHealthy(ctx)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.gateway = proxy
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *AgentService) restartGatewayForAuthRecovery(ctx context.Context) error {
+	if s == nil {
+		return fmt.Errorf("agent service is nil")
+	}
+	if s.bootstrap == nil {
+		return fmt.Errorf("gateway bootstrap is not configured")
+	}
+	if err := s.bootstrap.StopManagedProcess(); err != nil {
+		logger.Warn("stop managed gateway process during auth recovery failed", "error", err)
+	}
+	s.mu.Lock()
+	s.gateway = nil
+	s.mu.Unlock()
+	if err := s.ensureGatewayRunning(ctx); err != nil {
+		return err
+	}
+	return s.waitGatewayStreamReady(ctx)
 }
 
 func (s *AgentService) startGatewayEventStream(baseCtx context.Context) {
@@ -1225,7 +1335,7 @@ func loadGatewayProxy() *gatewayProxy {
 		return nil
 	}
 	if settings, settingsErr := loadAppSettings(); settingsErr == nil {
-		if configured := strings.TrimSpace(settings.GatewayToken); configured != "" {
+		if configured := strings.TrimSpace(settings.GatewayToken); configured != "" && strings.TrimSpace(token) == "" {
 			token = configured
 		}
 	}

@@ -52,7 +52,8 @@ func run(args []string) error {
 }
 
 func parseConfigFromFlags(args []string) (config.Config, bool, error) {
-	cfg, err := config.LoadFile(config.DefaultConfigPath)
+	configPath := config.DefaultConfigPath
+	cfg, err := config.LoadFile(configPath)
 	if err != nil {
 		return config.Config{}, false, fmt.Errorf("load config file %q: %w", config.DefaultConfigPath, err)
 	}
@@ -67,6 +68,10 @@ func parseConfigFromFlags(args []string) (config.Config, bool, error) {
 	}
 	if err := cfg.Validate(); err != nil {
 		return config.Config{}, false, err
+	}
+	cfg, err = config.EnsureAuthToken(configPath, cfg)
+	if err != nil {
+		return config.Config{}, false, fmt.Errorf("ensure auth token in config file %q: %w", configPath, err)
 	}
 	return cfg, once, nil
 }

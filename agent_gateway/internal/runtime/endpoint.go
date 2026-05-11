@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 )
 
@@ -13,19 +12,6 @@ type Endpoint struct {
 	BaseURL   string    `json:"baseUrl"`
 	TokenFile string    `json:"tokenFile"`
 	StartedAt time.Time `json:"startedAt"`
-}
-
-func DefaultDataDir() (string, error) {
-	if runtime.GOOS == "windows" {
-		if appData := os.Getenv("APPDATA"); appData != "" {
-			return filepath.Join(appData, "icoo-ai", "gateway"), nil
-		}
-	}
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "icoo-ai", "gateway"), nil
 }
 
 func WriteRuntimeFiles(dir string, endpoint Endpoint, token string) (Endpoint, error) {

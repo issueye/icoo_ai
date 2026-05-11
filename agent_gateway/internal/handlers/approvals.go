@@ -1,9 +1,9 @@
-package api
+package handlers
 
 import (
 	"net/http"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 func (h *Handler) handleApprovals(w http.ResponseWriter, r *http.Request) {
@@ -21,23 +21,23 @@ func (h *Handler) handleApprovals(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleApprovalAction(w http.ResponseWriter, r *http.Request) {
-	approvalID, action, ok := approvalSubpath(r.URL.Path)
-	if !ok || action != "decision" {
+	parts, ok := splitPath(r.URL.Path, "/v1/approvals/")
+	if !ok || len(parts) != 2 || parts[1] != "decision" {
 		writeError(w, http.StatusNotFound, "not_found", "route not found")
 		return
 	}
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "PUT, POST")
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
-	var req service.ApprovalDecisionRequest
+	var req models.ApprovalDecisionRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
 		return
 	}
-	approval, err := h.service.DecideApproval(r.Context(), approvalID, req)
+	approval, err := h.service.UpdateApprovalDecision(r.Context(), parts[0], req)
 	if err != nil {
 		writeServiceError(w, err)
 		return

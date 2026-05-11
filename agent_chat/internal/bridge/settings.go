@@ -54,6 +54,7 @@ type AppSettings struct {
 	LogLevel          string               `json:"logLevel,omitempty"`
 	LogFormat         string               `json:"logFormat,omitempty"`
 	LogFilePath       string               `json:"logFilePath,omitempty"`
+	LocalOnly         bool                 `json:"localOnly,omitempty"`
 	Channels          []ChannelConfig      `json:"channels,omitempty"`
 	Agents            []AgentConfig        `json:"agents,omitempty"`
 	MCPServers        []MCPServerConfig    `json:"mcpServers,omitempty"`
@@ -89,7 +90,8 @@ func (s *AgentService) GetAppSettings() (AppSettings, error) {
 	}
 	remote, remoteErr := s.fetchGatewayManagementSettings(context.Background())
 	if remoteErr != nil {
-		return AppSettings{}, remoteErr
+		logger.Warn("fetch management settings through gateway failed, fallback to local settings", "error", remoteErr)
+		return settings, nil
 	}
 	settings.Channels = normalizeChannels(remote.Channels)
 	settings.Agents = normalizeAgents(remote.Agents)
@@ -105,7 +107,7 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 		return AppSettings{}, err
 	}
 	settings := normalizeAppSettings(in)
-	if s != nil {
+	if s != nil && !in.LocalOnly {
 		remote, remoteErr := s.updateGatewayManagementSettings(context.Background(), gatewayManagementSettingsPayload{
 			Channels:      settings.Channels,
 			Agents:        settings.Agents,

@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/glebarez/sqlite"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -18,33 +19,33 @@ import (
 var ErrManagementSettingsNotFound = errors.New("management settings not found")
 
 type ManagementSettingsStore interface {
-	Load(ctx context.Context) (ManagementSettings, error)
-	Save(ctx context.Context, settings ManagementSettings) error
+	Load(ctx context.Context) (models.ManagementSettings, error)
+	Save(ctx context.Context, settings models.ManagementSettings) error
 	Close() error
 }
 
 type MemoryManagementSettingsStore struct {
 	mu       sync.RWMutex
-	settings *ManagementSettings
+	settings *models.ManagementSettings
 }
 
 func NewMemoryManagementSettingsStore() *MemoryManagementSettingsStore {
 	return &MemoryManagementSettingsStore{}
 }
 
-func (s *MemoryManagementSettingsStore) Load(ctx context.Context) (ManagementSettings, error) {
+func (s *MemoryManagementSettingsStore) Load(ctx context.Context) (models.ManagementSettings, error) {
 	if err := ctx.Err(); err != nil {
-		return ManagementSettings{}, err
+		return models.ManagementSettings{}, err
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.settings == nil {
-		return ManagementSettings{}, ErrManagementSettingsNotFound
+		return models.ManagementSettings{}, ErrManagementSettingsNotFound
 	}
 	return cloneManagementSettings(*s.settings), nil
 }
 
-func (s *MemoryManagementSettingsStore) Save(ctx context.Context, settings ManagementSettings) error {
+func (s *MemoryManagementSettingsStore) Save(ctx context.Context, settings models.ManagementSettings) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -137,9 +138,11 @@ func NewSQLiteManagementSettingsStore(path string) (*SQLiteManagementSettingsSto
 	return &SQLiteManagementSettingsStore{db: db}, nil
 }
 
-func (s *SQLiteManagementSettingsStore) Load(ctx context.Context) (ManagementSettings, error) {
+func (s *SQLiteManagementSettingsStore) Load(ctx context.Context) (models.ManagementSettings, error) {
+	empty := models.ManagementSettings{}
+
 	if err := ctx.Err(); err != nil {
-		return ManagementSettings{}, err
+		return empty, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -149,34 +152,34 @@ func (s *SQLiteManagementSettingsStore) Load(ctx context.Context) (ManagementSet
 	var taskRows []scheduleTaskRow
 	var agentRows []agentRow
 	if err := s.db.WithContext(ctx).Order("position asc").Find(&channels).Error; err != nil {
-		return ManagementSettings{}, fmt.Errorf("load channels: %w", err)
+		return empty, fmt.Errorf("load channels: %w", err)
 	}
 	if err := s.db.WithContext(ctx).Order("position asc").Find(&mcpRows).Error; err != nil {
-		return ManagementSettings{}, fmt.Errorf("load mcp servers: %w", err)
+		return empty, fmt.Errorf("load mcp servers: %w", err)
 	}
 	if err := s.db.WithContext(ctx).Order("position asc").Find(&taskRows).Error; err != nil {
-		return ManagementSettings{}, fmt.Errorf("load schedule tasks: %w", err)
+		return empty, fmt.Errorf("load schedule tasks: %w", err)
 	}
 	if err := s.db.WithContext(ctx).Order("position asc").Find(&agentRows).Error; err != nil {
-		return ManagementSettings{}, fmt.Errorf("load agents: %w", err)
+		return empty, fmt.Errorf("load agents: %w", err)
 	}
 	var meta managementMetaRow
 	metaErr := s.db.WithContext(ctx).First(&meta, "key = ?", "initialized").Error
 	if errors.Is(metaErr, gorm.ErrRecordNotFound) {
-		return ManagementSettings{}, ErrManagementSettingsNotFound
+		return empty, ErrManagementSettingsNotFound
 	}
 	if metaErr != nil {
-		return ManagementSettings{}, fmt.Errorf("load management meta: %w", metaErr)
+		return empty, fmt.Errorf("load management meta: %w", metaErr)
 	}
 
-	out := ManagementSettings{
-		Channels:      make([]ChannelConfig, 0, len(channels)),
-		MCPServers:    make([]MCPServerConfig, 0, len(mcpRows)),
-		ScheduleTasks: make([]ScheduleTaskConfig, 0, len(taskRows)),
-		Agents:        make([]AgentConfig, 0, len(agentRows)),
+	out := models.ManagementSettings{
+		Channels:      make([]models.ChannelConfig, 0, len(channels)),
+		MCPServers:    make([]models.MCPServerConfig, 0, len(mcpRows)),
+		ScheduleTasks: make([]models.ScheduleTaskConfig, 0, len(taskRows)),
+		Agents:        make([]models.AgentConfig, 0, len(agentRows)),
 	}
 	for _, item := range channels {
-		out.Channels = append(out.Channels, ChannelConfig{
+		out.Channels = append(out.Channels, models.ChannelConfig{
 			ID:         item.ID,
 			Name:       item.Name,
 			Type:       item.Type,
@@ -190,30 +193,30 @@ func (s *SQLiteManagementSettingsStore) Load(ctx context.Context) (ManagementSet
 	for _, item := range mcpRows {
 		args, err := decodeStringList(item.ArgsJSON)
 		if err != nil {
-			return ManagementSettings{}, fmt.Errorf("decode mcp args for %s: %w", item.ID, err)
+			return empty, fmt.Errorf("decode mcp args for %s: %w", item.ID, err)
 		}
-		out.MCPServers = append(out.MCPServers, MCPServerConfig{
+		out.MCPServers = append(out.MCPServers, models.MCPServerConfig{
 			ID: item.ID, Name: item.Name, Command: item.Command, Args: args, Enabled: item.Enabled,
 		})
 	}
 	for _, item := range taskRows {
-		out.ScheduleTasks = append(out.ScheduleTasks, ScheduleTaskConfig{
+		out.ScheduleTasks = append(out.ScheduleTasks, models.ScheduleTaskConfig{
 			ID: item.ID, Name: item.Name, Spec: item.Spec, Content: item.Content, Enabled: item.Enabled,
 		})
 	}
 	for _, item := range agentRows {
-		models, err := decodeStringList(item.ModelsJSON)
+		list, err := decodeStringList(item.ModelsJSON)
 		if err != nil {
-			return ManagementSettings{}, fmt.Errorf("decode models for %s: %w", item.ID, err)
+			return empty, fmt.Errorf("decode models for %s: %w", item.ID, err)
 		}
-		out.Agents = append(out.Agents, AgentConfig{
-			ID: item.ID, Name: item.Name, Protocol: item.Protocol, Description: item.Description, Models: models, Enabled: item.Enabled,
+		out.Agents = append(out.Agents, models.AgentConfig{
+			ID: item.ID, Name: item.Name, Protocol: item.Protocol, Description: item.Description, Models: list, Enabled: item.Enabled,
 		})
 	}
 	return out, nil
 }
 
-func (s *SQLiteManagementSettingsStore) Save(ctx context.Context, settings ManagementSettings) error {
+func (s *SQLiteManagementSettingsStore) Save(ctx context.Context, settings models.ManagementSettings) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

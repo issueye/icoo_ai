@@ -4,40 +4,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/api"
+	gatewayapp "github.com/icoo-ai/icoo-ai/agent_gateway/internal/app"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/config"
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connectors/acp"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/security"
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
-var defaultManagedAgents = []service.AgentProfile{
-	{ID: "icoo-ai-acp", Name: "Icoo AI", Protocol: "icoo_acp", Models: []string{"gpt-5.4"}, Description: "Icoo ACP agent profile."},
-	{ID: "agent-acp", Name: "Agent ACP", Protocol: "agent_acp", Models: []string{"gpt-5.4"}, Description: "Generic ACP agent profile."},
-}
-
 type Server struct {
-	cfg                   config.Config
-	startedAt             time.Time
-	token                 string
-	endpoint              Endpoint
-	http                  *http.Server
-	listener              net.Listener
-	store                 store.Store
-	eventBus              *events.Bus
-	projector             *eventProjector
-	gatewayServiceFactory func(store.Store) (service.GatewayService, error)
-	gatewayServiceCloser  io.Closer
+	cfg        config.Config
+	startedAt  time.Time
+	token      string
+	endpoint   Endpoint
+	http       *http.Server
+	listener   net.Listener
+	store      store.Store
+	eventBus   *events.Bus
+	projector  *eventProjector
+	components *gatewayapp.Components
+	buildApp   func(context.Context, gatewayapp.BuildOptions) (gatewayapp.Components, error)
 }
 
 func NewServer(cfg config.Config) (*Server, error) {
@@ -47,15 +38,20 @@ func NewServer(cfg config.Config) (*Server, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	token, err := security.GenerateToken()
-	if err != nil {
-		return nil, err
+	token := strings.TrimSpace(cfg.AuthToken)
+	if token == "" {
+		generated, err := security.GenerateToken()
+		if err != nil {
+			return nil, err
+		}
+		token = generated
 	}
 	return &Server{
 		cfg:       cfg,
 		startedAt: time.Now(),
 		token:     token,
 		eventBus:  events.DefaultBus(),
+		buildApp:  gatewayapp.Build,
 	}, nil
 }
 
@@ -72,17 +68,22 @@ func (s *Server) Start() error {
 	}
 	s.listener = listener
 
-	mux := http.NewServeMux()
-	mux.Handle("/health", api.HealthHandler(s.cfg.Version, s.startedAt))
-	gatewayService, err := s.newGatewayService()
+	components, err := s.buildApp(context.Background(), gatewayapp.BuildOptions{
+		Config:   s.cfg,
+		Token:    s.token,
+		Now:      s.startedAt,
+		EventBus: s.eventBus,
+	})
 	if err != nil {
 		_ = listener.Close()
 		return err
 	}
-	if closer, ok := gatewayService.(io.Closer); ok {
-		s.gatewayServiceCloser = closer
-	}
-	mux.Handle("/v1/", s.authorize(api.NewRouter(gatewayService)))
+	s.components = &components
+	s.store = components.ConversationStore
+
+	mux := http.NewServeMux()
+	mux.Handle("/health", components.HealthHandler)
+	mux.Handle("/v1/", s.authorize(components.Router))
 	s.http = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -117,11 +118,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.projector != nil {
 		s.projector.Stop()
 	}
-	if s.gatewayServiceCloser != nil {
-		if err := s.gatewayServiceCloser.Close(); err != nil {
+	if s.components != nil {
+		if err := s.components.Close(); err != nil {
 			shutdownErr = errors.Join(shutdownErr, err)
 		}
-		s.gatewayServiceCloser = nil
+		s.components = nil
 	}
 	if s.http == nil {
 		return shutdownErr
@@ -130,63 +131,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		shutdownErr = errors.Join(shutdownErr, err)
 	}
 	return shutdownErr
-}
-
-func (s *Server) newGatewayService() (service.GatewayService, error) {
-	memStore := store.NewMemoryStore()
-	s.store = memStore
-	if s.gatewayServiceFactory != nil {
-		return s.gatewayServiceFactory(memStore)
-	}
-	settingsStore, err := service.NewSQLiteManagementSettingsStore(filepath.Join(s.cfg.DataDir, "management.db"))
-	if err != nil {
-		return nil, err
-	}
-	if !s.cfg.ACP.Enabled {
-		return service.NewGatewayServiceWithAgentsStoreAndSettingsStore(defaultManagedAgents, memStore, settingsStore), nil
-	}
-	lazy := newLazyConnector(func() (connector.AgentConnector, error) {
-		return s.newACPConnector(memStore)
-	}, connector.InitializeRequest{
-		ClientName:    "agent-gateway",
-		ClientVersion: s.cfg.Version,
-	})
-	return service.NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore(defaultManagedAgents, memStore, settingsStore, lazy), nil
-}
-
-func (s *Server) newACPConnector(memStore store.Store) (connector.AgentConnector, error) {
-	poolSize := s.cfg.ACP.PoolSize
-	if poolSize <= 0 {
-		poolSize = 1
-	}
-
-	backends := make([]connector.AgentConnector, 0, poolSize)
-	for i := 0; i < poolSize; i++ {
-		conn, err := acp.NewDefaultConnector(acp.DefaultConnectorOptions{
-			Command: s.cfg.ACP.Command,
-			Args:    s.cfg.ACP.Args,
-			Stderr: acp.NewStderrAuditSink(acp.StderrAuditSinkOptions{
-				Store:   memStore,
-				AgentID: "icoo-ai-acp",
-			}),
-		})
-		if err != nil {
-			for _, backend := range backends {
-				_ = backend.Close()
-			}
-			return nil, err
-		}
-		backends = append(backends, conn)
-	}
-
-	pool, err := acp.NewPool(backends)
-	if err != nil {
-		for _, backend := range backends {
-			_ = backend.Close()
-		}
-		return nil, err
-	}
-	return pool, nil
 }
 
 func (s *Server) authorize(next http.Handler) http.Handler {
