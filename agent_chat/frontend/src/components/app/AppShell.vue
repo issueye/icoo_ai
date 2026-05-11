@@ -8,6 +8,7 @@ import AppToastStack from './AppToastStack.vue'
 import ConversationSidebar from '@/components/conversation/ConversationSidebar.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
 import AuditWorkspace from '@/components/audit/AuditWorkspace.vue'
+import SkillsWorkspace from '@/components/skills/SkillsWorkspace.vue'
 import SettingsChannelsPanel from '@/components/settings/SettingsChannelsPanel.vue'
 import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
 import SettingsWorkspace from '@/components/settings/SettingsWorkspace.vue'
@@ -118,6 +119,9 @@ watch(() => conversations.activeSessionId, async (sessionId) => {
       </template>
       <template v-else-if="route.name === 'channels'">
         <SettingsChannelsPanel />
+      </template>
+      <template v-else-if="route.name === 'skills'">
+        <SkillsWorkspace />
       </template>
       <template v-else>
         <ConversationSidebar />

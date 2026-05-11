@@ -1302,6 +1302,77 @@
     padding-top: 10px;
   }
 
+  .qq-mcp-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .qq-mcp-form {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .qq-mcp-form-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 4px;
+  }
+
+  .qq-mcp-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .qq-mcp-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border: 1px solid var(--qq-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 10px;
+  }
+
+  .qq-mcp-item-main {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .qq-mcp-item-title {
+    color: var(--qq-text);
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 700;
+    word-break: break-all;
+  }
+
+  .qq-mcp-item-subtitle {
+    margin-top: 4px;
+    color: var(--qq-text-muted);
+    font-size: 12px;
+    line-height: 17px;
+    word-break: break-all;
+  }
+
+  .qq-mcp-item-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .qq-mcp-save-row {
+    padding-top: 2px;
+  }
+
+  .qq-mcp-danger {
+    color: var(--qq-danger);
+  }
+
   .qq-audit-layout {
     flex: 1;
     overflow: auto;
@@ -1863,6 +1934,128 @@
   .qq-toast-close:hover {
     background: rgba(255, 255, 255, 0.8);
     color: var(--qq-text);
+  }
+
+  .qq-skills-workspace {
+    flex: 1;
+  }
+
+  .qq-skills-header {
+    min-height: 64px;
+    align-items: center;
+  }
+
+  .qq-skills-body {
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+  }
+
+  .qq-skills-toolbar {
+    width: min(100%, 1040px);
+    margin: 0 auto 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .qq-skills-search {
+    width: min(420px, 100%);
+  }
+
+  .qq-skills-meta {
+    margin-left: auto;
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    color: var(--qq-text-muted);
+    font-size: 12px;
+    line-height: 17px;
+  }
+
+  .qq-skills-content {
+    width: min(100%, 1040px);
+    margin: 0 auto;
+  }
+
+  .qq-skills-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .qq-skills-card {
+    border: 1px solid var(--qq-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.74);
+    padding: 12px;
+  }
+
+  .qq-skills-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .qq-skills-card-title {
+    color: var(--qq-text);
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 700;
+    word-break: break-word;
+  }
+
+  .qq-skills-id {
+    flex-shrink: 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.8);
+    padding: 2px 8px;
+    color: var(--qq-text-soft);
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .qq-skills-desc {
+    margin-top: 8px;
+    color: var(--qq-text-muted);
+    font-size: 13px;
+    line-height: 19px;
+    word-break: break-word;
+  }
+
+  .qq-skills-spinning {
+    animation: qq-skills-spin 0.9s linear infinite;
+  }
+
+  @keyframes qq-skills-spin {
+    from {
+      transform: rotate(0deg);
+    }
+
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (max-width: 960px) {
+    .qq-skills-toolbar {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .qq-skills-search {
+      width: 100%;
+    }
+
+    .qq-skills-meta {
+      margin-left: 0;
+    }
+
+    .qq-skills-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 }
 
