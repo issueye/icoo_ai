@@ -51,9 +51,6 @@ type AppSettings struct {
 	GatewayBinaryPath string               `json:"gatewayBinaryPath,omitempty"`
 	GatewayHost       string               `json:"gatewayHost,omitempty"`
 	GatewayPort       int                  `json:"gatewayPort,omitempty"`
-	ACPEnabled        bool                 `json:"acpEnabled,omitempty"`
-	ACPCommand        string               `json:"acpCommand,omitempty"`
-	ACPArgs           string               `json:"acpArgs,omitempty"`
 	LogLevel          string               `json:"logLevel,omitempty"`
 	LogFormat         string               `json:"logFormat,omitempty"`
 	LogFilePath       string               `json:"logFilePath,omitempty"`
@@ -129,9 +126,6 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 		"path", path,
 		"gatewayHost", settings.GatewayHost,
 		"gatewayPort", settings.GatewayPort,
-		"acpEnabled", settings.ACPEnabled,
-		"acpCommand", settings.ACPCommand,
-		"acpArgs", settings.ACPArgs,
 		"logLevel", settings.LogLevel,
 		"logFormat", settings.LogFormat,
 		"logFilePath", settings.LogFilePath,
@@ -172,9 +166,6 @@ func loadAppSettings() (AppSettings, error) {
 		"path", path,
 		"gatewayHost", normalized.GatewayHost,
 		"gatewayPort", normalized.GatewayPort,
-		"acpEnabled", normalized.ACPEnabled,
-		"acpCommand", normalized.ACPCommand,
-		"acpArgs", normalized.ACPArgs,
 		"logLevel", normalized.LogLevel,
 		"logFormat", normalized.LogFormat,
 		"logFilePath", normalized.LogFilePath,
@@ -317,24 +308,6 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 				return AppSettings{}, err
 			}
 			settings.GatewayPort = parsed
-		case "acp_enabled":
-			parsed, err := strconv.ParseBool(value)
-			if err != nil {
-				return AppSettings{}, err
-			}
-			settings.ACPEnabled = parsed
-		case "acp_command":
-			unquoted, err := strconv.Unquote(value)
-			if err != nil {
-				return AppSettings{}, err
-			}
-			settings.ACPCommand = strings.TrimSpace(unquoted)
-		case "acp_args":
-			unquoted, err := strconv.Unquote(value)
-			if err != nil {
-				return AppSettings{}, err
-			}
-			settings.ACPArgs = strings.TrimSpace(unquoted)
 		case "log_level":
 			unquoted, err := strconv.Unquote(value)
 			if err != nil {
@@ -367,9 +340,6 @@ func encodeSettingsTOML(settings AppSettings) []byte {
 	fmt.Fprintf(&builder, "gateway_binary_path = %s\n", strconv.Quote(normalized.GatewayBinaryPath))
 	fmt.Fprintf(&builder, "gateway_host = %s\n", strconv.Quote(normalized.GatewayHost))
 	fmt.Fprintf(&builder, "gateway_port = %d\n", normalized.GatewayPort)
-	fmt.Fprintf(&builder, "acp_enabled = %t\n", normalized.ACPEnabled)
-	fmt.Fprintf(&builder, "acp_command = %s\n", strconv.Quote(normalized.ACPCommand))
-	fmt.Fprintf(&builder, "acp_args = %s\n", strconv.Quote(normalized.ACPArgs))
 	fmt.Fprintf(&builder, "log_level = %s\n", strconv.Quote(normalized.LogLevel))
 	fmt.Fprintf(&builder, "log_format = %s\n", strconv.Quote(normalized.LogFormat))
 	fmt.Fprintf(&builder, "log_file_path = %s\n", strconv.Quote(normalized.LogFilePath))
@@ -403,9 +373,6 @@ func normalizeAppSettings(in AppSettings) AppSettings {
 		GatewayBinaryPath: strings.TrimSpace(in.GatewayBinaryPath),
 		GatewayHost:       strings.TrimSpace(in.GatewayHost),
 		GatewayPort:       in.GatewayPort,
-		ACPEnabled:        in.ACPEnabled,
-		ACPCommand:        strings.TrimSpace(in.ACPCommand),
-		ACPArgs:           strings.TrimSpace(in.ACPArgs),
 		LogLevel:          strings.TrimSpace(in.LogLevel),
 		LogFormat:         strings.TrimSpace(in.LogFormat),
 		LogFilePath:       strings.TrimSpace(in.LogFilePath),

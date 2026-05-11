@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -46,15 +47,18 @@ func NewError(code, message string) *Error {
 }
 
 type MockGatewayService struct {
-	mu             sync.Mutex
-	now            func() time.Time
-	nextID         int
-	agents         []AgentProfile
-	skills         []Skill
-	store          store.Store
-	connector      connector.AgentConnector
-	approvalBroker *ApprovalBroker
-	management     ManagementSettings
+	mu               sync.Mutex
+	now              func() time.Time
+	nextID           int
+	agents           []AgentProfile
+	bootstrapAgents  []AgentProfile
+	skills           []Skill
+	store            store.Store
+	connector        connector.AgentConnector
+	approvalBroker   *ApprovalBroker
+	managementStore  ManagementSettingsStore
+	managementLoaded bool
+	management       ManagementSettings
 }
 
 func NewMockGatewayService() *MockGatewayService {
@@ -66,26 +70,42 @@ func NewMockGatewayServiceWithStore(st store.Store) *MockGatewayService {
 }
 
 func NewMockGatewayServiceWithAgentsAndStore(agents []AgentProfile, st store.Store) *MockGatewayService {
+	return NewMockGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, NewMemoryManagementSettingsStore())
+}
+
+func NewMockGatewayServiceWithAgentsStoreAndSettingsStore(agents []AgentProfile, st store.Store, settingsStore ManagementSettingsStore) *MockGatewayService {
 	if len(agents) == 0 {
 		agents = defaultAgents()
 	}
+	if settingsStore == nil {
+		settingsStore = NewMemoryManagementSettingsStore()
+	}
+	bootstrapAgents := cloneAgentProfiles(agents)
 	return &MockGatewayService{
-		now:            time.Now,
-		nextID:         1,
-		agents:         agents,
-		skills:         defaultSkills(),
-		store:          st,
-		approvalBroker: NewApprovalBroker(),
+		now:             time.Now,
+		nextID:          1,
+		agents:          cloneAgentProfiles(agents),
+		bootstrapAgents: bootstrapAgents,
+		skills:          defaultSkills(),
+		store:           st,
+		approvalBroker:  NewApprovalBroker(),
+		managementStore: settingsStore,
 		management: ManagementSettings{
 			MCPServers:    []MCPServerConfig{},
 			ScheduleTasks: []ScheduleTaskConfig{},
-			Agents:        []AgentConfig{},
+			Agents:        toAgentConfigs(bootstrapAgents),
 		},
 	}
 }
 
 func NewConnectorGatewayServiceWithAgentsAndStore(agents []AgentProfile, st store.Store, conn connector.AgentConnector) *MockGatewayService {
-	svc := NewMockGatewayServiceWithAgentsAndStore(agents, st)
+	svc := NewMockGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, NewMemoryManagementSettingsStore())
+	svc.connector = conn
+	return svc
+}
+
+func NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore(agents []AgentProfile, st store.Store, settingsStore ManagementSettingsStore, conn connector.AgentConnector) *MockGatewayService {
+	svc := NewMockGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, settingsStore)
 	svc.connector = conn
 	return svc
 }
@@ -112,10 +132,11 @@ func (s *MockGatewayService) ListAgents(ctx context.Context) ([]AgentProfile, er
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
+		return nil, err
+	}
 
-	agents := make([]AgentProfile, len(s.agents))
-	copy(agents, s.agents)
-	return agents, nil
+	return cloneAgentProfiles(s.agents), nil
 }
 
 func (s *MockGatewayService) ListSkills(ctx context.Context) ([]Skill, error) {
@@ -136,6 +157,9 @@ func (s *MockGatewayService) GetManagementSettings(ctx context.Context) (Managem
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
+		return ManagementSettings{}, err
+	}
 	return cloneManagementSettings(s.management), nil
 }
 
@@ -145,8 +169,52 @@ func (s *MockGatewayService) UpdateManagementSettings(ctx context.Context, in Ma
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.management = normalizeManagementSettings(in)
+	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
+		return ManagementSettings{}, err
+	}
+	updated := normalizeManagementSettings(in)
+	if err := s.managementStore.Save(ctx, updated); err != nil {
+		return ManagementSettings{}, err
+	}
+	s.management = updated
+	s.agents = toAgentProfiles(s.management.Agents)
 	return cloneManagementSettings(s.management), nil
+}
+
+func (s *MockGatewayService) ensureManagementLoadedLocked(ctx context.Context) error {
+	if s.managementLoaded {
+		return nil
+	}
+	if s.managementStore == nil {
+		s.management = normalizeManagementSettings(s.management)
+		s.agents = toAgentProfiles(s.management.Agents)
+		s.managementLoaded = true
+		return nil
+	}
+
+	settings, err := s.managementStore.Load(ctx)
+	if err != nil {
+		if !errors.Is(err, ErrManagementSettingsNotFound) {
+			return err
+		}
+		seed := normalizeManagementSettings(ManagementSettings{
+			MCPServers:    []MCPServerConfig{},
+			ScheduleTasks: []ScheduleTaskConfig{},
+			Agents:        toAgentConfigs(s.bootstrapAgents),
+		})
+		if err := s.managementStore.Save(ctx, seed); err != nil {
+			return err
+		}
+		s.management = seed
+		s.agents = toAgentProfiles(s.management.Agents)
+		s.managementLoaded = true
+		return nil
+	}
+
+	s.management = normalizeManagementSettings(settings)
+	s.agents = toAgentProfiles(s.management.Agents)
+	s.managementLoaded = true
+	return nil
 }
 
 func normalizeManagementSettings(in ManagementSettings) ManagementSettings {
@@ -247,12 +315,58 @@ func cloneManagementSettings(in ManagementSettings) ManagementSettings {
 	return out
 }
 
+func toAgentConfigs(profiles []AgentProfile) []AgentConfig {
+	out := make([]AgentConfig, 0, len(profiles))
+	for _, item := range profiles {
+		out = append(out, AgentConfig{
+			ID:          strings.TrimSpace(item.ID),
+			Name:        strings.TrimSpace(item.Name),
+			Protocol:    strings.TrimSpace(item.Protocol),
+			Description: strings.TrimSpace(item.Description),
+			Models:      append([]string(nil), item.Models...),
+			Enabled:     true,
+		})
+	}
+	return out
+}
+
+func toAgentProfiles(configs []AgentConfig) []AgentProfile {
+	out := make([]AgentProfile, 0, len(configs))
+	for _, item := range configs {
+		if !item.Enabled {
+			continue
+		}
+		out = append(out, AgentProfile{
+			ID:          strings.TrimSpace(item.ID),
+			Name:        strings.TrimSpace(item.Name),
+			Protocol:    strings.TrimSpace(item.Protocol),
+			Description: strings.TrimSpace(item.Description),
+			Models:      append([]string(nil), item.Models...),
+		})
+	}
+	return out
+}
+
+func cloneAgentProfiles(in []AgentProfile) []AgentProfile {
+	out := make([]AgentProfile, 0, len(in))
+	for _, item := range in {
+		cp := item
+		cp.Models = append([]string(nil), item.Models...)
+		cp.Args = append([]string(nil), item.Args...)
+		out = append(out, cp)
+	}
+	return out
+}
+
 func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error) {
 	if err := ctx.Err(); err != nil {
 		return Session{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
+		return Session{}, err
+	}
 
 	agentID := strings.TrimSpace(req.AgentID)
 	mode := strings.TrimSpace(req.Mode)
@@ -260,6 +374,9 @@ func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessio
 		agentID = mode
 	}
 	if agentID == "" {
+		if len(s.agents) == 0 {
+			return Session{}, NewError("agent_not_found", "no enabled agents configured")
+		}
 		agentID = s.agents[0].ID
 	}
 	if mode == "" {
@@ -371,6 +488,9 @@ func (s *MockGatewayService) ResumeSession(ctx context.Context, sessionID string
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
+		return Session{}, err
+	}
 
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -469,6 +589,9 @@ func (s *MockGatewayService) SetSessionMode(ctx context.Context, sessionID strin
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
+		return Session{}, err
+	}
 
 	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
 	if err != nil {
@@ -567,6 +690,9 @@ func (s *MockGatewayService) Prompt(ctx context.Context, sessionID string, req P
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
+		return PromptResponse{}, err
+	}
 
 	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
 	if err != nil {
@@ -931,6 +1057,10 @@ func (s *MockGatewayService) syncSessionsFromConnector(ctx context.Context) erro
 	if err != nil {
 		return NewError("connector_request_failed", fmt.Sprintf("connector listSessions failed: %v", err))
 	}
+	defaultAgentID, err := s.defaultAgentID(ctx)
+	if err != nil {
+		return err
+	}
 	now := s.now()
 	for _, item := range resp.Sessions {
 		sessionID := strings.TrimSpace(item.SessionID)
@@ -945,10 +1075,7 @@ func (s *MockGatewayService) syncSessionsFromConnector(ctx context.Context) erro
 		if ok {
 			session = fromStoreConversation(conversation)
 		} else {
-			agentID := "icoo-ai-acp"
-			if len(s.agents) > 0 {
-				agentID = s.agents[0].ID
-			}
+			agentID := defaultAgentID
 			session = Session{
 				ID:        sessionID,
 				Title:     "Restored Session",
@@ -976,6 +1103,18 @@ func (s *MockGatewayService) syncSessionsFromConnector(ctx context.Context) erro
 		}
 	}
 	return nil
+}
+
+func (s *MockGatewayService) defaultAgentID(ctx context.Context) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
+		return "", err
+	}
+	if len(s.agents) > 0 {
+		return s.agents[0].ID, nil
+	}
+	return "icoo-ai-acp", nil
 }
 
 func (s *MockGatewayService) idLocked(prefix string) string {

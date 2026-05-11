@@ -207,9 +207,6 @@ export const useAppStore = defineStore('app', {
     gatewayBinaryPath: '',
     gatewayHost: '127.0.0.1',
     gatewayPort: 17889,
-    acpEnabled: false,
-    acpCommand: '',
-    acpArgs: '',
     logLevel: 'info',
     logFormat: 'text',
     logFilePath: 'logs/agent_chat.log',
@@ -289,9 +286,6 @@ export const useAppStore = defineStore('app', {
         this.gatewayHost = settings?.gatewayHost || '127.0.0.1'
         const loadedPort = Number(settings?.gatewayPort)
         this.gatewayPort = Number.isFinite(loadedPort) && loadedPort > 0 ? loadedPort : 17889
-        this.acpEnabled = Boolean(settings?.acpEnabled)
-        this.acpCommand = settings?.acpCommand || ''
-        this.acpArgs = settings?.acpArgs || ''
         this.logLevel = settings?.logLevel || 'info'
         this.logFormat = settings?.logFormat || 'text'
         this.logFilePath = settings?.logFilePath || 'logs/agent_chat.log'
@@ -315,9 +309,6 @@ export const useAppStore = defineStore('app', {
           gatewayBinaryPath: payload.gatewayBinaryPath ?? this.gatewayBinaryPath ?? '',
           gatewayHost: payload.gatewayHost ?? this.gatewayHost ?? '127.0.0.1',
           gatewayPort: payload.gatewayPort ?? this.gatewayPort ?? 17889,
-          acpEnabled: payload.acpEnabled ?? this.acpEnabled ?? false,
-          acpCommand: payload.acpCommand ?? this.acpCommand ?? '',
-          acpArgs: payload.acpArgs ?? this.acpArgs ?? '',
           logLevel: payload.logLevel ?? this.logLevel ?? 'info',
           logFormat: payload.logFormat ?? this.logFormat ?? 'text',
           logFilePath: payload.logFilePath ?? this.logFilePath ?? 'logs/agent_chat.log',
@@ -330,9 +321,6 @@ export const useAppStore = defineStore('app', {
         this.gatewayHost = saved?.gatewayHost || '127.0.0.1'
         const savedPort = Number(saved?.gatewayPort)
         this.gatewayPort = Number.isFinite(savedPort) && savedPort > 0 ? savedPort : 17889
-        this.acpEnabled = Boolean(saved?.acpEnabled)
-        this.acpCommand = saved?.acpCommand || ''
-        this.acpArgs = saved?.acpArgs || ''
         this.logLevel = saved?.logLevel || 'info'
         this.logFormat = saved?.logFormat || 'text'
         this.logFilePath = saved?.logFilePath || 'logs/agent_chat.log'

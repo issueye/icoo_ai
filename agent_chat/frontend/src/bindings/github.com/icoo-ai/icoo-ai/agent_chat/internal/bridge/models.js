@@ -167,27 +167,6 @@ export class AppSettings {
         if (/** @type {any} */(false)) {
             /**
              * @member
-             * @type {boolean | undefined}
-             */
-            this["acpEnabled"] = undefined;
-        }
-        if (/** @type {any} */(false)) {
-            /**
-             * @member
-             * @type {string | undefined}
-             */
-            this["acpCommand"] = undefined;
-        }
-        if (/** @type {any} */(false)) {
-            /**
-             * @member
-             * @type {string | undefined}
-             */
-            this["acpArgs"] = undefined;
-        }
-        if (/** @type {any} */(false)) {
-            /**
-             * @member
              * @type {string | undefined}
              */
             this["logLevel"] = undefined;

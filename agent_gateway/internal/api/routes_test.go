@@ -124,6 +124,42 @@ func TestListSkills(t *testing.T) {
 	}
 }
 
+func TestManagementSettingsAndAgentsUseSameConfigSource(t *testing.T) {
+	router := api.NewRouter(service.NewMockGatewayService())
+
+	updated := doJSON[service.ManagementSettings](t, router, http.MethodPut, "/v1/management/settings", service.ManagementSettings{
+		MCPServers: []service.MCPServerConfig{
+			{ID: "mcp_primary", Name: "Primary MCP", Command: "node", Args: []string{"server.js"}, Enabled: true},
+		},
+		ScheduleTasks: []service.ScheduleTaskConfig{
+			{ID: "task_daily", Name: "Daily", Spec: "0 8 * * *", Command: "echo", Args: []string{"ok"}, Enabled: true},
+		},
+		Agents: []service.AgentConfig{
+			{ID: "agent_enabled", Name: "Enabled Agent", Protocol: "acp", Models: []string{"gpt-5.4"}, Description: "enabled", Enabled: true},
+			{ID: "agent_disabled", Name: "Disabled Agent", Protocol: "acp", Models: []string{"gpt-5.4-mini"}, Description: "disabled", Enabled: false},
+		},
+	})
+	if len(updated.MCPServers) != 1 || len(updated.ScheduleTasks) != 1 || len(updated.Agents) != 2 {
+		t.Fatalf("unexpected updated settings: %#v", updated)
+	}
+
+	settings := doJSON[service.ManagementSettings](t, router, http.MethodGet, "/v1/management/settings", nil)
+	if len(settings.Agents) != 2 {
+		t.Fatalf("expected 2 agents in settings, got %#v", settings.Agents)
+	}
+
+	agents := doJSON[[]service.AgentProfile](t, router, http.MethodGet, "/v1/agents", nil)
+	if len(agents) != 1 {
+		t.Fatalf("expected only enabled agent in /v1/agents, got %#v", agents)
+	}
+	if agents[0].ID != "agent_enabled" || agents[0].Name != "Enabled Agent" || agents[0].Protocol != "acp" {
+		t.Fatalf("unexpected /v1/agents projection: %#v", agents[0])
+	}
+	if len(agents[0].Models) != 1 || agents[0].Models[0] != "gpt-5.4" {
+		t.Fatalf("unexpected models in /v1/agents: %#v", agents[0].Models)
+	}
+}
+
 func TestPromptWithoutConnectorReturnsStructuredError(t *testing.T) {
 	router := api.NewRouter(service.NewMockGatewayService())
 	session := doJSON[service.Session](t, router, http.MethodPost, "/v1/sessions", map[string]string{

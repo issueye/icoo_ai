@@ -14,9 +14,6 @@ defineProps({
 const gatewayPath = ref('')
 const gatewayHost = ref('127.0.0.1')
 const gatewayPort = ref(17889)
-const acpEnabled = ref('disabled')
-const acpCommand = ref('')
-const acpArgs = ref('')
 const logLevel = ref('info')
 const logFormat = ref('text')
 const logFilePath = ref('logs/agent_chat.log')
@@ -38,11 +35,6 @@ const logFormatOptions = [
   { id: 'json', label: 'json' },
 ]
 
-const acpModeOptions = [
-  { id: 'enabled', label: '启用 ACP' },
-  { id: 'disabled', label: '禁用 ACP' },
-]
-
 let confirmDialogResolver = null
 
 onMounted(async () => {
@@ -50,9 +42,6 @@ onMounted(async () => {
   gatewayPath.value = app.gatewayBinaryPath || ''
   gatewayHost.value = app.gatewayHost || '127.0.0.1'
   gatewayPort.value = Number(app.gatewayPort || 17889)
-  acpEnabled.value = app.acpEnabled ? 'enabled' : 'disabled'
-  acpCommand.value = app.acpCommand || ''
-  acpArgs.value = app.acpArgs || ''
   logLevel.value = app.logLevel || 'info'
   logFormat.value = app.logFormat || 'text'
   logFilePath.value = app.logFilePath || 'logs/agent_chat.log'
@@ -112,13 +101,6 @@ async function saveSettings() {
     const normalizedHost = gatewayHost.value.trim() || '127.0.0.1'
     const normalizedBinaryPath = gatewayPath.value.trim()
     const normalizedGatewayPort = Number.isFinite(normalizedPort) ? normalizedPort : 17889
-    const normalizedACPEnabled = acpEnabled.value === 'enabled'
-    const normalizedACPCommand = acpCommand.value.trim()
-    const normalizedACPArgs = acpArgs.value.trim()
-    if (normalizedACPEnabled && !normalizedACPCommand) {
-      app.pushToast({ type: 'error', message: '启用 ACP 时必须填写 ACP 命令' })
-      return
-    }
     const normalizedLogLevel = ['debug', 'info', 'warn', 'error'].includes((logLevel.value || '').trim().toLowerCase())
       ? (logLevel.value || '').trim().toLowerCase()
       : 'info'
@@ -130,9 +112,6 @@ async function saveSettings() {
       normalizedBinaryPath !== (app.gatewayBinaryPath || '') ||
       normalizedHost !== (app.gatewayHost || '127.0.0.1') ||
       normalizedGatewayPort !== Number(app.gatewayPort || 17889) ||
-      normalizedACPEnabled !== Boolean(app.acpEnabled) ||
-      normalizedACPCommand !== (app.acpCommand || '') ||
-      normalizedACPArgs !== (app.acpArgs || '') ||
       normalizedLogLevel !== (app.logLevel || 'info') ||
       normalizedLogFormat !== (app.logFormat || 'text') ||
       normalizedLogFilePath !== (app.logFilePath || 'logs/agent_chat.log')
@@ -141,9 +120,6 @@ async function saveSettings() {
       gatewayBinaryPath: normalizedBinaryPath,
       gatewayHost: normalizedHost,
       gatewayPort: normalizedGatewayPort,
-      acpEnabled: normalizedACPEnabled,
-      acpCommand: normalizedACPCommand,
-      acpArgs: normalizedACPArgs,
       logLevel: normalizedLogLevel,
       logFormat: normalizedLogFormat,
       logFilePath: normalizedLogFilePath,
@@ -218,9 +194,6 @@ function resetToDefault() {
   gatewayPath.value = ''
   gatewayHost.value = '127.0.0.1'
   gatewayPort.value = 17889
-  acpEnabled.value = 'disabled'
-  acpCommand.value = ''
-  acpArgs.value = ''
   logLevel.value = 'info'
   logFormat.value = 'text'
   logFilePath.value = 'logs/agent_chat.log'
@@ -264,30 +237,6 @@ function resetToDefault() {
           max="65535"
           class="qq-settings-input"
           placeholder="17889"
-        />
-        <label class="qq-settings-label" for="acpEnabled">ACP 模式</label>
-        <ContextDropdown
-          id="acpEnabled"
-          v-model="acpEnabled"
-          class="qq-settings-dropdown"
-          label="ACP"
-          :options="acpModeOptions"
-        />
-        <label class="qq-settings-label" for="acpCommand">ACP 命令</label>
-        <input
-          id="acpCommand"
-          v-model="acpCommand"
-          type="text"
-          class="qq-settings-input"
-          placeholder="例如：icoo-ai"
-        />
-        <label class="qq-settings-label" for="acpArgs">ACP 参数</label>
-        <input
-          id="acpArgs"
-          v-model="acpArgs"
-          type="text"
-          class="qq-settings-input"
-          placeholder="例如：serve --transport stdio"
         />
         <label class="qq-settings-label" for="logLevel">日志级别</label>
         <ContextDropdown

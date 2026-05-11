@@ -1,8 +1,10 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -313,6 +315,121 @@ func TestServerShutdownStopsEventProjectionConsumption(t *testing.T) {
 	if len(runs) != 1 || runs[0].RunID != "run_before_shutdown" {
 		t.Fatalf("expected no projection after shutdown, got runs=%#v", runs)
 	}
+}
+
+func TestServerPersistsManagementSettingsAcrossRestart(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, "management-settings.json")
+
+	newConfiguredServer := func(t *testing.T) *Server {
+		t.Helper()
+		cfg := config.Default()
+		cfg.DataDir = dir
+		server, err := NewServer(cfg)
+		if err != nil {
+			t.Fatalf("NewServer() error = %v", err)
+		}
+		server.gatewayServiceFactory = func(st store.Store) (service.GatewayService, error) {
+			return service.NewMockGatewayServiceWithAgentsStoreAndSettingsStore(
+				nil,
+				st,
+				service.NewFileManagementSettingsStore(settingsPath),
+			), nil
+		}
+		return server
+	}
+
+	server := newConfiguredServer(t)
+	if err := server.Start(); err != nil {
+		t.Fatalf("first Start() error = %v", err)
+	}
+
+	updated := mustAuthorizedJSON[service.ManagementSettings](t, server, http.MethodPut, "/v1/management/settings", service.ManagementSettings{
+		MCPServers: []service.MCPServerConfig{
+			{ID: "mcp_saved", Name: "Saved MCP", Command: "node", Args: []string{"saved.js"}, Enabled: true},
+		},
+		ScheduleTasks: []service.ScheduleTaskConfig{
+			{ID: "task_saved", Name: "Saved Task", Spec: "*/15 * * * *", Command: "echo", Args: []string{"saved"}, Enabled: true},
+		},
+		Agents: []service.AgentConfig{
+			{ID: "persisted_agent", Name: "Persisted Agent", Protocol: "acp", Models: []string{"gpt-5.4"}, Enabled: true},
+		},
+	})
+	if len(updated.Agents) != 1 || updated.Agents[0].ID != "persisted_agent" {
+		t.Fatalf("unexpected persisted settings from PUT: %#v", updated)
+	}
+
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel1()
+	if err := server.Shutdown(ctx1); err != nil {
+		t.Fatalf("first Shutdown() error = %v", err)
+	}
+
+	restarted := newConfiguredServer(t)
+	if err := restarted.Start(); err != nil {
+		t.Fatalf("second Start() error = %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := restarted.Shutdown(ctx); err != nil {
+			t.Fatalf("second Shutdown() error = %v", err)
+		}
+	})
+
+	settings := mustAuthorizedJSON[service.ManagementSettings](t, restarted, http.MethodGet, "/v1/management/settings", nil)
+	if len(settings.MCPServers) != 1 || settings.MCPServers[0].ID != "mcp_saved" {
+		t.Fatalf("settings were not restored after restart: %#v", settings)
+	}
+	if len(settings.ScheduleTasks) != 1 || settings.ScheduleTasks[0].ID != "task_saved" {
+		t.Fatalf("schedule tasks were not restored after restart: %#v", settings)
+	}
+	if len(settings.Agents) != 1 || settings.Agents[0].ID != "persisted_agent" {
+		t.Fatalf("agents were not restored after restart: %#v", settings)
+	}
+
+	agents := mustAuthorizedJSON[[]service.AgentProfile](t, restarted, http.MethodGet, "/v1/agents", nil)
+	if len(agents) != 1 || agents[0].ID != "persisted_agent" {
+		t.Fatalf("/v1/agents not consistent after restart: %#v", agents)
+	}
+}
+
+func mustAuthorizedJSON[T any](t *testing.T, server *Server, method, path string, payload any) T {
+	t.Helper()
+
+	var body io.Reader
+	if payload != nil {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal payload: %v", err)
+		}
+		body = bytes.NewReader(raw)
+	}
+
+	req, err := http.NewRequest(method, server.Endpoint().BaseURL+path, body)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s error = %v", method, path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		data, _ := io.ReadAll(resp.Body)
+		t.Fatalf("%s %s status = %d body=%s", method, path, resp.StatusCode, string(data))
+	}
+
+	var out T
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return out
 }
 
 func waitFor(t *testing.T, timeout time.Duration, predicate func() bool) {

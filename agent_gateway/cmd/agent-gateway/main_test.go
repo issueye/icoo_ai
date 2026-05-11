@@ -1,74 +1,43 @@
 package main
 
-import (
-	"reflect"
-	"testing"
-)
+import "testing"
 
-func TestParseConfigFromFlagsACPOptions(t *testing.T) {
+func TestParseConfigFromFlagsHostPortOnce(t *testing.T) {
 	cfg, once, err := parseConfigFromFlags([]string{
 		"-host", "127.0.0.1",
 		"-port", "17889",
-		"-acp-enabled",
-		"-acp-command", "icoo-ai",
-		"-acp-args", "serve --transport stdio",
-		"-acp-pool-size", "3",
 		"-once",
 	})
 	if err != nil {
 		t.Fatalf("parseConfigFromFlags() error = %v", err)
 	}
+	if cfg.Host != "127.0.0.1" {
+		t.Fatalf("cfg.Host = %q, want %q", cfg.Host, "127.0.0.1")
+	}
+	if cfg.Port != 17889 {
+		t.Fatalf("cfg.Port = %d, want %d", cfg.Port, 17889)
+	}
 	if !once {
 		t.Fatal("once = false, want true")
 	}
-	if !cfg.ACP.Enabled {
-		t.Fatal("cfg.ACP.Enabled = false, want true")
-	}
-	if cfg.ACP.Command != "icoo-ai" {
-		t.Fatalf("cfg.ACP.Command = %q, want %q", cfg.ACP.Command, "icoo-ai")
-	}
-	if cfg.ACP.PoolSize != 3 {
-		t.Fatalf("cfg.ACP.PoolSize = %d, want %d", cfg.ACP.PoolSize, 3)
-	}
-	wantArgs := []string{"serve", "--transport", "stdio"}
-	if !reflect.DeepEqual(cfg.ACP.Args, wantArgs) {
-		t.Fatalf("cfg.ACP.Args = %#v, want %#v", cfg.ACP.Args, wantArgs)
-	}
 }
 
-func TestParseConfigFromFlagsDefaultACPPoolSize(t *testing.T) {
-	cfg, _, err := parseConfigFromFlags([]string{})
-	if err != nil {
-		t.Fatalf("parseConfigFromFlags() error = %v", err)
-	}
-	if cfg.ACP.PoolSize != 1 {
-		t.Fatalf("cfg.ACP.PoolSize = %d, want 1", cfg.ACP.PoolSize)
-	}
-}
-
-func TestParseACPArgs(t *testing.T) {
+func TestParseConfigFromFlagsRejectsLegacyFlags(t *testing.T) {
 	tests := []struct {
 		name string
-		in   string
-		want []string
+		args []string
 	}{
-		{
-			name: "blank",
-			in:   "   ",
-			want: nil,
-		},
-		{
-			name: "whitespace separated",
-			in:   "serve --transport stdio",
-			want: []string{"serve", "--transport", "stdio"},
-		},
+		{name: "data-dir", args: []string{"-data-dir", "./tmp"}},
+		{name: "acp-enabled", args: []string{"-acp-enabled"}},
+		{name: "acp-command", args: []string{"-acp-command", "icoo-ai"}},
+		{name: "acp-args", args: []string{"-acp-args", "serve --transport stdio"}},
+		{name: "acp-pool-size", args: []string{"-acp-pool-size", "2"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseACPArgs(tt.in)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("parseACPArgs() = %#v, want %#v", got, tt.want)
+			if _, _, err := parseConfigFromFlags(tt.args); err == nil {
+				t.Fatalf("parseConfigFromFlags(%v) error = nil, want error", tt.args)
 			}
 		})
 	}

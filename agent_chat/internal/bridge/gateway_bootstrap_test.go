@@ -140,33 +140,6 @@ func TestGatewayLaunchArgsFromSettings(t *testing.T) {
 	}
 }
 
-func TestGatewayLaunchArgsFromSettings_WithACPConfig(t *testing.T) {
-	t.Parallel()
-
-	args := gatewayLaunchArgsFromSettings(AppSettings{
-		GatewayHost: "127.0.0.1",
-		GatewayPort: 17889,
-		ACPEnabled:  true,
-		ACPCommand:  "icoo-ai",
-		ACPArgs:     "serve --transport stdio",
-	})
-	want := []string{
-		"-host", "127.0.0.1",
-		"-port", "17889",
-		"-acp-enabled",
-		"-acp-command", "icoo-ai",
-		"-acp-args", "serve --transport stdio",
-	}
-	if len(args) != len(want) {
-		t.Fatalf("args len = %d, want %d: %#v", len(args), len(want), args)
-	}
-	for i := range want {
-		if args[i] != want[i] {
-			t.Fatalf("args[%d] = %q, want %q (all=%#v)", i, args[i], want[i], args)
-		}
-	}
-}
-
 func TestGatewayBootstrapperStopManagedProcess_SkipsUnmanagedPID(t *testing.T) {
 	t.Parallel()
 

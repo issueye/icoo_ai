@@ -19,10 +19,12 @@ Run:
 go run ./cmd/agent-gateway
 ```
 
-Smoke check with a temporary data directory:
+CLI flags are intentionally limited to `-host` / `-port` (plus `-once` for one-shot tests).
+
+Smoke check:
 
 ```powershell
-go run ./cmd/agent-gateway -data-dir ./.tmp-gateway -once
+go run ./cmd/agent-gateway -host 127.0.0.1 -port 0 -once
 ```
 
 Build binary:

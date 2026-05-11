@@ -318,20 +318,10 @@ func resolveGatewayCommand(devMode bool) (gatewayCommandSpec, error) {
 
 func gatewayLaunchArgsFromSettings(settings AppSettings) []string {
 	settings = normalizeAppSettings(settings)
-	args := []string{
+	return []string{
 		"-host", settings.GatewayHost,
 		"-port", fmt.Sprintf("%d", settings.GatewayPort),
 	}
-	if settings.ACPEnabled {
-		args = append(args, "-acp-enabled")
-	}
-	if command := strings.TrimSpace(settings.ACPCommand); command != "" {
-		args = append(args, "-acp-command", command)
-	}
-	if acpArgs := strings.TrimSpace(settings.ACPArgs); acpArgs != "" {
-		args = append(args, "-acp-args", acpArgs)
-	}
-	return args
 }
 
 func resolveRepoRoot() (string, error) {

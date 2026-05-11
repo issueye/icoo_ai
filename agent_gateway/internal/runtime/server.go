@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/api"
@@ -53,6 +54,16 @@ func NewServer(cfg config.Config) (*Server, error) {
 }
 
 func (s *Server) Start() error {
+	dataDir := s.cfg.DataDir
+	if dataDir == "" {
+		var err error
+		dataDir, err = DefaultDataDir()
+		if err != nil {
+			return err
+		}
+		s.cfg.DataDir = dataDir
+	}
+
 	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -73,14 +84,6 @@ func (s *Server) Start() error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	dataDir := s.cfg.DataDir
-	if dataDir == "" {
-		dataDir, err = DefaultDataDir()
-		if err != nil {
-			_ = listener.Close()
-			return err
-		}
-	}
 	endpoint := Endpoint{
 		PID:       os.Getpid(),
 		BaseURL:   "http://" + listener.Addr().String(),
@@ -134,7 +137,7 @@ func (s *Server) newGatewayService() (service.GatewayService, error) {
 	if !s.cfg.ACP.Enabled {
 		return nil, connector.NewError(
 			connector.ErrCodeInvalidConnectorConfig,
-			"acp connector is disabled; set --acp-enabled and --acp-command",
+			"acp connector is disabled in runtime config",
 		)
 	}
 	conn, err := s.newACPConnector(memStore)
@@ -151,7 +154,8 @@ func (s *Server) newGatewayService() (service.GatewayService, error) {
 		return nil, err
 	}
 	s.acpConn = conn
-	return service.NewConnectorGatewayServiceWithAgentsAndStore([]service.AgentProfile{
+	settingsStore := service.NewFileManagementSettingsStore(filepath.Join(s.cfg.DataDir, "management-settings.json"))
+	return service.NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore([]service.AgentProfile{
 		{
 			ID:          "icoo-ai-acp",
 			Name:        "Icoo AI",
@@ -159,7 +163,7 @@ func (s *Server) newGatewayService() (service.GatewayService, error) {
 			Models:      []string{"gpt-5.4"},
 			Description: "Default ACP connector profile.",
 		},
-	}, memStore, conn), nil
+	}, memStore, settingsStore, conn), nil
 }
 
 func (s *Server) newACPConnector(memStore store.Store) (connector.AgentConnector, error) {
