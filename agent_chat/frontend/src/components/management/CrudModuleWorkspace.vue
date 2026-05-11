@@ -8,6 +8,7 @@ const props = defineProps({
   items: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   errorText: { type: String, default: '' },
+  saveLabel: { type: String, default: '保存配置' },
   emptyText: { type: String, default: '暂无数据，请先新增。' },
   queryPlaceholder: { type: String, default: '按 ID / 名称 / 命令搜索' },
   pageSize: { type: Number, default: 10 },
@@ -18,8 +19,11 @@ const props = defineProps({
   allowEdit: { type: Boolean, default: true },
   allowDelete: { type: Boolean, default: true },
   allowToggle: { type: Boolean, default: true },
+  allowSave: { type: Boolean, default: true },
+  persistOnApply: { type: Boolean, default: false },
   showRefresh: { type: Boolean, default: false },
   readonly: { type: Boolean, default: false },
+  saveDisabled: { type: Boolean, default: false },
   actionMode: { type: String, default: 'edit' }, // edit | view
   detailTitle: { type: String, default: '详情' },
   modalCreateTitle: { type: String, default: '新增数据' },
@@ -161,18 +165,35 @@ function toggleItem(index) {
   emit('update:items', copyItems(localItems.value))
 }
 
-function applyDraft() {
+async function applyDraft() {
   const normalized = normalizeDraft(draft.value, localItems.value.length + 1)
   const error = props.validateItem(normalized)
   if (error) return emit('error', error)
+  const previousItems = copyItems(localItems.value)
   if (isEditing.value) localItems.value[editingIndex.value] = normalized
   else localItems.value.push(normalized)
-  emit('update:items', copyItems(localItems.value))
+  const nextItems = copyItems(localItems.value)
+  emit('update:items', nextItems)
+  if (props.persistOnApply) {
+    try {
+      await emit('save', nextItems)
+    } catch (saveError) {
+      localItems.value = previousItems
+      emit('update:items', previousItems)
+      emit('error', saveError instanceof Error ? saveError.message : '保存失败')
+      return
+    }
+  }
   closeModal()
 }
 
 async function refreshAll() {
   await emit('refresh')
+}
+
+async function saveAll() {
+  if (props.saveDisabled || !props.allowSave) return
+  await emit('save')
 }
 
 function closeModal() {
@@ -219,6 +240,10 @@ function clearQuery() {
             <button v-if="allowCreate && !readonly" class="qq-secondary-action h-9 px-4" @click="startCreate">
               <Plus class="h-4 w-4" />
               <span>新增</span>
+            </button>
+            <button v-if="allowSave" class="qq-primary-action h-9 px-4" :disabled="saveDisabled" @click="saveAll">
+              <Save class="h-4 w-4" />
+              <span>{{ saveLabel }}</span>
             </button>
           </div>
         </div>
@@ -323,7 +348,7 @@ function clearQuery() {
         </div>
         <div class="qq-modal-actions">
           <button class="qq-secondary-action h-8 px-3 text-sm" type="button" @click="closeModal">取消</button>
-          <button v-if="actionMode !== 'view'" class="qq-primary-action h-8 px-3 text-sm" type="button" @click="applyDraft">{{ isEditing ? '更新' : '新增' }}</button>
+          <button v-if="actionMode !== 'view'" class="qq-primary-action h-8 px-3 text-sm" type="button" @click="applyDraft">{{ isEditing ? '保存' : '保存' }}</button>
         </div>
       </div>
     </div>

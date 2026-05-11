@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,6 +38,15 @@ type ScheduleTaskConfig struct {
 	Enabled bool     `json:"enabled,omitempty"`
 }
 
+type AgentConfig struct {
+	ID          string   `json:"id,omitempty"`
+	Name        string   `json:"name,omitempty"`
+	Protocol    string   `json:"protocol,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Models      []string `json:"models,omitempty"`
+	Enabled     bool     `json:"enabled,omitempty"`
+}
+
 type AppSettings struct {
 	GatewayBinaryPath string               `json:"gatewayBinaryPath,omitempty"`
 	GatewayHost       string               `json:"gatewayHost,omitempty"`
@@ -48,6 +58,7 @@ type AppSettings struct {
 	LogFormat         string               `json:"logFormat,omitempty"`
 	LogFilePath       string               `json:"logFilePath,omitempty"`
 	Channels          []ChannelConfig      `json:"channels,omitempty"`
+	Agents            []AgentConfig        `json:"agents,omitempty"`
 	MCPServers        []MCPServerConfig    `json:"mcpServers,omitempty"`
 	ScheduleTasks     []ScheduleTaskConfig `json:"scheduleTasks,omitempty"`
 }
@@ -72,7 +83,22 @@ func settingsFilePath() (string, error) {
 }
 
 func (s *AgentService) GetAppSettings() (AppSettings, error) {
-	return loadAppSettings()
+	settings, err := loadAppSettings()
+	if err != nil {
+		return AppSettings{}, err
+	}
+	if s == nil {
+		return settings, nil
+	}
+	remote, remoteErr := s.fetchGatewayManagementSettings(context.Background())
+	if remoteErr != nil {
+		logger.Warn("load management settings from gateway failed, fallback to local settings", "error", remoteErr)
+		return settings, nil
+	}
+	settings.Agents = normalizeAgents(remote.Agents)
+	settings.MCPServers = normalizeMCPServers(remote.MCPServers)
+	settings.ScheduleTasks = normalizeScheduleTasks(remote.ScheduleTasks)
+	return settings, nil
 }
 
 func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
@@ -82,9 +108,19 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 		return AppSettings{}, err
 	}
 	settings := normalizeAppSettings(in)
-	if err := persistManagementSettings(settings); err != nil {
-		logger.Error("persist management settings to sqlite failed", "error", err)
-		return AppSettings{}, err
+	if s != nil {
+		remote, remoteErr := s.updateGatewayManagementSettings(context.Background(), gatewayManagementSettingsPayload{
+			Agents:        settings.Agents,
+			MCPServers:    settings.MCPServers,
+			ScheduleTasks: settings.ScheduleTasks,
+		})
+		if remoteErr != nil {
+			logger.Error("update management settings through gateway failed", "error", remoteErr)
+			return AppSettings{}, remoteErr
+		}
+		settings.Agents = normalizeAgents(remote.Agents)
+		settings.MCPServers = normalizeMCPServers(remote.MCPServers)
+		settings.ScheduleTasks = normalizeScheduleTasks(remote.ScheduleTasks)
 	}
 	if err := writeSettingsFile(path, settings); err != nil {
 		logger.Error("write settings file failed", "path", path, "error", err)
@@ -121,10 +157,6 @@ func loadAppSettings() (AppSettings, error) {
 				logger.Error("initialize settings file failed", "path", path, "error", writeErr)
 				return AppSettings{}, writeErr
 			}
-			if persistErr := persistManagementSettings(settings); persistErr != nil {
-				logger.Error("initialize sqlite management settings failed", "error", persistErr)
-				return AppSettings{}, persistErr
-			}
 			logger.Info("initialized settings file with defaults", "path", path)
 			return settings, nil
 		}
@@ -137,12 +169,6 @@ func loadAppSettings() (AppSettings, error) {
 		return AppSettings{}, fmt.Errorf("decode app settings: %w", err)
 	}
 	normalized := normalizeAppSettings(settings)
-	withStore, storeErr := applyManagementSettingsFromStore(normalized)
-	if storeErr != nil {
-		logger.Warn("load management settings from sqlite failed, fallback to file", "error", storeErr)
-	} else {
-		normalized = withStore
-	}
 	logger.Debug("settings loaded",
 		"path", path,
 		"gatewayHost", normalized.GatewayHost,
@@ -160,11 +186,34 @@ func loadAppSettings() (AppSettings, error) {
 	return normalized, nil
 }
 
+type gatewayManagementSettingsPayload struct {
+	MCPServers    []MCPServerConfig    `json:"mcpServers,omitempty"`
+	ScheduleTasks []ScheduleTaskConfig `json:"scheduleTasks,omitempty"`
+	Agents        []AgentConfig        `json:"agents,omitempty"`
+}
+
+func (s *AgentService) fetchGatewayManagementSettings(ctx context.Context) (gatewayManagementSettingsPayload, error) {
+	var out gatewayManagementSettingsPayload
+	if err := s.gatewayJSON(ctx, "GET", "/v1/management/settings", nil, &out); err != nil {
+		return gatewayManagementSettingsPayload{}, err
+	}
+	return out, nil
+}
+
+func (s *AgentService) updateGatewayManagementSettings(ctx context.Context, payload gatewayManagementSettingsPayload) (gatewayManagementSettingsPayload, error) {
+	var out gatewayManagementSettingsPayload
+	if err := s.gatewayJSON(ctx, "PUT", "/v1/management/settings", payload, &out); err != nil {
+		return gatewayManagementSettingsPayload{}, err
+	}
+	return out, nil
+}
+
 func decodeSettingsTOML(data []byte) (AppSettings, error) {
 	settings := AppSettings{}
 	currentChannelIndex := -1
 	currentMCPServerIndex := -1
 	currentScheduleTaskIndex := -1
+	currentAgentIndex := -1
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -194,10 +243,18 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 				currentScheduleTaskIndex = len(settings.ScheduleTasks) - 1
 				currentMCPServerIndex = -1
 				currentChannelIndex = -1
+				currentAgentIndex = -1
+			} else if line == "[[agents]]" {
+				settings.Agents = append(settings.Agents, AgentConfig{})
+				currentAgentIndex = len(settings.Agents) - 1
+				currentMCPServerIndex = -1
+				currentScheduleTaskIndex = -1
+				currentChannelIndex = -1
 			} else {
 				currentChannelIndex = -1
 				currentMCPServerIndex = -1
 				currentScheduleTaskIndex = -1
+				currentAgentIndex = -1
 			}
 			continue
 		}
@@ -357,6 +414,54 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 				continue
 			}
 		}
+		if currentAgentIndex >= 0 {
+			agent := settings.Agents[currentAgentIndex]
+			handled := true
+			switch key {
+			case "id":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				agent.ID = strings.TrimSpace(unquoted)
+			case "name":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				agent.Name = strings.TrimSpace(unquoted)
+			case "protocol":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				agent.Protocol = strings.TrimSpace(unquoted)
+			case "description":
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				agent.Description = strings.TrimSpace(unquoted)
+			case "enabled":
+				parsed, err := strconv.ParseBool(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				agent.Enabled = parsed
+			case "models":
+				parsedModels, err := parseTOMLStringArray(value)
+				if err != nil {
+					return AppSettings{}, err
+				}
+				agent.Models = parsedModels
+			default:
+				handled = false
+			}
+			if handled {
+				settings.Agents[currentAgentIndex] = agent
+				continue
+			}
+		}
 		switch key {
 		case "gateway_binary_path":
 			unquoted, err := strconv.Unquote(value)
@@ -460,6 +565,15 @@ func encodeSettingsTOML(settings AppSettings) []byte {
 		fmt.Fprintf(&builder, "args = %s\n", encodeTOMLStringArray(task.Args))
 		fmt.Fprintf(&builder, "enabled = %t\n", task.Enabled)
 	}
+	for _, agent := range normalized.Agents {
+		builder.WriteString("\n[[agents]]\n")
+		fmt.Fprintf(&builder, "id = %s\n", strconv.Quote(agent.ID))
+		fmt.Fprintf(&builder, "name = %s\n", strconv.Quote(agent.Name))
+		fmt.Fprintf(&builder, "protocol = %s\n", strconv.Quote(agent.Protocol))
+		fmt.Fprintf(&builder, "description = %s\n", strconv.Quote(agent.Description))
+		fmt.Fprintf(&builder, "models = %s\n", encodeTOMLStringArray(agent.Models))
+		fmt.Fprintf(&builder, "enabled = %t\n", agent.Enabled)
+	}
 	return []byte(builder.String())
 }
 
@@ -486,6 +600,7 @@ func normalizeAppSettings(in AppSettings) AppSettings {
 		LogFormat:         strings.TrimSpace(in.LogFormat),
 		LogFilePath:       strings.TrimSpace(in.LogFilePath),
 		Channels:          normalizeChannels(in.Channels),
+		Agents:            normalizeAgents(in.Agents),
 		MCPServers:        normalizeMCPServers(in.MCPServers),
 		ScheduleTasks:     normalizeScheduleTasks(in.ScheduleTasks),
 	}
@@ -705,6 +820,42 @@ func normalizeMCPServers(in []MCPServerConfig) []MCPServerConfig {
 			Command: strings.TrimSpace(server.Command),
 			Args:    args,
 			Enabled: server.Enabled,
+		})
+	}
+	return normalized
+}
+
+func normalizeAgents(in []AgentConfig) []AgentConfig {
+	if len(in) == 0 {
+		return []AgentConfig{}
+	}
+	used := map[string]int{}
+	normalized := make([]AgentConfig, 0, len(in))
+	for index, agent := range in {
+		id := strings.TrimSpace(agent.ID)
+		if id == "" {
+			id = fmt.Sprintf("agent_%d", index+1)
+		}
+		id = ensureUniqueChannelID(id, "agent", used)
+		name := strings.TrimSpace(agent.Name)
+		if name == "" {
+			name = id
+		}
+		models := make([]string, 0, len(agent.Models))
+		for _, model := range agent.Models {
+			text := strings.TrimSpace(model)
+			if text == "" {
+				continue
+			}
+			models = append(models, text)
+		}
+		normalized = append(normalized, AgentConfig{
+			ID:          id,
+			Name:        name,
+			Protocol:    strings.TrimSpace(agent.Protocol),
+			Description: strings.TrimSpace(agent.Description),
+			Models:      models,
+			Enabled:     agent.Enabled,
 		})
 	}
 	return normalized

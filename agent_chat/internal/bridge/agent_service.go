@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"sync"
@@ -42,6 +43,7 @@ type AgentService struct {
 	streamMu         sync.Mutex
 	streamCancel     context.CancelFunc
 	probeEventStream func(context.Context, *gatewayProxy) error
+	manualGatewayMode bool
 }
 
 func NewAgentService() *AgentService {
@@ -52,6 +54,7 @@ func NewAgentService() *AgentService {
 		gateway:        loadGatewayProxy(),
 		bootstrap:      newGatewayBootstrapper(),
 		activeSessions: make(map[string]struct{}),
+		manualGatewayMode: detectWailsDevMode(),
 		probeEventStream: func(ctx context.Context, proxy *gatewayProxy) error {
 			return probeGatewayEventStream(ctx, proxy)
 		},
@@ -70,6 +73,19 @@ func (s *AgentService) ServiceStartup(ctx context.Context, _ application.Service
 		}
 	}
 	s.emitGatewayStatus(GatewayStatusConnecting, "正在连接网关服务", nil)
+	if s.manualGatewayMode {
+		if s.gateway != nil {
+			if err := s.pingGateway(ctx, s.gateway); err != nil {
+				logger.Warn("dev mode gateway probe failed, require manual start", "error", err)
+				s.gateway = nil
+			}
+		}
+		if s.gateway == nil {
+			s.emitGatewayStatus(GatewayStatusFailed, "开发模式未自动启动网关，请手动启动网关", nil)
+			logger.Info("service startup complete (manual gateway mode, gateway not started)")
+			return nil
+		}
+	}
 	if err := s.ensureGatewayRunning(ctx); err != nil {
 		logger.Error("service startup failed to ensure gateway", "error", err)
 		s.emitGatewayStatus(GatewayStatusFailed, "网关启动失败", map[string]any{
@@ -97,6 +113,21 @@ func (s *AgentService) ServiceStartup(ctx context.Context, _ application.Service
 	s.startGatewayEventStream(ctx)
 	logger.Info("service startup complete")
 	return nil
+}
+
+func detectWailsDevMode() bool {
+	candidates := []string{
+		strings.TrimSpace(os.Getenv("WAILS_DEV")),
+		strings.TrimSpace(os.Getenv("WAILS_ENV")),
+		strings.TrimSpace(os.Getenv("WAILS_MODE")),
+	}
+	for _, value := range candidates {
+		lower := strings.ToLower(value)
+		if lower == "1" || lower == "true" || lower == "dev" || lower == "development" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *AgentService) ServiceShutdown() error {

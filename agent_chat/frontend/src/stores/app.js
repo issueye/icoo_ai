@@ -158,6 +158,44 @@ function normalizeScheduleTasks(rawTasks) {
   })
 }
 
+function normalizeAgent(rawAgent = {}, sequence = 1) {
+  const fallbackID = `agent_${sequence}`
+  const id = typeof rawAgent?.id === 'string' ? rawAgent.id.trim() : ''
+  const name = typeof rawAgent?.name === 'string' ? rawAgent.name.trim() : ''
+  const protocol = typeof rawAgent?.protocol === 'string' ? rawAgent.protocol.trim() : ''
+  const description = typeof rawAgent?.description === 'string' ? rawAgent.description.trim() : ''
+  const models = Array.isArray(rawAgent?.models)
+    ? rawAgent.models.map((item) => String(item ?? '').trim()).filter(Boolean)
+    : []
+  return {
+    id: id || fallbackID,
+    name: name || id || fallbackID,
+    protocol,
+    description,
+    models,
+    enabled: Boolean(rawAgent?.enabled),
+  }
+}
+
+function normalizeAgents(rawAgents) {
+  const source = Array.isArray(rawAgents) ? rawAgents : []
+  if (source.length === 0) return []
+  const used = new Map()
+  return source.map((rawAgent, index) => {
+    const normalized = normalizeAgent(rawAgent, index + 1)
+    const baseID = normalized.id || `agent_${index + 1}`
+    if (!used.has(baseID)) {
+      used.set(baseID, 1)
+      return { ...normalized, id: baseID, name: normalized.name || baseID }
+    }
+    const next = used.get(baseID) + 1
+    used.set(baseID, next)
+    const derivedID = `${baseID}_${next}`
+    used.set(derivedID, 1)
+    return { ...normalized, id: derivedID, name: normalized.name || derivedID }
+  })
+}
+
 export const useAppStore = defineStore('app', {
   state: () => ({
     activeNav: 'chats',
@@ -176,6 +214,7 @@ export const useAppStore = defineStore('app', {
     logFormat: 'text',
     logFilePath: 'logs/agent_chat.log',
     channels: normalizeChannels([]),
+    agents: normalizeAgents([]),
     mcpServers: normalizeMcpServers([]),
     scheduleTasks: normalizeScheduleTasks([]),
     settingsLoading: false,
@@ -257,6 +296,7 @@ export const useAppStore = defineStore('app', {
         this.logFormat = settings?.logFormat || 'text'
         this.logFilePath = settings?.logFilePath || 'logs/agent_chat.log'
         this.channels = normalizeChannels(settings?.channels)
+        this.agents = normalizeAgents(settings?.agents)
         this.mcpServers = normalizeMcpServers(settings?.mcpServers)
         this.scheduleTasks = normalizeScheduleTasks(settings?.scheduleTasks)
         this.settingsLoaded = true
@@ -282,6 +322,7 @@ export const useAppStore = defineStore('app', {
           logFormat: payload.logFormat ?? this.logFormat ?? 'text',
           logFilePath: payload.logFilePath ?? this.logFilePath ?? 'logs/agent_chat.log',
           channels: normalizeChannels(payload.channels ?? this.channels),
+          agents: normalizeAgents(payload.agents ?? this.agents),
           mcpServers: normalizeMcpServers(payload.mcpServers ?? this.mcpServers),
           scheduleTasks: normalizeScheduleTasks(payload.scheduleTasks ?? this.scheduleTasks),
         })
@@ -296,6 +337,7 @@ export const useAppStore = defineStore('app', {
         this.logFormat = saved?.logFormat || 'text'
         this.logFilePath = saved?.logFilePath || 'logs/agent_chat.log'
         this.channels = normalizeChannels(saved?.channels)
+        this.agents = normalizeAgents(saved?.agents)
         this.mcpServers = normalizeMcpServers(saved?.mcpServers)
         this.scheduleTasks = normalizeScheduleTasks(saved?.scheduleTasks)
         this.settingsLoaded = true

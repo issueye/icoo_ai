@@ -31,6 +31,10 @@ func applyManagementSettingsFromStore(settings AppSettings) (AppSettings, error)
 	if err != nil {
 		return settings, err
 	}
+	agentRecords, err := svc.store.agents.List(ctx)
+	if err != nil {
+		return settings, err
+	}
 	mcpRecords, err := svc.store.mcps.List(ctx)
 	if err != nil {
 		return settings, err
@@ -62,6 +66,18 @@ func applyManagementSettingsFromStore(settings AppSettings) (AppSettings, error)
 			Command: strings.TrimSpace(rec.Command),
 			Args:    decodeArgsField(rec.Args),
 			Enabled: rec.Enabled,
+		})
+	}
+
+	settings.Agents = make([]AgentConfig, 0, len(agentRecords))
+	for _, rec := range agentRecords {
+		settings.Agents = append(settings.Agents, AgentConfig{
+			ID:          strings.TrimSpace(rec.ID),
+			Name:        strings.TrimSpace(rec.Name),
+			Protocol:    strings.TrimSpace(rec.Protocol),
+			Description: strings.TrimSpace(rec.Description),
+			Models:      decodeArgsField(rec.Models),
+			Enabled:     rec.Enabled,
 		})
 	}
 
@@ -115,6 +131,19 @@ func persistManagementSettings(settings AppSettings) error {
 		})
 	}
 
+	agentRecords := make([]AgentRecord, 0, len(settings.Agents))
+	for index, item := range normalizeAgents(settings.Agents) {
+		agentRecords = append(agentRecords, AgentRecord{
+			ID:          strings.TrimSpace(item.ID),
+			Name:        strings.TrimSpace(item.Name),
+			Protocol:    strings.TrimSpace(item.Protocol),
+			Description: strings.TrimSpace(item.Description),
+			Models:      encodeArgsField(item.Models),
+			Enabled:     item.Enabled,
+			SortOrder:   index,
+		})
+	}
+
 	taskRecords := make([]ScheduleTaskRecord, 0, len(settings.ScheduleTasks))
 	for index, item := range normalizeScheduleTasks(settings.ScheduleTasks) {
 		taskRecords = append(taskRecords, ScheduleTaskRecord{
@@ -130,9 +159,13 @@ func persistManagementSettings(settings AppSettings) error {
 
 	return svc.store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		channelCRUD := NewGormCRUD[ChannelRecord](tx)
+		agentCRUD := NewGormCRUD[AgentRecord](tx)
 		mcpCRUD := NewGormCRUD[MCPServerRecord](tx)
 		taskCRUD := NewGormCRUD[ScheduleTaskRecord](tx)
 		if err := channelCRUD.ReplaceAll(ctx, channelRecords); err != nil {
+			return err
+		}
+		if err := agentCRUD.ReplaceAll(ctx, agentRecords); err != nil {
 			return err
 		}
 		if err := mcpCRUD.ReplaceAll(ctx, mcpRecords); err != nil {

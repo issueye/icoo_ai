@@ -15,6 +15,8 @@ import (
 type GatewayService interface {
 	ListAgents(ctx context.Context) ([]AgentProfile, error)
 	ListSkills(ctx context.Context) ([]Skill, error)
+	GetManagementSettings(ctx context.Context) (ManagementSettings, error)
+	UpdateManagementSettings(ctx context.Context, in ManagementSettings) (ManagementSettings, error)
 	CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error)
 	ListSessions(ctx context.Context) ([]Session, error)
 	GetSession(ctx context.Context, sessionID string) (Session, error)
@@ -52,6 +54,7 @@ type MockGatewayService struct {
 	store          store.Store
 	connector      connector.AgentConnector
 	approvalBroker *ApprovalBroker
+	management     ManagementSettings
 }
 
 func NewMockGatewayService() *MockGatewayService {
@@ -73,6 +76,11 @@ func NewMockGatewayServiceWithAgentsAndStore(agents []AgentProfile, st store.Sto
 		skills:         defaultSkills(),
 		store:          st,
 		approvalBroker: NewApprovalBroker(),
+		management: ManagementSettings{
+			MCPServers:    []MCPServerConfig{},
+			ScheduleTasks: []ScheduleTaskConfig{},
+			Agents:        []AgentConfig{},
+		},
 	}
 }
 
@@ -120,6 +128,123 @@ func (s *MockGatewayService) ListSkills(ctx context.Context) ([]Skill, error) {
 	skills := make([]Skill, len(s.skills))
 	copy(skills, s.skills)
 	return skills, nil
+}
+
+func (s *MockGatewayService) GetManagementSettings(ctx context.Context) (ManagementSettings, error) {
+	if err := ctx.Err(); err != nil {
+		return ManagementSettings{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return cloneManagementSettings(s.management), nil
+}
+
+func (s *MockGatewayService) UpdateManagementSettings(ctx context.Context, in ManagementSettings) (ManagementSettings, error) {
+	if err := ctx.Err(); err != nil {
+		return ManagementSettings{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.management = normalizeManagementSettings(in)
+	return cloneManagementSettings(s.management), nil
+}
+
+func normalizeManagementSettings(in ManagementSettings) ManagementSettings {
+	out := ManagementSettings{
+		MCPServers:    make([]MCPServerConfig, 0, len(in.MCPServers)),
+		ScheduleTasks: make([]ScheduleTaskConfig, 0, len(in.ScheduleTasks)),
+		Agents:        make([]AgentConfig, 0, len(in.Agents)),
+	}
+	for index, item := range in.MCPServers {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("mcp_%d", index+1)
+		}
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = id
+		}
+		args := make([]string, 0, len(item.Args))
+		for _, arg := range item.Args {
+			text := strings.TrimSpace(arg)
+			if text == "" {
+				continue
+			}
+			args = append(args, text)
+		}
+		out.MCPServers = append(out.MCPServers, MCPServerConfig{
+			ID: id, Name: name, Command: strings.TrimSpace(item.Command), Args: args, Enabled: item.Enabled,
+		})
+	}
+	for index, item := range in.ScheduleTasks {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("task_%d", index+1)
+		}
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = id
+		}
+		spec := strings.TrimSpace(item.Spec)
+		if spec == "" {
+			spec = "*/5 * * * *"
+		}
+		args := make([]string, 0, len(item.Args))
+		for _, arg := range item.Args {
+			text := strings.TrimSpace(arg)
+			if text == "" {
+				continue
+			}
+			args = append(args, text)
+		}
+		out.ScheduleTasks = append(out.ScheduleTasks, ScheduleTaskConfig{
+			ID: id, Name: name, Spec: spec, Command: strings.TrimSpace(item.Command), Args: args, Enabled: item.Enabled,
+		})
+	}
+	for index, item := range in.Agents {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("agent_%d", index+1)
+		}
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = id
+		}
+		models := make([]string, 0, len(item.Models))
+		for _, model := range item.Models {
+			text := strings.TrimSpace(model)
+			if text == "" {
+				continue
+			}
+			models = append(models, text)
+		}
+		out.Agents = append(out.Agents, AgentConfig{
+			ID: id, Name: name, Protocol: strings.TrimSpace(item.Protocol), Description: strings.TrimSpace(item.Description), Models: models, Enabled: item.Enabled,
+		})
+	}
+	return out
+}
+
+func cloneManagementSettings(in ManagementSettings) ManagementSettings {
+	out := ManagementSettings{
+		MCPServers:    make([]MCPServerConfig, 0, len(in.MCPServers)),
+		ScheduleTasks: make([]ScheduleTaskConfig, 0, len(in.ScheduleTasks)),
+		Agents:        make([]AgentConfig, 0, len(in.Agents)),
+	}
+	out.MCPServers = append(out.MCPServers, in.MCPServers...)
+	out.ScheduleTasks = append(out.ScheduleTasks, in.ScheduleTasks...)
+	for _, item := range in.Agents {
+		cp := item
+		cp.Models = append([]string(nil), item.Models...)
+		out.Agents = append(out.Agents, cp)
+	}
+	for i := range out.MCPServers {
+		out.MCPServers[i].Args = append([]string(nil), out.MCPServers[i].Args...)
+	}
+	for i := range out.ScheduleTasks {
+		out.ScheduleTasks[i].Args = append([]string(nil), out.ScheduleTasks[i].Args...)
+	}
+	return out
 }
 
 func (s *MockGatewayService) CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error) {

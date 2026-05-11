@@ -19,6 +19,38 @@ type Skill struct {
 	Description string `json:"description,omitempty"`
 }
 
+type MCPServerConfig struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Command string   `json:"command,omitempty"`
+	Args    []string `json:"args,omitempty"`
+	Enabled bool     `json:"enabled"`
+}
+
+type ScheduleTaskConfig struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Spec    string   `json:"spec,omitempty"`
+	Command string   `json:"command,omitempty"`
+	Args    []string `json:"args,omitempty"`
+	Enabled bool     `json:"enabled"`
+}
+
+type AgentConfig struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Protocol    string   `json:"protocol,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Models      []string `json:"models,omitempty"`
+	Enabled     bool     `json:"enabled"`
+}
+
+type ManagementSettings struct {
+	MCPServers    []MCPServerConfig    `json:"mcpServers,omitempty"`
+	ScheduleTasks []ScheduleTaskConfig `json:"scheduleTasks,omitempty"`
+	Agents        []AgentConfig        `json:"agents,omitempty"`
+}
+
 type Session struct {
 	ID                    string    `json:"id"`
 	Title                 string    `json:"title"`

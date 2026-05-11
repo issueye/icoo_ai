@@ -87,6 +87,19 @@ type MCPServerRecord struct {
 func (MCPServerRecord) TableName() string { return "management_mcp_servers" }
 func (r MCPServerRecord) GetID() string   { return r.ID }
 
+type AgentRecord struct {
+	ID          string `gorm:"primaryKey;size:128"`
+	Name        string `gorm:"size:255"`
+	Protocol    string `gorm:"size:64;index"`
+	Description string `gorm:"type:text"`
+	Models      string `gorm:"type:text"`
+	Enabled     bool
+	SortOrder   int `gorm:"index"`
+}
+
+func (AgentRecord) TableName() string { return "management_agents" }
+func (r AgentRecord) GetID() string   { return r.ID }
+
 type ScheduleTaskRecord struct {
 	ID        string `gorm:"primaryKey;size:128"`
 	Name      string `gorm:"size:255"`
@@ -103,6 +116,7 @@ func (r ScheduleTaskRecord) GetID() string   { return r.ID }
 type managementStore struct {
 	db       *gorm.DB
 	channels *GormCRUD[ChannelRecord]
+	agents   *GormCRUD[AgentRecord]
 	mcps     *GormCRUD[MCPServerRecord]
 	tasks    *GormCRUD[ScheduleTaskRecord]
 }
@@ -129,13 +143,14 @@ func getManagementStore() (*managementStore, error) {
 			managementStoreErr = err
 			return
 		}
-		if err := db.AutoMigrate(&ChannelRecord{}, &MCPServerRecord{}, &ScheduleTaskRecord{}); err != nil {
+		if err := db.AutoMigrate(&ChannelRecord{}, &AgentRecord{}, &MCPServerRecord{}, &ScheduleTaskRecord{}); err != nil {
 			managementStoreErr = err
 			return
 		}
 		managementStoreInst = &managementStore{
 			db:       db,
 			channels: NewGormCRUD[ChannelRecord](db),
+			agents:   NewGormCRUD[AgentRecord](db),
 			mcps:     NewGormCRUD[MCPServerRecord](db),
 			tasks:    NewGormCRUD[ScheduleTaskRecord](db),
 		}

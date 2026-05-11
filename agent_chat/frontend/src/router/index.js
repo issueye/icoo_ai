@@ -5,6 +5,7 @@ const routes = [
   { path: '/chats', name: 'chats', component: { template: '<div />' } },
   { path: '/chats/:sessionId', name: 'chat', component: { template: '<div />' } },
   { path: '/skills', name: 'skills', component: { template: '<div />' } },
+  { path: '/agents', name: 'agents', component: { template: '<div />' } },
   { path: '/mcp', name: 'mcp', component: { template: '<div />' } },
   { path: '/schedule', name: 'schedule', component: { template: '<div />' } },
   { path: '/audit', name: 'audit', component: { template: '<div />' } },

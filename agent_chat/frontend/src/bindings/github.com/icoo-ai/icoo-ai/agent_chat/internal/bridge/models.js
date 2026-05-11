@@ -10,6 +10,73 @@ import { Create as $Create } from "@wailsio/runtime";
 // @ts-ignore: Unused imports
 import * as time$0 from "../../../../../../time/models.js";
 
+export class AgentConfig {
+    /**
+     * Creates a new AgentConfig instance.
+     * @param {Partial<AgentConfig>} [$$source = {}] - The source object to create the AgentConfig.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["id"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["name"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["protocol"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["description"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["models"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["enabled"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AgentConfig instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AgentConfig}
+     */
+    static createFrom($$source = {}) {
+        const $$createField4_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("models" in $$parsedSource) {
+            $$parsedSource["models"] = $$createField4_0($$parsedSource["models"]);
+        }
+        return new AgentConfig(/** @type {Partial<AgentConfig>} */($$parsedSource));
+    }
+}
+
 export class AgentProfile {
     /**
      * Creates a new AgentProfile instance.
@@ -149,6 +216,13 @@ export class AppSettings {
         if (/** @type {any} */(false)) {
             /**
              * @member
+             * @type {AgentConfig[] | undefined}
+             */
+            this["agents"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
              * @type {MCPServerConfig[] | undefined}
              */
             this["mcpServers"] = undefined;
@@ -173,15 +247,19 @@ export class AppSettings {
         const $$createField9_0 = $$createType2;
         const $$createField10_0 = $$createType4;
         const $$createField11_0 = $$createType6;
+        const $$createField12_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("channels" in $$parsedSource) {
             $$parsedSource["channels"] = $$createField9_0($$parsedSource["channels"]);
         }
+        if ("agents" in $$parsedSource) {
+            $$parsedSource["agents"] = $$createField10_0($$parsedSource["agents"]);
+        }
         if ("mcpServers" in $$parsedSource) {
-            $$parsedSource["mcpServers"] = $$createField10_0($$parsedSource["mcpServers"]);
+            $$parsedSource["mcpServers"] = $$createField11_0($$parsedSource["mcpServers"]);
         }
         if ("scheduleTasks" in $$parsedSource) {
-            $$parsedSource["scheduleTasks"] = $$createField11_0($$parsedSource["scheduleTasks"]);
+            $$parsedSource["scheduleTasks"] = $$createField12_0($$parsedSource["scheduleTasks"]);
         }
         return new AppSettings(/** @type {Partial<AppSettings>} */($$parsedSource));
     }
@@ -781,7 +859,7 @@ export class MessageEvent {
      * @returns {MessageEvent}
      */
     static createFrom($$source = {}) {
-        const $$createField9_0 = $$createType7;
+        const $$createField9_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("safeMeta" in $$parsedSource) {
             $$parsedSource["safeMeta"] = $$createField9_0($$parsedSource["safeMeta"]);
@@ -1099,8 +1177,10 @@ export class SkillInfo {
 const $$createType0 = $Create.Array($Create.Any);
 const $$createType1 = ChannelConfig.createFrom;
 const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = MCPServerConfig.createFrom;
+const $$createType3 = AgentConfig.createFrom;
 const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = ScheduleTaskConfig.createFrom;
+const $$createType5 = MCPServerConfig.createFrom;
 const $$createType6 = $Create.Array($$createType5);
-const $$createType7 = $Create.Map($Create.Any, $Create.Any);
+const $$createType7 = ScheduleTaskConfig.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = $Create.Map($Create.Any, $Create.Any);

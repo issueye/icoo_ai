@@ -43,8 +43,9 @@ async function onRefresh() {
   servers.value = Array.isArray(app.mcpServers) ? app.mcpServers.map((item) => ({ ...item })) : []
 }
 
-async function onSave() {
+async function onSave(nextItems = null) {
   if (disabled.value) return
+  if (Array.isArray(nextItems)) servers.value = nextItems.map((item) => ({ ...item }))
   try {
     await app.saveAppSettings({ mcpServers: servers.value })
     servers.value = Array.isArray(app.mcpServers) ? app.mcpServers.map((item) => ({ ...item })) : []
@@ -68,6 +69,8 @@ async function onSave() {
     :error-text="app.settingsError || ''"
     :show-refresh="true"
     :save-disabled="saveDisabled"
+    :allow-save="false"
+    :persist-on-apply="true"
     :validate-item="validateServer"
     @error="onError"
     @refresh="onRefresh"

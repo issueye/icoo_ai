@@ -606,6 +606,38 @@ func TestServiceStartup_EmitsGatewayFailedStatusOnBootstrapError(t *testing.T) {
 	}
 }
 
+func TestServiceStartup_ManualGatewayMode_DoesNotAutoBootstrap(t *testing.T) {
+	t.Parallel()
+
+	svc := NewAgentService()
+	svc.manualGatewayMode = true
+	svc.gateway = nil
+	bootstrapCalled := false
+	svc.bootstrap = &gatewayBootstrapper{
+		startProcess: func(context.Context) (*os.Process, error) {
+			bootstrapCalled = true
+			return nil, errors.New("should not be called in manual gateway mode")
+		},
+	}
+
+	if err := svc.ServiceStartup(context.Background(), application.ServiceOptions{}); err != nil {
+		t.Fatalf("expected startup success in manual gateway mode, got error: %v", err)
+	}
+	if bootstrapCalled {
+		t.Fatal("expected bootstrap not to be called in manual gateway mode")
+	}
+	status, err := svc.GetGatewayStatus(context.Background())
+	if err != nil {
+		t.Fatalf("GetGatewayStatus returned error: %v", err)
+	}
+	if status.Status != GatewayStatusFailed {
+		t.Fatalf("expected status %q, got %q", GatewayStatusFailed, status.Status)
+	}
+	if status.Summary != "开发模式未自动启动网关，请手动启动网关" {
+		t.Fatalf("unexpected status summary: %q", status.Summary)
+	}
+}
+
 func TestStreamGatewayEvents_EmitsFailedStatusOnAuthError(t *testing.T) {
 	t.Parallel()
 

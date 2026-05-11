@@ -28,6 +28,7 @@ func NewRouter(gateway service.GatewayService) http.Handler {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/agents", h.handleAgents)
+	mux.HandleFunc("/v1/management/settings", h.handleManagementSettings)
 	mux.HandleFunc("/v1/skills", h.handleSkills)
 	mux.HandleFunc("/v1/sessions", h.handleSessions)
 	mux.HandleFunc("/v1/sessions/", h.handleSessionAction)

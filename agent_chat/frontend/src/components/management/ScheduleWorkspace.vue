@@ -50,8 +50,9 @@ async function onRefresh() {
   tasks.value = Array.isArray(app.scheduleTasks) ? app.scheduleTasks.map((item) => ({ ...item })) : []
 }
 
-async function onSave() {
+async function onSave(nextItems = null) {
   if (disabled.value) return
+  if (Array.isArray(nextItems)) tasks.value = nextItems.map((item) => ({ ...item }))
   try {
     await app.saveAppSettings({ scheduleTasks: tasks.value })
     tasks.value = Array.isArray(app.scheduleTasks) ? app.scheduleTasks.map((item) => ({ ...item })) : []
@@ -76,6 +77,8 @@ async function onSave() {
     :error-text="app.settingsError || ''"
     :show-refresh="true"
     :save-disabled="saveDisabled"
+    :allow-save="false"
+    :persist-on-apply="true"
     :validate-item="validateTask"
     @error="onError"
     @refresh="onRefresh"
