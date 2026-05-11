@@ -128,18 +128,21 @@ func TestManagementSettingsAndAgentsUseSameConfigSource(t *testing.T) {
 	router := api.NewRouter(service.NewMockGatewayService())
 
 	updated := doJSON[service.ManagementSettings](t, router, http.MethodPut, "/v1/management/settings", service.ManagementSettings{
+		Channels: []service.ChannelConfig{
+			{ID: "qq_main", Name: "QQ Main", Type: "qq", Enabled: true},
+		},
 		MCPServers: []service.MCPServerConfig{
 			{ID: "mcp_primary", Name: "Primary MCP", Command: "node", Args: []string{"server.js"}, Enabled: true},
 		},
 		ScheduleTasks: []service.ScheduleTaskConfig{
-			{ID: "task_daily", Name: "Daily", Spec: "0 8 * * *", Command: "echo", Args: []string{"ok"}, Enabled: true},
+			{ID: "task_daily", Name: "Daily", Spec: "0 8 * * *", Content: "每天 8 点推送日报", Enabled: true},
 		},
 		Agents: []service.AgentConfig{
 			{ID: "agent_enabled", Name: "Enabled Agent", Protocol: "acp", Models: []string{"gpt-5.4"}, Description: "enabled", Enabled: true},
 			{ID: "agent_disabled", Name: "Disabled Agent", Protocol: "acp", Models: []string{"gpt-5.4-mini"}, Description: "disabled", Enabled: false},
 		},
 	})
-	if len(updated.MCPServers) != 1 || len(updated.ScheduleTasks) != 1 || len(updated.Agents) != 2 {
+	if len(updated.Channels) != 1 || len(updated.MCPServers) != 1 || len(updated.ScheduleTasks) != 1 || len(updated.Agents) != 2 {
 		t.Fatalf("unexpected updated settings: %#v", updated)
 	}
 

@@ -61,6 +61,15 @@ type MockGatewayService struct {
 	management       ManagementSettings
 }
 
+func (s *MockGatewayService) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.managementStore != nil {
+		return s.managementStore.Close()
+	}
+	return nil
+}
+
 func NewMockGatewayService() *MockGatewayService {
 	return NewMockGatewayServiceWithStore(store.NewMemoryStore())
 }
@@ -91,6 +100,7 @@ func NewMockGatewayServiceWithAgentsStoreAndSettingsStore(agents []AgentProfile,
 		approvalBroker:  NewApprovalBroker(),
 		managementStore: settingsStore,
 		management: ManagementSettings{
+			Channels:      []ChannelConfig{},
 			MCPServers:    []MCPServerConfig{},
 			ScheduleTasks: []ScheduleTaskConfig{},
 			Agents:        toAgentConfigs(bootstrapAgents),
@@ -198,6 +208,7 @@ func (s *MockGatewayService) ensureManagementLoadedLocked(ctx context.Context) e
 			return err
 		}
 		seed := normalizeManagementSettings(ManagementSettings{
+			Channels:      []ChannelConfig{},
 			MCPServers:    []MCPServerConfig{},
 			ScheduleTasks: []ScheduleTaskConfig{},
 			Agents:        toAgentConfigs(s.bootstrapAgents),
@@ -219,9 +230,34 @@ func (s *MockGatewayService) ensureManagementLoadedLocked(ctx context.Context) e
 
 func normalizeManagementSettings(in ManagementSettings) ManagementSettings {
 	out := ManagementSettings{
+		Channels:      make([]ChannelConfig, 0, len(in.Channels)),
 		MCPServers:    make([]MCPServerConfig, 0, len(in.MCPServers)),
 		ScheduleTasks: make([]ScheduleTaskConfig, 0, len(in.ScheduleTasks)),
 		Agents:        make([]AgentConfig, 0, len(in.Agents)),
+	}
+	for index, item := range in.Channels {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = fmt.Sprintf("channel_%d", index+1)
+		}
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = id
+		}
+		channelType := strings.TrimSpace(item.Type)
+		if channelType == "" {
+			channelType = "qq"
+		}
+		out.Channels = append(out.Channels, ChannelConfig{
+			ID:         id,
+			Name:       name,
+			Type:       channelType,
+			Enabled:    item.Enabled,
+			AppID:      strings.TrimSpace(item.AppID),
+			AppSecret:  strings.TrimSpace(item.AppSecret),
+			BotToken:   strings.TrimSpace(item.BotToken),
+			WebhookURL: strings.TrimSpace(item.WebhookURL),
+		})
 	}
 	for index, item := range in.MCPServers {
 		id := strings.TrimSpace(item.ID)
@@ -257,16 +293,8 @@ func normalizeManagementSettings(in ManagementSettings) ManagementSettings {
 		if spec == "" {
 			spec = "*/5 * * * *"
 		}
-		args := make([]string, 0, len(item.Args))
-		for _, arg := range item.Args {
-			text := strings.TrimSpace(arg)
-			if text == "" {
-				continue
-			}
-			args = append(args, text)
-		}
 		out.ScheduleTasks = append(out.ScheduleTasks, ScheduleTaskConfig{
-			ID: id, Name: name, Spec: spec, Command: strings.TrimSpace(item.Command), Args: args, Enabled: item.Enabled,
+			ID: id, Name: name, Spec: spec, Content: strings.TrimSpace(item.Content), Enabled: item.Enabled,
 		})
 	}
 	for index, item := range in.Agents {
@@ -295,10 +323,12 @@ func normalizeManagementSettings(in ManagementSettings) ManagementSettings {
 
 func cloneManagementSettings(in ManagementSettings) ManagementSettings {
 	out := ManagementSettings{
+		Channels:      make([]ChannelConfig, 0, len(in.Channels)),
 		MCPServers:    make([]MCPServerConfig, 0, len(in.MCPServers)),
 		ScheduleTasks: make([]ScheduleTaskConfig, 0, len(in.ScheduleTasks)),
 		Agents:        make([]AgentConfig, 0, len(in.Agents)),
 	}
+	out.Channels = append(out.Channels, in.Channels...)
 	out.MCPServers = append(out.MCPServers, in.MCPServers...)
 	out.ScheduleTasks = append(out.ScheduleTasks, in.ScheduleTasks...)
 	for _, item := range in.Agents {
@@ -308,9 +338,6 @@ func cloneManagementSettings(in ManagementSettings) ManagementSettings {
 	}
 	for i := range out.MCPServers {
 		out.MCPServers[i].Args = append([]string(nil), out.MCPServers[i].Args...)
-	}
-	for i := range out.ScheduleTasks {
-		out.ScheduleTasks[i].Args = append([]string(nil), out.ScheduleTasks[i].Args...)
 	}
 	return out
 }

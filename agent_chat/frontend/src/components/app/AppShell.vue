@@ -12,7 +12,7 @@ import SkillsWorkspace from '@/components/skills/SkillsWorkspace.vue'
 import AgentWorkspace from '@/components/management/AgentWorkspace.vue'
 import McpWorkspace from '@/components/management/McpWorkspace.vue'
 import ScheduleWorkspace from '@/components/management/ScheduleWorkspace.vue'
-import SettingsChannelsPanel from '@/components/settings/SettingsChannelsPanel.vue'
+import ChannelWorkspace from '@/components/management/ChannelWorkspace.vue'
 import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
 import SettingsWorkspace from '@/components/settings/SettingsWorkspace.vue'
 import { useApprovalsStore } from '@/stores/approvals'
@@ -124,7 +124,7 @@ watch(() => conversations.activeSessionId, async (sessionId) => {
         <AuditWorkspace />
       </template>
       <template v-else-if="route.name === 'channels'">
-        <SettingsChannelsPanel />
+        <ChannelWorkspace />
       </template>
       <template v-else-if="route.name === 'skills'">
         <SkillsWorkspace />

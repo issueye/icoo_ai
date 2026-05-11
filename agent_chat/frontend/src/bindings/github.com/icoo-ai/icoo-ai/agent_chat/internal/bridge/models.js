@@ -675,14 +675,7 @@ export class MCPServerConfig {
              * @member
              * @type {string | undefined}
              */
-            this["command"] = undefined;
-        }
-        if (/** @type {any} */(false)) {
-            /**
-             * @member
-             * @type {string[] | undefined}
-             */
-            this["args"] = undefined;
+            this["content"] = undefined;
         }
         if (/** @type {any} */(false)) {
             /**
@@ -1075,14 +1068,7 @@ export class ScheduleTaskConfig {
              * @member
              * @type {string | undefined}
              */
-            this["command"] = undefined;
-        }
-        if (/** @type {any} */(false)) {
-            /**
-             * @member
-             * @type {string[] | undefined}
-             */
-            this["args"] = undefined;
+            this["content"] = undefined;
         }
         if (/** @type {any} */(false)) {
             /**
@@ -1101,11 +1087,7 @@ export class ScheduleTaskConfig {
      * @returns {ScheduleTaskConfig}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("args" in $$parsedSource) {
-            $$parsedSource["args"] = $$createField4_0($$parsedSource["args"]);
-        }
         return new ScheduleTaskConfig(/** @type {Partial<ScheduleTaskConfig>} */($$parsedSource));
     }
 }

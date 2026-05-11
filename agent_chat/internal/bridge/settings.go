@@ -30,12 +30,11 @@ type MCPServerConfig struct {
 }
 
 type ScheduleTaskConfig struct {
-	ID      string   `json:"id,omitempty"`
-	Name    string   `json:"name,omitempty"`
-	Spec    string   `json:"spec,omitempty"`
-	Command string   `json:"command,omitempty"`
-	Args    []string `json:"args,omitempty"`
-	Enabled bool     `json:"enabled,omitempty"`
+	ID      string `json:"id,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Spec    string `json:"spec,omitempty"`
+	Content string `json:"content,omitempty"`
+	Enabled bool   `json:"enabled,omitempty"`
 }
 
 type AgentConfig struct {
@@ -91,6 +90,7 @@ func (s *AgentService) GetAppSettings() (AppSettings, error) {
 	if remoteErr != nil {
 		return AppSettings{}, remoteErr
 	}
+	settings.Channels = normalizeChannels(remote.Channels)
 	settings.Agents = normalizeAgents(remote.Agents)
 	settings.MCPServers = normalizeMCPServers(remote.MCPServers)
 	settings.ScheduleTasks = normalizeScheduleTasks(remote.ScheduleTasks)
@@ -106,6 +106,7 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 	settings := normalizeAppSettings(in)
 	if s != nil {
 		remote, remoteErr := s.updateGatewayManagementSettings(context.Background(), gatewayManagementSettingsPayload{
+			Channels:      settings.Channels,
 			Agents:        settings.Agents,
 			MCPServers:    settings.MCPServers,
 			ScheduleTasks: settings.ScheduleTasks,
@@ -114,6 +115,7 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 			logger.Error("update management settings through gateway failed", "error", remoteErr)
 			return AppSettings{}, remoteErr
 		}
+		settings.Channels = normalizeChannels(remote.Channels)
 		settings.Agents = normalizeAgents(remote.Agents)
 		settings.MCPServers = normalizeMCPServers(remote.MCPServers)
 		settings.ScheduleTasks = normalizeScheduleTasks(remote.ScheduleTasks)
@@ -177,6 +179,7 @@ func loadAppSettings() (AppSettings, error) {
 }
 
 type gatewayManagementSettingsPayload struct {
+	Channels      []ChannelConfig      `json:"channels,omitempty"`
 	MCPServers    []MCPServerConfig    `json:"mcpServers,omitempty"`
 	ScheduleTasks []ScheduleTaskConfig `json:"scheduleTasks,omitempty"`
 	Agents        []AgentConfig        `json:"agents,omitempty"`
@@ -200,7 +203,6 @@ func (s *AgentService) updateGatewayManagementSettings(ctx context.Context, payl
 
 func decodeSettingsTOML(data []byte) (AppSettings, error) {
 	settings := AppSettings{}
-	currentChannelIndex := -1
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -215,12 +217,6 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 			}
 		}
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			if line == "[[channels]]" {
-				settings.Channels = append(settings.Channels, ChannelConfig{})
-				currentChannelIndex = len(settings.Channels) - 1
-			} else {
-				currentChannelIndex = -1
-			}
 			continue
 		}
 		key, value, ok := strings.Cut(line, "=")
@@ -229,66 +225,6 @@ func decodeSettingsTOML(data []byte) (AppSettings, error) {
 		}
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
-		if currentChannelIndex >= 0 {
-			channel := settings.Channels[currentChannelIndex]
-			handled := true
-			switch key {
-			case "id":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				channel.ID = strings.TrimSpace(unquoted)
-			case "name":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				channel.Name = strings.TrimSpace(unquoted)
-			case "type":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				channel.Type = strings.TrimSpace(unquoted)
-			case "enabled":
-				parsed, err := strconv.ParseBool(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				channel.Enabled = parsed
-			case "app_id":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				channel.AppID = strings.TrimSpace(unquoted)
-			case "app_secret":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				channel.AppSecret = strings.TrimSpace(unquoted)
-			case "bot_token":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				channel.BotToken = strings.TrimSpace(unquoted)
-			case "webhook_url":
-				unquoted, err := strconv.Unquote(value)
-				if err != nil {
-					return AppSettings{}, err
-				}
-				channel.WebhookURL = strings.TrimSpace(unquoted)
-			default:
-				handled = false
-			}
-			if handled {
-				settings.Channels[currentChannelIndex] = channel
-				continue
-			}
-		}
 		switch key {
 		case "gateway_binary_path":
 			unquoted, err := strconv.Unquote(value)
@@ -343,17 +279,6 @@ func encodeSettingsTOML(settings AppSettings) []byte {
 	fmt.Fprintf(&builder, "log_level = %s\n", strconv.Quote(normalized.LogLevel))
 	fmt.Fprintf(&builder, "log_format = %s\n", strconv.Quote(normalized.LogFormat))
 	fmt.Fprintf(&builder, "log_file_path = %s\n", strconv.Quote(normalized.LogFilePath))
-	for _, channel := range normalized.Channels {
-		builder.WriteString("\n[[channels]]\n")
-		fmt.Fprintf(&builder, "id = %s\n", strconv.Quote(channel.ID))
-		fmt.Fprintf(&builder, "name = %s\n", strconv.Quote(channel.Name))
-		fmt.Fprintf(&builder, "type = %s\n", strconv.Quote(channel.Type))
-		fmt.Fprintf(&builder, "enabled = %t\n", channel.Enabled)
-		fmt.Fprintf(&builder, "app_id = %s\n", strconv.Quote(channel.AppID))
-		fmt.Fprintf(&builder, "app_secret = %s\n", strconv.Quote(channel.AppSecret))
-		fmt.Fprintf(&builder, "bot_token = %s\n", strconv.Quote(channel.BotToken))
-		fmt.Fprintf(&builder, "webhook_url = %s\n", strconv.Quote(channel.WebhookURL))
-	}
 	return []byte(builder.String())
 }
 
@@ -658,20 +583,11 @@ func normalizeScheduleTasks(in []ScheduleTaskConfig) []ScheduleTaskConfig {
 		if spec == "" {
 			spec = "*/5 * * * *"
 		}
-		args := make([]string, 0, len(task.Args))
-		for _, arg := range task.Args {
-			trimmed := strings.TrimSpace(arg)
-			if trimmed == "" {
-				continue
-			}
-			args = append(args, trimmed)
-		}
 		normalized = append(normalized, ScheduleTaskConfig{
 			ID:      id,
 			Name:    name,
 			Spec:    spec,
-			Command: strings.TrimSpace(task.Command),
-			Args:    args,
+			Content: strings.TrimSpace(task.Content),
 			Enabled: task.Enabled,
 		})
 	}

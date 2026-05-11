@@ -48,7 +48,7 @@ func TestNormalizeAppSettings_AllowDuplicateChannelTypes(t *testing.T) {
 	}
 }
 
-func TestDecodeSettingsTOML_ReadsHostPortAndChannels(t *testing.T) {
+func TestDecodeSettingsTOML_ReadsHostPort(t *testing.T) {
 	t.Parallel()
 
 	data := []byte("gateway_binary_path = \"E:/bin/agent-gateway.exe\"\n" +
@@ -56,16 +56,7 @@ func TestDecodeSettingsTOML_ReadsHostPortAndChannels(t *testing.T) {
 		"gateway_port = 18080\n" +
 		"log_level = \"debug\"\n" +
 		"log_format = \"json\"\n" +
-		"log_file_path = \"logs/custom.log\"\n" +
-		"\n[[channels]]\n" +
-		"id = \"qq\"\n" +
-		"name = \"QQ机器人\"\n" +
-		"type = \"qq\"\n" +
-		"enabled = true\n" +
-		"app_id = \"qq-app\"\n" +
-		"app_secret = \"qq-secret\"\n" +
-		"bot_token = \"qq-token\"\n" +
-		"webhook_url = \"https://qq.example/webhook\"\n")
+		"log_file_path = \"logs/custom.log\"\n")
 	settings, err := decodeSettingsTOML(data)
 	if err != nil {
 		t.Fatalf("decodeSettingsTOML returned error: %v", err)
@@ -88,21 +79,8 @@ func TestDecodeSettingsTOML_ReadsHostPortAndChannels(t *testing.T) {
 	if settings.LogFilePath != "logs/custom.log" {
 		t.Fatalf("unexpected log file path: %q", settings.LogFilePath)
 	}
-	if len(settings.Channels) != 1 {
-		t.Fatalf("expected decoded channels length 1, got %d", len(settings.Channels))
-	}
-	first := settings.Channels[0]
-	if first.Type != "qq" || first.ID != "qq" {
-		t.Fatalf("unexpected channel id/type: id=%q type=%q", first.ID, first.Type)
-	}
-	if !first.Enabled {
-		t.Fatal("expected qq channel enabled true")
-	}
-	if first.AppID != "qq-app" || first.AppSecret != "qq-secret" || first.BotToken != "qq-token" {
-		t.Fatalf("unexpected channel credentials: appID=%q appSecret=%q botToken=%q", first.AppID, first.AppSecret, first.BotToken)
-	}
-	if first.WebhookURL != "https://qq.example/webhook" {
-		t.Fatalf("unexpected webhook url: %q", first.WebhookURL)
+	if len(settings.Channels) != 0 {
+		t.Fatalf("expected no channels from toml, got %d", len(settings.Channels))
 	}
 }
 
@@ -168,17 +146,8 @@ func TestEncodeSettingsTOML_PreservesLogConfig(t *testing.T) {
 	if !containsLine(data, "log_file_path = \"logs/runtime.log\"") {
 		t.Fatalf("encoded settings missing log_file_path: %q", data)
 	}
-	if !containsLine(data, "[[channels]]") {
-		t.Fatalf("encoded settings missing channel table: %q", data)
-	}
-	if !containsLine(data, "type = \"qq\"") {
-		t.Fatalf("encoded settings missing qq channel type: %q", data)
-	}
-	if !containsLine(data, "enabled = true") {
-		t.Fatalf("encoded settings missing qq channel enabled flag: %q", data)
-	}
-	if !containsLine(data, "webhook_url = \"https://qq.example/webhook\"") {
-		t.Fatalf("encoded settings missing qq webhook: %q", data)
+	if strings.Contains(data, "[[channels]]") || strings.Contains(data, "webhook_url") {
+		t.Fatalf("encoded settings should not include channel fields: %q", data)
 	}
 }
 

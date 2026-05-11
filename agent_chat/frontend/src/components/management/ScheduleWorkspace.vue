@@ -15,14 +15,14 @@ onMounted(async () => {
 
 const extraFields = [
   { key: 'spec', label: 'Cron 表达式', placeholder: '*/5 * * * *', defaultValue: '*/5 * * * *' },
+  { key: 'content', label: '任务内容', placeholder: '例如：每天 9 点生成昨日审计摘要并发送给管理员', defaultValue: '' },
 ]
 
 const tableColumns = [
   { key: 'id', label: 'ID' },
   { key: 'name', label: '名称' },
   { key: 'spec', label: 'Cron 表达式' },
-  { key: 'command', label: '命令' },
-  { key: 'args', label: '参数', formatter: (item) => (item.args || []).join(' ') },
+  { key: 'content', label: '任务内容' },
   { key: 'enabled', label: '启用', type: 'boolean' },
 ]
 
@@ -30,14 +30,13 @@ const detailFields = [
   { key: 'id', label: 'ID' },
   { key: 'name', label: '名称' },
   { key: 'spec', label: 'Cron 表达式' },
-  { key: 'command', label: '命令' },
-  { key: 'args', label: '参数', formatter: (item) => (item.args || []).join(' ') },
+  { key: 'content', label: '任务内容' },
   { key: 'enabled', label: '启用', formatter: (item) => (item.enabled ? '是' : '否') },
 ]
 
 function validateTask(item) {
-  if (!item.command) return '请填写 command'
   if (!item.spec) return '请填写 Cron 表达式'
+  if (!item.content) return '请填写任务内容'
   return ''
 }
 
@@ -67,12 +66,13 @@ async function onSave(nextItems = null) {
   <CrudModuleWorkspace
     v-model:items="tasks"
     title="定时任务管理"
-    subtitle="配置任务（id / name / spec / command / args / enabled）"
+    subtitle="配置任务（id / name / spec / content / enabled）"
     save-label="保存定时任务配置"
     empty-text="暂无定时任务，请先新增。"
     :extra-fields="extraFields"
     :table-columns="tableColumns"
     :detail-fields="detailFields"
+    :include-command-args="false"
     :loading="app.settingsLoading"
     :error-text="app.settingsError || ''"
     :show-refresh="true"

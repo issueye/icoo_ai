@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -32,6 +33,7 @@ type Server struct {
 	eventBus              *events.Bus
 	projector             *eventProjector
 	gatewayServiceFactory func(store.Store) (service.GatewayService, error)
+	gatewayServiceCloser  io.Closer
 }
 
 func NewServer(cfg config.Config) (*Server, error) {
@@ -78,6 +80,9 @@ func (s *Server) Start() error {
 		_ = listener.Close()
 		return err
 	}
+	if closer, ok := gatewayService.(io.Closer); ok {
+		s.gatewayServiceCloser = closer
+	}
 	mux.Handle("/v1/", s.authorize(api.NewRouter(gatewayService)))
 	s.http = &http.Server{
 		Handler:           mux,
@@ -119,6 +124,12 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		}
 		s.acpConn = nil
 	}
+	if s.gatewayServiceCloser != nil {
+		if err := s.gatewayServiceCloser.Close(); err != nil {
+			shutdownErr = errors.Join(shutdownErr, err)
+		}
+		s.gatewayServiceCloser = nil
+	}
 	if s.http == nil {
 		return shutdownErr
 	}
@@ -154,7 +165,11 @@ func (s *Server) newGatewayService() (service.GatewayService, error) {
 		return nil, err
 	}
 	s.acpConn = conn
-	settingsStore := service.NewFileManagementSettingsStore(filepath.Join(s.cfg.DataDir, "management-settings.json"))
+	settingsStore, err := service.NewSQLiteManagementSettingsStore(filepath.Join(s.cfg.DataDir, "management.db"))
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
 	return service.NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore([]service.AgentProfile{
 		{
 			ID:          "icoo-ai-acp",

@@ -319,7 +319,7 @@ func TestServerShutdownStopsEventProjectionConsumption(t *testing.T) {
 
 func TestServerPersistsManagementSettingsAcrossRestart(t *testing.T) {
 	dir := t.TempDir()
-	settingsPath := filepath.Join(dir, "management-settings.json")
+	settingsPath := filepath.Join(dir, "management.db")
 
 	newConfiguredServer := func(t *testing.T) *Server {
 		t.Helper()
@@ -330,10 +330,14 @@ func TestServerPersistsManagementSettingsAcrossRestart(t *testing.T) {
 			t.Fatalf("NewServer() error = %v", err)
 		}
 		server.gatewayServiceFactory = func(st store.Store) (service.GatewayService, error) {
+			settingsStore, err := service.NewSQLiteManagementSettingsStore(settingsPath)
+			if err != nil {
+				return nil, err
+			}
 			return service.NewMockGatewayServiceWithAgentsStoreAndSettingsStore(
 				nil,
 				st,
-				service.NewFileManagementSettingsStore(settingsPath),
+				settingsStore,
 			), nil
 		}
 		return server
@@ -345,11 +349,14 @@ func TestServerPersistsManagementSettingsAcrossRestart(t *testing.T) {
 	}
 
 	updated := mustAuthorizedJSON[service.ManagementSettings](t, server, http.MethodPut, "/v1/management/settings", service.ManagementSettings{
+		Channels: []service.ChannelConfig{
+			{ID: "channel_saved", Name: "Saved Channel", Type: "lark", Enabled: true, AppID: "app", AppSecret: "secret"},
+		},
 		MCPServers: []service.MCPServerConfig{
 			{ID: "mcp_saved", Name: "Saved MCP", Command: "node", Args: []string{"saved.js"}, Enabled: true},
 		},
 		ScheduleTasks: []service.ScheduleTaskConfig{
-			{ID: "task_saved", Name: "Saved Task", Spec: "*/15 * * * *", Command: "echo", Args: []string{"saved"}, Enabled: true},
+			{ID: "task_saved", Name: "Saved Task", Spec: "*/15 * * * *", Content: "每15分钟同步一次状态", Enabled: true},
 		},
 		Agents: []service.AgentConfig{
 			{ID: "persisted_agent", Name: "Persisted Agent", Protocol: "acp", Models: []string{"gpt-5.4"}, Enabled: true},
@@ -378,6 +385,9 @@ func TestServerPersistsManagementSettingsAcrossRestart(t *testing.T) {
 	})
 
 	settings := mustAuthorizedJSON[service.ManagementSettings](t, restarted, http.MethodGet, "/v1/management/settings", nil)
+	if len(settings.Channels) != 1 || settings.Channels[0].ID != "channel_saved" {
+		t.Fatalf("channels were not restored after restart: %#v", settings)
+	}
 	if len(settings.MCPServers) != 1 || settings.MCPServers[0].ID != "mcp_saved" {
 		t.Fatalf("settings were not restored after restart: %#v", settings)
 	}

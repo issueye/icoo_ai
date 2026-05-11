@@ -28,12 +28,11 @@ type MCPServerConfig struct {
 }
 
 type ScheduleTaskConfig struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
-	Spec    string   `json:"spec,omitempty"`
-	Command string   `json:"command,omitempty"`
-	Args    []string `json:"args,omitempty"`
-	Enabled bool     `json:"enabled"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Spec    string `json:"spec,omitempty"`
+	Content string `json:"content,omitempty"`
+	Enabled bool   `json:"enabled"`
 }
 
 type AgentConfig struct {
@@ -45,7 +44,19 @@ type AgentConfig struct {
 	Enabled     bool     `json:"enabled"`
 }
 
+type ChannelConfig struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Enabled    bool   `json:"enabled"`
+	AppID      string `json:"appId,omitempty"`
+	AppSecret  string `json:"appSecret,omitempty"`
+	BotToken   string `json:"botToken,omitempty"`
+	WebhookURL string `json:"webhookUrl,omitempty"`
+}
+
 type ManagementSettings struct {
+	Channels      []ChannelConfig      `json:"channels,omitempty"`
 	MCPServers    []MCPServerConfig    `json:"mcpServers,omitempty"`
 	ScheduleTasks []ScheduleTaskConfig `json:"scheduleTasks,omitempty"`
 	Agents        []AgentConfig        `json:"agents,omitempty"`

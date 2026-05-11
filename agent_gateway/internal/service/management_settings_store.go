@@ -9,6 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var ErrManagementSettingsNotFound = errors.New("management settings not found")
@@ -16,6 +20,7 @@ var ErrManagementSettingsNotFound = errors.New("management settings not found")
 type ManagementSettingsStore interface {
 	Load(ctx context.Context) (ManagementSettings, error)
 	Save(ctx context.Context, settings ManagementSettings) error
+	Close() error
 }
 
 type MemoryManagementSettingsStore struct {
@@ -50,61 +55,273 @@ func (s *MemoryManagementSettingsStore) Save(ctx context.Context, settings Manag
 	return nil
 }
 
-type FileManagementSettingsStore struct {
-	mu   sync.Mutex
-	path string
+func (s *MemoryManagementSettingsStore) Close() error {
+	return nil
 }
 
-func NewFileManagementSettingsStore(path string) *FileManagementSettingsStore {
-	return &FileManagementSettingsStore{path: strings.TrimSpace(path)}
+type SQLiteManagementSettingsStore struct {
+	mu sync.Mutex
+	db *gorm.DB
 }
 
-func (s *FileManagementSettingsStore) Load(ctx context.Context) (ManagementSettings, error) {
+type channelRow struct {
+	ID         string `gorm:"primaryKey;size:128"`
+	Name       string `gorm:"size:256;not null"`
+	Type       string `gorm:"size:64;not null"`
+	Enabled    bool   `gorm:"not null"`
+	AppID      string `gorm:"size:1024"`
+	AppSecret  string `gorm:"size:2048"`
+	BotToken   string `gorm:"size:2048"`
+	WebhookURL string `gorm:"size:2048"`
+	Position   int    `gorm:"not null;index"`
+}
+
+func (channelRow) TableName() string { return "management_channels" }
+
+type mcpServerRow struct {
+	ID       string `gorm:"primaryKey;size:128"`
+	Name     string `gorm:"size:256;not null"`
+	Command  string `gorm:"size:2048"`
+	ArgsJSON string `gorm:"type:text"`
+	Enabled  bool   `gorm:"not null"`
+	Position int    `gorm:"not null;index"`
+}
+
+func (mcpServerRow) TableName() string { return "management_mcp_servers" }
+
+type scheduleTaskRow struct {
+	ID       string `gorm:"primaryKey;size:128"`
+	Name     string `gorm:"size:256;not null"`
+	Spec     string `gorm:"size:256"`
+	Content  string `gorm:"type:text"`
+	Enabled  bool   `gorm:"not null"`
+	Position int    `gorm:"not null;index"`
+}
+
+func (scheduleTaskRow) TableName() string { return "management_schedule_tasks" }
+
+type agentRow struct {
+	ID          string `gorm:"primaryKey;size:128"`
+	Name        string `gorm:"size:256;not null"`
+	Protocol    string `gorm:"size:64"`
+	Description string `gorm:"size:2048"`
+	ModelsJSON  string `gorm:"type:text"`
+	Enabled     bool   `gorm:"not null"`
+	Position    int    `gorm:"not null;index"`
+}
+
+func (agentRow) TableName() string { return "management_agents" }
+
+func NewSQLiteManagementSettingsStore(path string) (*SQLiteManagementSettingsStore, error) {
+	target := strings.TrimSpace(path)
+	if target == "" {
+		return nil, fmt.Errorf("management settings sqlite path is required")
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return nil, fmt.Errorf("create sqlite directory: %w", err)
+	}
+	db, err := gorm.Open(sqlite.Open(target), &gorm.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	if err := db.AutoMigrate(&channelRow{}, &mcpServerRow{}, &scheduleTaskRow{}, &agentRow{}); err != nil {
+		return nil, fmt.Errorf("migrate sqlite schema: %w", err)
+	}
+	return &SQLiteManagementSettingsStore{db: db}, nil
+}
+
+func (s *SQLiteManagementSettingsStore) Load(ctx context.Context) (ManagementSettings, error) {
 	if err := ctx.Err(); err != nil {
 		return ManagementSettings{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if strings.TrimSpace(s.path) == "" {
-		return ManagementSettings{}, fmt.Errorf("management settings path is required")
+
+	var channels []channelRow
+	var mcpRows []mcpServerRow
+	var taskRows []scheduleTaskRow
+	var agentRows []agentRow
+	if err := s.db.WithContext(ctx).Order("position asc").Find(&channels).Error; err != nil {
+		return ManagementSettings{}, fmt.Errorf("load channels: %w", err)
 	}
-	data, err := os.ReadFile(s.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return ManagementSettings{}, ErrManagementSettingsNotFound
+	if err := s.db.WithContext(ctx).Order("position asc").Find(&mcpRows).Error; err != nil {
+		return ManagementSettings{}, fmt.Errorf("load mcp servers: %w", err)
+	}
+	if err := s.db.WithContext(ctx).Order("position asc").Find(&taskRows).Error; err != nil {
+		return ManagementSettings{}, fmt.Errorf("load schedule tasks: %w", err)
+	}
+	if err := s.db.WithContext(ctx).Order("position asc").Find(&agentRows).Error; err != nil {
+		return ManagementSettings{}, fmt.Errorf("load agents: %w", err)
+	}
+	if len(channels) == 0 && len(mcpRows) == 0 && len(taskRows) == 0 && len(agentRows) == 0 {
+		return ManagementSettings{}, ErrManagementSettingsNotFound
+	}
+
+	out := ManagementSettings{
+		Channels:      make([]ChannelConfig, 0, len(channels)),
+		MCPServers:    make([]MCPServerConfig, 0, len(mcpRows)),
+		ScheduleTasks: make([]ScheduleTaskConfig, 0, len(taskRows)),
+		Agents:        make([]AgentConfig, 0, len(agentRows)),
+	}
+	for _, item := range channels {
+		out.Channels = append(out.Channels, ChannelConfig{
+			ID:         item.ID,
+			Name:       item.Name,
+			Type:       item.Type,
+			Enabled:    item.Enabled,
+			AppID:      item.AppID,
+			AppSecret:  item.AppSecret,
+			BotToken:   item.BotToken,
+			WebhookURL: item.WebhookURL,
+		})
+	}
+	for _, item := range mcpRows {
+		args, err := decodeStringList(item.ArgsJSON)
+		if err != nil {
+			return ManagementSettings{}, fmt.Errorf("decode mcp args for %s: %w", item.ID, err)
 		}
-		return ManagementSettings{}, fmt.Errorf("read management settings: %w", err)
+		out.MCPServers = append(out.MCPServers, MCPServerConfig{
+			ID: item.ID, Name: item.Name, Command: item.Command, Args: args, Enabled: item.Enabled,
+		})
 	}
-	var settings ManagementSettings
-	if err := json.Unmarshal(data, &settings); err != nil {
-		return ManagementSettings{}, fmt.Errorf("decode management settings: %w", err)
+	for _, item := range taskRows {
+		out.ScheduleTasks = append(out.ScheduleTasks, ScheduleTaskConfig{
+			ID: item.ID, Name: item.Name, Spec: item.Spec, Content: item.Content, Enabled: item.Enabled,
+		})
 	}
-	return cloneManagementSettings(settings), nil
+	for _, item := range agentRows {
+		models, err := decodeStringList(item.ModelsJSON)
+		if err != nil {
+			return ManagementSettings{}, fmt.Errorf("decode models for %s: %w", item.ID, err)
+		}
+		out.Agents = append(out.Agents, AgentConfig{
+			ID: item.ID, Name: item.Name, Protocol: item.Protocol, Description: item.Description, Models: models, Enabled: item.Enabled,
+		})
+	}
+	return out, nil
 }
 
-func (s *FileManagementSettingsStore) Save(ctx context.Context, settings ManagementSettings) error {
+func (s *SQLiteManagementSettingsStore) Save(ctx context.Context, settings ManagementSettings) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if strings.TrimSpace(s.path) == "" {
-		return fmt.Errorf("management settings path is required")
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("1 = 1").Delete(&channelRow{}).Error; err != nil {
+			return fmt.Errorf("clear channels: %w", err)
+		}
+		if err := tx.Where("1 = 1").Delete(&mcpServerRow{}).Error; err != nil {
+			return fmt.Errorf("clear mcp servers: %w", err)
+		}
+		if err := tx.Where("1 = 1").Delete(&scheduleTaskRow{}).Error; err != nil {
+			return fmt.Errorf("clear schedule tasks: %w", err)
+		}
+		if err := tx.Where("1 = 1").Delete(&agentRow{}).Error; err != nil {
+			return fmt.Errorf("clear agents: %w", err)
+		}
+
+		for i, item := range settings.Channels {
+			row := channelRow{
+				ID:         item.ID,
+				Name:       item.Name,
+				Type:       item.Type,
+				Enabled:    item.Enabled,
+				AppID:      item.AppID,
+				AppSecret:  item.AppSecret,
+				BotToken:   item.BotToken,
+				WebhookURL: item.WebhookURL,
+				Position:   i + 1,
+			}
+			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error; err != nil {
+				return fmt.Errorf("save channel %s: %w", item.ID, err)
+			}
+		}
+		for i, item := range settings.MCPServers {
+			args, err := encodeStringList(item.Args)
+			if err != nil {
+				return fmt.Errorf("encode mcp args for %s: %w", item.ID, err)
+			}
+			row := mcpServerRow{
+				ID:       item.ID,
+				Name:     item.Name,
+				Command:  item.Command,
+				ArgsJSON: args,
+				Enabled:  item.Enabled,
+				Position: i + 1,
+			}
+			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error; err != nil {
+				return fmt.Errorf("save mcp server %s: %w", item.ID, err)
+			}
+		}
+		for i, item := range settings.ScheduleTasks {
+			row := scheduleTaskRow{
+				ID:       item.ID,
+				Name:     item.Name,
+				Spec:     item.Spec,
+				Content:  item.Content,
+				Enabled:  item.Enabled,
+				Position: i + 1,
+			}
+			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error; err != nil {
+				return fmt.Errorf("save schedule task %s: %w", item.ID, err)
+			}
+		}
+		for i, item := range settings.Agents {
+			models, err := encodeStringList(item.Models)
+			if err != nil {
+				return fmt.Errorf("encode models for %s: %w", item.ID, err)
+			}
+			row := agentRow{
+				ID:          item.ID,
+				Name:        item.Name,
+				Protocol:    item.Protocol,
+				Description: item.Description,
+				ModelsJSON:  models,
+				Enabled:     item.Enabled,
+				Position:    i + 1,
+			}
+			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error; err != nil {
+				return fmt.Errorf("save agent %s: %w", item.ID, err)
+			}
+		}
+		return nil
+	})
+}
+
+func (s *SQLiteManagementSettingsStore) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return fmt.Errorf("create management settings directory: %w", err)
-	}
-	payload, err := json.MarshalIndent(settings, "", "  ")
+	sqlDB, err := s.db.DB()
 	if err != nil {
-		return fmt.Errorf("encode management settings: %w", err)
+		return err
 	}
-	tempFile := s.path + ".tmp"
-	if err := os.WriteFile(tempFile, payload, 0o644); err != nil {
-		return fmt.Errorf("write management settings temp file: %w", err)
+	s.db = nil
+	return sqlDB.Close()
+}
+
+func encodeStringList(values []string) (string, error) {
+	raw, err := json.Marshal(values)
+	if err != nil {
+		return "", err
 	}
-	if err := os.Rename(tempFile, s.path); err != nil {
-		_ = os.Remove(tempFile)
-		return fmt.Errorf("persist management settings: %w", err)
+	return string(raw), nil
+}
+
+func decodeStringList(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return []string{}, nil
 	}
-	return nil
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		return []string{}, nil
+	}
+	return out, nil
 }

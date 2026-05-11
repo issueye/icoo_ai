@@ -13,6 +13,7 @@ const props = defineProps({
   queryPlaceholder: { type: String, default: '按 ID / 名称 / 命令搜索' },
   pageSize: { type: Number, default: 10 },
   extraFields: { type: Array, default: () => [] },
+  includeCommandArgs: { type: Boolean, default: true },
   tableColumns: { type: Array, default: () => [] },
   detailFields: { type: Array, default: () => [] },
   allowCreate: { type: Boolean, default: true },
@@ -50,7 +51,11 @@ function copyItems(items) {
 }
 
 function createEmptyItem() {
-  const base = { id: '', name: '', command: '', argsText: '', enabled: true }
+  const base = { id: '', name: '', enabled: true }
+  if (props.includeCommandArgs) {
+    base.command = ''
+    base.argsText = ''
+  }
   for (const field of props.extraFields) base[field.key] = field.defaultValue ?? ''
   return base
 }
@@ -59,9 +64,11 @@ function toDraft(item = {}) {
   const out = {
     id: item.id || '',
     name: item.name || '',
-    command: item.command || '',
-    argsText: Array.isArray(item.args) ? item.args.join(' ') : '',
     enabled: Boolean(item.enabled),
+  }
+  if (props.includeCommandArgs) {
+    out.command = item.command || ''
+    out.argsText = Array.isArray(item.args) ? item.args.join(' ') : ''
   }
   for (const field of props.extraFields) out[field.key] = item[field.key] ?? field.defaultValue ?? ''
   return out
@@ -70,9 +77,13 @@ function toDraft(item = {}) {
 function normalizeDraft(input, sequence = 1) {
   const id = String(input?.id || '').trim() || `item_${sequence}`
   const name = String(input?.name || '').trim() || id
-  const command = String(input?.command || '').trim()
-  const args = String(input?.argsText || '').trim().split(/\s+/).map((item) => item.trim()).filter(Boolean)
-  const normalized = { id, name, command, args, enabled: Boolean(input?.enabled) }
+  const normalized = { id, name, enabled: Boolean(input?.enabled) }
+  if (props.includeCommandArgs) {
+    const command = String(input?.command || '').trim()
+    const args = String(input?.argsText || '').trim().split(/\s+/).map((item) => item.trim()).filter(Boolean)
+    normalized.command = command
+    normalized.args = args
+  }
   for (const field of props.extraFields) {
     normalized[field.key] = String(input?.[field.key] ?? field.defaultValue ?? '').trim()
   }
@@ -336,10 +347,12 @@ function clearQuery() {
             <label class="qq-settings-label" :for="`crud_${field.key}`">{{ field.label }}</label>
             <input :id="`crud_${field.key}`" v-model="draft[field.key]" type="text" class="qq-settings-input" :placeholder="field.placeholder || ''" />
           </template>
-          <label class="qq-settings-label" for="crudCommand">Command</label>
-          <input id="crudCommand" v-model="draft.command" type="text" class="qq-settings-input" placeholder="command" />
-          <label class="qq-settings-label" for="crudArgs">Args（空格分隔）</label>
-          <input id="crudArgs" v-model="draft.argsText" type="text" class="qq-settings-input" placeholder="--flag value" />
+          <template v-if="includeCommandArgs">
+            <label class="qq-settings-label" for="crudCommand">Command</label>
+            <input id="crudCommand" v-model="draft.command" type="text" class="qq-settings-input" placeholder="command" />
+            <label class="qq-settings-label" for="crudArgs">Args（空格分隔）</label>
+            <input id="crudArgs" v-model="draft.argsText" type="text" class="qq-settings-input" placeholder="--flag value" />
+          </template>
           <label class="qq-settings-label" for="crudEnabled">启用状态</label>
           <label class="qq-crud-checkbox">
             <input id="crudEnabled" v-model="draft.enabled" type="checkbox" />

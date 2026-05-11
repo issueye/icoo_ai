@@ -125,16 +125,12 @@ function normalizeScheduleTask(rawTask = {}, sequence = 1) {
   const id = typeof rawTask?.id === 'string' ? rawTask.id.trim() : ''
   const name = typeof rawTask?.name === 'string' ? rawTask.name.trim() : ''
   const spec = typeof rawTask?.spec === 'string' ? rawTask.spec.trim() : ''
-  const command = typeof rawTask?.command === 'string' ? rawTask.command.trim() : ''
-  const args = Array.isArray(rawTask?.args)
-    ? rawTask.args.map((item) => String(item ?? '').trim()).filter(Boolean)
-    : []
+  const content = typeof rawTask?.content === 'string' ? rawTask.content.trim() : ''
   return {
     id: id || fallbackID,
     name: name || id || fallbackID,
     spec: spec || '*/5 * * * *',
-    command,
-    args,
+    content,
     enabled: Boolean(rawTask?.enabled),
   }
 }
