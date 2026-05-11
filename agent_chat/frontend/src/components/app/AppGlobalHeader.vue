@@ -16,6 +16,8 @@ const navLabel = computed(() => {
     channels: '渠道',
     agents: 'Agent',
     skills: 'Skills',
+    mcp: 'MCP',
+    schedule: '定时任务',
     audit: '审计',
     settings: '设置',
   }
@@ -25,6 +27,8 @@ const navLabel = computed(() => {
 const title = computed(() => conversations.activeConversation?.title ?? 'Agent Chat')
 const headerTitle = computed(() => {
   if (app.activeNav === 'channels') return '渠道管理'
+  if (app.activeNav === 'mcp') return 'MCP 管理'
+  if (app.activeNav === 'schedule') return '定时任务管理'
   if (app.activeNav === 'audit') return '审计日志'
   if (app.activeNav === 'settings') return '系统设置'
   return title.value

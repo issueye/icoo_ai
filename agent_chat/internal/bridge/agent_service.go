@@ -420,6 +420,11 @@ func (s *AgentService) DecideApproval(ctx context.Context, req ApprovalDecisionR
 func (s *AgentService) ListSkills(ctx context.Context) ([]SkillInfo, error) {
 	var out []gatewaySkillDTO
 	if err := s.gatewayJSON(ctx, http.MethodGet, "/v1/skills", nil, &out); err != nil {
+		var bridgeErr *BridgeError
+		if errors.As(err, &bridgeErr) && bridgeErr.StatusCode == http.StatusNotFound {
+			// Compatible with older gateway versions that do not expose /v1/skills yet.
+			return []SkillInfo{}, nil
+		}
 		return nil, err
 	}
 	return mapGatewaySkillsToInfos(out), nil

@@ -9,6 +9,8 @@ import ConversationSidebar from '@/components/conversation/ConversationSidebar.v
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
 import AuditWorkspace from '@/components/audit/AuditWorkspace.vue'
 import SkillsWorkspace from '@/components/skills/SkillsWorkspace.vue'
+import McpWorkspace from '@/components/management/McpWorkspace.vue'
+import ScheduleWorkspace from '@/components/management/ScheduleWorkspace.vue'
 import SettingsChannelsPanel from '@/components/settings/SettingsChannelsPanel.vue'
 import SettingsSidebar from '@/components/settings/SettingsSidebar.vue'
 import SettingsWorkspace from '@/components/settings/SettingsWorkspace.vue'
@@ -91,6 +93,8 @@ watch(() => route.name, (name) => {
   else if (name === 'audit') app.setActiveNav('audit')
   else if (name === 'channels') app.setActiveNav('channels')
   else if (name === 'skills') app.setActiveNav('skills')
+  else if (name === 'mcp') app.setActiveNav('mcp')
+  else if (name === 'schedule') app.setActiveNav('schedule')
   else app.setActiveNav('chats')
   if (name === 'audit') {
     audit.markViewed()
@@ -122,6 +126,12 @@ watch(() => conversations.activeSessionId, async (sessionId) => {
       </template>
       <template v-else-if="route.name === 'skills'">
         <SkillsWorkspace />
+      </template>
+      <template v-else-if="route.name === 'mcp'">
+        <McpWorkspace />
+      </template>
+      <template v-else-if="route.name === 'schedule'">
+        <ScheduleWorkspace />
       </template>
       <template v-else>
         <ConversationSidebar />

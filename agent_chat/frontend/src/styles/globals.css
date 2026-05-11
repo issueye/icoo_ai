@@ -1302,146 +1302,133 @@
     padding-top: 10px;
   }
 
-  .qq-mcp-panel {
+  .qq-crud-panel {
     display: flex;
     flex-direction: column;
     gap: 14px;
   }
 
-  .qq-mcp-form {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .qq-mcp-form-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding-top: 4px;
-  }
-
-  .qq-mcp-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .qq-mcp-item {
+  .qq-crud-query {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+  }
+
+  .qq-crud-search {
+    width: min(420px, 100%);
+  }
+
+  .qq-crud-search input {
+    width: 100%;
+    background: transparent;
+    color: var(--qq-text);
+    outline: none;
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .qq-crud-query-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .qq-crud-table-wrap {
+    overflow: auto;
     border: 1px solid var(--qq-border);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.72);
+  }
+
+  .qq-crud-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  .qq-crud-table th,
+  .qq-crud-table td {
+    border-bottom: 1px solid var(--qq-border);
     padding: 10px;
+    font-size: 12px;
+    line-height: 17px;
+    color: var(--qq-text);
+    text-align: left;
+    word-break: break-all;
+    vertical-align: top;
   }
 
-  .qq-mcp-item-main {
-    min-width: 0;
-    flex: 1;
+  .qq-crud-table th:nth-child(1),
+  .qq-crud-table td:nth-child(1) {
+    width: 120px;
   }
 
-  .qq-mcp-item-title {
+  .qq-crud-table th:nth-child(2),
+  .qq-crud-table td:nth-child(2) {
+    width: 140px;
+  }
+
+  .qq-crud-table th:last-child,
+  .qq-crud-table td:last-child {
+    width: 140px;
+  }
+
+  .qq-crud-table th {
+    background: rgba(255, 255, 255, 0.92);
+    font-weight: 700;
+    color: var(--qq-text-soft);
+  }
+
+  .qq-crud-empty {
+    text-align: center !important;
+    color: var(--qq-text-muted) !important;
+  }
+
+  .qq-crud-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     color: var(--qq-text);
     font-size: 13px;
     line-height: 18px;
-    font-weight: 700;
-    word-break: break-all;
   }
 
-  .qq-mcp-item-subtitle {
-    margin-top: 4px;
-    color: var(--qq-text-muted);
-    font-size: 12px;
-    line-height: 17px;
-    word-break: break-all;
-  }
-
-  .qq-mcp-item-actions {
+  .qq-crud-row-actions {
     display: inline-flex;
     align-items: center;
     gap: 6px;
   }
 
-  .qq-mcp-save-row {
-    padding-top: 2px;
-  }
-
-  .qq-mcp-danger {
-    color: var(--qq-danger);
-  }
-
-  .qq-schedule-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  .qq-schedule-form {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .qq-schedule-form-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding-top: 4px;
-  }
-
-  .qq-schedule-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .qq-schedule-item {
+  .qq-crud-pagination {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
-    border: 1px solid var(--qq-border);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.72);
-    padding: 10px;
-  }
-
-  .qq-schedule-item-main {
-    min-width: 0;
-    flex: 1;
-  }
-
-  .qq-schedule-item-title {
-    color: var(--qq-text);
-    font-size: 13px;
-    line-height: 18px;
-    font-weight: 700;
-    word-break: break-all;
-  }
-
-  .qq-schedule-item-subtitle {
-    margin-top: 4px;
+    gap: 8px;
     color: var(--qq-text-muted);
     font-size: 12px;
     line-height: 17px;
-    word-break: break-all;
   }
 
-  .qq-schedule-item-actions {
+  .qq-crud-pagination-actions {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
   }
 
-  .qq-schedule-save-row {
-    padding-top: 2px;
-  }
-
-  .qq-schedule-danger {
+  .qq-crud-danger {
     color: var(--qq-danger);
+  }
+
+  @media (max-width: 960px) {
+    .qq-crud-query {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .qq-crud-search {
+      width: 100%;
+    }
   }
 
   .qq-audit-layout {

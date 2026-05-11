@@ -1,5 +1,5 @@
 <script setup>
-import { Bot, CheckSquare, MessageCircle, Settings, ShieldCheck, Sparkles, Webhook } from 'lucide-vue-next'
+import { Bot, CalendarClock, CheckSquare, MessageCircle, ServerCog, Settings, ShieldCheck, Sparkles, Webhook } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useApprovalsStore } from '@/stores/approvals'
@@ -16,6 +16,8 @@ const navItems = [
   { key: 'channels', label: '渠道', icon: Webhook },
   { key: 'agents', label: 'Agent', icon: Bot },
   { key: 'skills', label: 'Skills', icon: Sparkles },
+  { key: 'mcp', label: 'MCP', icon: ServerCog },
+  { key: 'schedule', label: '定时任务', icon: CalendarClock },
   { key: 'audit', label: '审计', icon: ShieldCheck, badge: true },
 ]
 
@@ -24,6 +26,8 @@ function navigate(item) {
   if (item.key === 'chats') router.push(conversations.activeSessionId ? `/chats/${conversations.activeSessionId}` : '/chats')
   else if (item.key === 'channels') router.push('/channels')
   else if (item.key === 'skills') router.push('/skills')
+  else if (item.key === 'mcp') router.push('/mcp')
+  else if (item.key === 'schedule') router.push('/schedule')
   else if (item.key === 'audit') router.push('/audit')
   else if (item.key === 'settings') router.push('/settings')
 }

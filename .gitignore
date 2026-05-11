@@ -6,4 +6,5 @@ agent_chat/.task/*
 agent/*
 dist/*
 agent_chat/chat.toml
+agent_chat/data/
 agent_server/acp
