@@ -8,10 +8,10 @@ import (
 )
 
 type MCPServer struct {
-	store store.MCPServer
+	store *store.MCPServer
 }
 
-func NewMCPServer(st store.MCPServer) *MCPServer {
+func NewMCPServer(st *store.MCPServer) *MCPServer {
 	return &MCPServer{store: st}
 }
 

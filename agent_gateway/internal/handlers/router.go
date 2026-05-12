@@ -37,7 +37,7 @@ func NewRouter(gateway services.GatewayCRUD, buses ...*events.Bus) http.Handler 
 	)
 
 	v1 := engine.Group("/v1")
-	v1.GET("/agents", h.handleAgents)
+	v1.GET("/agent-profiles", h.handleAgents)
 	v1.GET("/skills", h.handleSkills)
 	v1.GET("/management/settings", h.handleManagementSettings)
 	v1.PUT("/management/settings", h.handleManagementSettingsUpdate)
@@ -60,10 +60,10 @@ func NewRouter(gateway services.GatewayCRUD, buses ...*events.Bus) http.Handler 
 	v1.POST("/approvals/:approvalID/decision", h.handleApprovalAction)
 	v1.GET("/events/ws", h.handleEventWebSocket)
 
-	registerCRUDRoutes(v1, "/agent-configs", h.handleAgentConfigAction)
-	registerCRUDRoutes(v1, "/channel-configs", h.handleChannelConfigAction)
-	registerCRUDRoutes(v1, "/mcp-server-configs", h.handleMCPServerConfigAction)
-	registerCRUDRoutes(v1, "/schedule-task-configs", h.handleScheduleTaskConfigAction)
+	registerCRUDRoutes(v1, "/agents", h.handleAgentAction)
+	registerCRUDRoutes(v1, "/channels", h.handleChannelAction)
+	registerCRUDRoutes(v1, "/mcp-servers", h.handleMCPServerAction)
+	registerCRUDRoutes(v1, "/schedule-tasks", h.handleScheduleTaskAction)
 
 	return engine
 }
@@ -97,9 +97,9 @@ func writeServiceError(c *httpx.Context, err error) {
 
 func statusForServiceCode(code string) int {
 	switch code {
-	case "agent_not_found", "session_not_found", "approval_not_found":
+	case "session_not_found", "approval_not_found":
 		return http.StatusNotFound
-	case "not_found", "agent_config_not_found", "channel_config_not_found", "mcp_server_config_not_found", "schedule_task_config_not_found":
+	case "not_found", "agent_not_found", "channel_not_found", "mcp_server_not_found", "schedule_task_not_found":
 		return http.StatusNotFound
 	case "invalid_prompt", "invalid_decision", "invalid_session", "invalid_session_config", "duplicate_id":
 		return http.StatusBadRequest

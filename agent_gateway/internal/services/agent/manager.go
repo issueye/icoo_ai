@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -36,18 +37,18 @@ func DefaultProfiles() []models.AgentProfile {
 	}
 }
 
-func (m *Manager) BootstrapConfigs() []models.AgentConfig {
+func (m *Manager) BootstrapAgents() []models.Agent {
 	if m == nil {
-		return ToConfigs(DefaultProfiles())
+		return ToAgents(DefaultProfiles())
 	}
-	return ToConfigs(m.bootstrap)
+	return ToAgents(m.bootstrap)
 }
 
-func (m *Manager) ReplaceConfigs(configs []models.AgentConfig) {
+func (m *Manager) ReplaceAgents(agents []models.Agent) {
 	if m == nil {
 		return
 	}
-	m.profiles = ToProfiles(configs)
+	m.profiles = AgentsToProfiles(agents)
 }
 
 func (m *Manager) List(ctx context.Context) ([]models.AgentProfile, error) {
@@ -80,33 +81,38 @@ func (m *Manager) DefaultID() (string, error) {
 	return "", fmt.Errorf("no enabled agents configured")
 }
 
-func ToConfigs(profiles []models.AgentProfile) []models.AgentConfig {
-	out := make([]models.AgentConfig, 0, len(profiles))
+func ToAgents(profiles []models.AgentProfile) []models.Agent {
+	out := make([]models.Agent, 0, len(profiles))
 	for _, item := range profiles {
-		out = append(out, models.AgentConfig{
+		modelsJSON, _ := json.Marshal(item.Models)
+		out = append(out, models.Agent{
 			BaseModel:   models.BaseModel{ID: strings.TrimSpace(item.ID)},
 			Name:        strings.TrimSpace(item.Name),
-			Protocol:    strings.TrimSpace(item.Protocol),
+			Protocol:    models.AgentProtocol(strings.TrimSpace(item.Protocol)),
 			Description: strings.TrimSpace(item.Description),
-			Models:      append([]string(nil), item.Models...),
+			ModelsJSON:  string(modelsJSON),
+			Command:     strings.TrimSpace(item.Command),
 			Enabled:     true,
 		})
 	}
 	return out
 }
 
-func ToProfiles(configs []models.AgentConfig) []models.AgentProfile {
-	out := make([]models.AgentProfile, 0, len(configs))
-	for _, item := range configs {
+func AgentsToProfiles(agents []models.Agent) []models.AgentProfile {
+	out := make([]models.AgentProfile, 0, len(agents))
+	for _, item := range agents {
 		if !item.Enabled {
 			continue
 		}
+		var agentModels []string
+		_ = json.Unmarshal([]byte(item.ModelsJSON), &agentModels)
 		out = append(out, models.AgentProfile{
 			BaseModel:   models.BaseModel{ID: strings.TrimSpace(item.ID)},
 			Name:        strings.TrimSpace(item.Name),
-			Protocol:    strings.TrimSpace(item.Protocol),
+			Protocol:    strings.TrimSpace(string(item.Protocol)),
 			Description: strings.TrimSpace(item.Description),
-			Models:      append([]string(nil), item.Models...),
+			Command:     strings.TrimSpace(item.Command),
+			Models:      agentModels,
 		})
 	}
 	return out

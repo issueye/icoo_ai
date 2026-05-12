@@ -7,60 +7,50 @@ import (
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
-type ScheduleTaskConfigService interface {
-	Create(ctx context.Context, item models.ScheduleTaskConfig) (models.ScheduleTaskConfig, error)
-	Update(ctx context.Context, item models.ScheduleTaskConfig) (models.ScheduleTaskConfig, error)
-	Delete(ctx context.Context, id string) error
-	Page(ctx context.Context, query models.PageQuery) (models.PageResult[models.ScheduleTaskConfig], error)
-	List(ctx context.Context) ([]models.ScheduleTaskConfig, error)
-	GetByID(ctx context.Context, id string) (models.ScheduleTaskConfig, error)
-	Status(ctx context.Context, id string) (models.ResourceStatus, error)
+type ScheduleTask struct {
+	store *store.ScheduleTask
 }
 
-type ScheduleTaskConfigCRUD struct {
-	store store.ScheduleTaskConfigStore
+func NewScheduleTask(st *store.ScheduleTask) *ScheduleTask {
+	return &ScheduleTask{store: st}
 }
 
-func NewScheduleTaskConfigCRUD(st store.ScheduleTaskConfigStore) *ScheduleTaskConfigCRUD {
-	return &ScheduleTaskConfigCRUD{store: st}
-}
-
-func (s *ScheduleTaskConfigCRUD) Create(ctx context.Context, item models.ScheduleTaskConfig) (models.ScheduleTaskConfig, error) {
-	out, err := s.store.CreateScheduleTaskConfig(ctx, item)
+func (s *ScheduleTask) Create(ctx context.Context, item models.ScheduleTask) (models.ScheduleTask, error) {
+	out, err := s.store.Create(ctx, item)
 	return out, mapStoreError(err)
 }
 
-func (s *ScheduleTaskConfigCRUD) Update(ctx context.Context, item models.ScheduleTaskConfig) (models.ScheduleTaskConfig, error) {
-	out, err := s.store.UpdateScheduleTaskConfig(ctx, item)
+func (s *ScheduleTask) Update(ctx context.Context, item models.ScheduleTask) (models.ScheduleTask, error) {
+	out, err := s.store.Update(ctx, item)
 	return out, mapStoreError(err)
 }
 
-func (s *ScheduleTaskConfigCRUD) Delete(ctx context.Context, id string) error {
-	return mapStoreError(s.store.DeleteScheduleTaskConfig(ctx, id))
+func (s *ScheduleTask) Delete(ctx context.Context, id string) error {
+	return mapStoreError(s.store.Delete(ctx, id))
 }
 
-func (s *ScheduleTaskConfigCRUD) Page(ctx context.Context, query models.PageQuery) (models.PageResult[models.ScheduleTaskConfig], error) {
-	out, err := s.store.PageScheduleTaskConfigs(ctx, query)
+func (s *ScheduleTask) Page(ctx context.Context, query models.PageQuery) (models.PageResult[models.ScheduleTask], error) {
+	out, err := s.store.Page(ctx, query)
 	return out, mapStoreError(err)
 }
 
-func (s *ScheduleTaskConfigCRUD) List(ctx context.Context) ([]models.ScheduleTaskConfig, error) {
-	out, err := s.store.ListScheduleTaskConfigs(ctx)
+func (s *ScheduleTask) List(ctx context.Context) ([]models.ScheduleTask, error) {
+	out, err := s.store.List(ctx)
 	return out, mapStoreError(err)
 }
 
-func (s *ScheduleTaskConfigCRUD) GetByID(ctx context.Context, id string) (models.ScheduleTaskConfig, error) {
-	out, ok, err := s.store.GetScheduleTaskConfigByID(ctx, id)
+func (s *ScheduleTask) GetByID(ctx context.Context, id string) (models.ScheduleTask, error) {
+	out, ok, err := s.store.Get(ctx, id)
 	if err != nil {
-		return models.ScheduleTaskConfig{}, mapStoreError(err)
+		return models.ScheduleTask{}, mapStoreError(err)
 	}
 	if !ok {
-		return models.ScheduleTaskConfig{}, &GatewayError{Code: "schedule_task_config_not_found", Message: "schedule task config not found"}
+		return models.ScheduleTask{}, &GatewayError{Code: SCHEDULE_TASK_NOT_FOUND_CODE, Message: SCHEDULE_TASK_NOT_FOUND_MSG}
 	}
 	return out, nil
 }
 
-func (s *ScheduleTaskConfigCRUD) Status(ctx context.Context, id string) (models.ResourceStatus, error) {
-	out, err := s.store.StatusScheduleTaskConfig(ctx, id)
+func (s *ScheduleTask) Status(ctx context.Context, id string) (models.ResourceStatus, error) {
+	out, err := s.store.Status(ctx, id)
 	return out, mapStoreError(err)
 }
