@@ -12,24 +12,19 @@ import (
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/handlers"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
 	crudservice "github.com/icoo-ai/icoo-ai/agent_gateway/internal/services"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
-var defaultManagedAgents = []models.AgentProfile{
+var defaultManagedAgents = []models.Agent{
 	{
-		BaseModel:   models.BaseModel{ID: "icoo-ai-acp"},
 		Name:        "Icoo AI",
 		Protocol:    "icoo_acp",
-		Models:      []string{"gpt-5.4"},
 		Description: "Icoo ACP agent profile.",
 	},
 	{
-		BaseModel:   models.BaseModel{ID: "agent-acp"},
 		Name:        "Agent ACP",
 		Protocol:    "agent_acp",
-		Models:      []string{"gpt-5.4"},
 		Description: "Generic ACP agent profile.",
 	},
 }
@@ -96,7 +91,7 @@ func Build(ctx context.Context, opts BuildOptions) (Components, error) {
 
 	core := service.NewGatewayServiceWithAgentsStoreAndSettingsStore(defaultManagedAgents, conversationStore, settingsStore)
 	managementConfigStore := store.NewManagementConfigStore(gatewaySettingsRepository{core: core})
-	crud := crudservice.NewGatewayWithManagementCRUD(core, managementConfigStore)
+	crud := crudservice.NewGatewayCRUD(core, managementConfigStore)
 
 	components := Components{
 		Config:            cfg,

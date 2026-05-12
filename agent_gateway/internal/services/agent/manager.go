@@ -4,61 +4,51 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
+	"os/exec"
 	"strings"
+	"sync"
 
+	acp "github.com/coder/acp-go-sdk"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
+type Agent struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	models.Agent
+	ACPServer *acp.Agent
+	cmd       *exec.Cmd
+	logger    *slog.Logger
+	conn      *acp.ClientSideConnection
+}
+
 type Manager struct {
-	bootstrap []models.AgentProfile
-	profiles  []models.AgentProfile
+	lock      sync.Mutex // 用于保护bootstrap的访问
+	bootstrap []Agent    // 用于初始化的智能体配置
 }
 
-func NewManager(profiles []models.AgentProfile) *Manager {
-	if len(profiles) == 0 {
-		profiles = DefaultProfiles()
+// NewManager 创建智能体管理器
+func NewManager(profiles []models.Agent) *Manager {
+	agents := make([]Agent, 0, len(profiles))
+	for _, profile := range profiles {
+		agents = append(agents, Agent{
+			Agent: profile,
+		})
 	}
-	bootstrap := CloneProfiles(profiles)
+
 	return &Manager{
-		bootstrap: bootstrap,
-		profiles:  CloneProfiles(profiles),
+		bootstrap: agents,
 	}
 }
 
-func DefaultProfiles() []models.AgentProfile {
-	return []models.AgentProfile{
-		{
-			BaseModel:   models.BaseModel{ID: "icoo-ai-acp"},
-			Name:        "Icoo AI",
-			Protocol:    "acp",
-			Models:      []string{"gpt-5.4"},
-			Description: "Default ACP connector profile.",
-		},
-	}
-}
-
-func (m *Manager) BootstrapAgents() []models.Agent {
-	if m == nil {
-		return ToAgents(DefaultProfiles())
-	}
-	return ToAgents(m.bootstrap)
-}
-
-func (m *Manager) ReplaceAgents(agents []models.Agent) {
-	if m == nil {
-		return
-	}
-	m.profiles = AgentsToProfiles(agents)
-}
-
-func (m *Manager) List(ctx context.Context) ([]models.AgentProfile, error) {
+func (m *Manager) List(ctx context.Context) ([]Agent, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if m == nil {
-		return CloneProfiles(DefaultProfiles()), nil
-	}
-	return CloneProfiles(m.profiles), nil
+
+	return m.bootstrap, nil
 }
 
 func (m *Manager) Has(id string) bool {
@@ -66,65 +56,111 @@ func (m *Manager) Has(id string) bool {
 	if id == "" || m == nil {
 		return false
 	}
-	for _, profile := range m.profiles {
-		if profile.ID == id {
+	for _, item := range m.bootstrap {
+		if item.ID == id {
 			return true
 		}
 	}
 	return false
 }
 
-func (m *Manager) DefaultID() (string, error) {
-	if m != nil && len(m.profiles) > 0 {
-		return m.profiles[0].ID, nil
+// Remove 移除制定AGENT
+func (m *Manager) Remove(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" || m == nil {
+		return false
 	}
-	return "", fmt.Errorf("no enabled agents configured")
-}
-
-func ToAgents(profiles []models.AgentProfile) []models.Agent {
-	out := make([]models.Agent, 0, len(profiles))
-	for _, item := range profiles {
-		modelsJSON, _ := json.Marshal(item.Models)
-		out = append(out, models.Agent{
-			BaseModel:   models.BaseModel{ID: strings.TrimSpace(item.ID)},
-			Name:        strings.TrimSpace(item.Name),
-			Protocol:    models.AgentProtocol(strings.TrimSpace(item.Protocol)),
-			Description: strings.TrimSpace(item.Description),
-			ModelsJSON:  string(modelsJSON),
-			Command:     strings.TrimSpace(item.Command),
-			Enabled:     true,
-		})
-	}
-	return out
-}
-
-func AgentsToProfiles(agents []models.Agent) []models.AgentProfile {
-	out := make([]models.AgentProfile, 0, len(agents))
-	for _, item := range agents {
-		if !item.Enabled {
-			continue
+	for idx, item := range m.bootstrap {
+		if item.ID == id {
+			m.bootstrap = append(m.bootstrap[:idx], m.bootstrap[idx+1:]...)
+			return true
 		}
-		var agentModels []string
-		_ = json.Unmarshal([]byte(item.ModelsJSON), &agentModels)
-		out = append(out, models.AgentProfile{
-			BaseModel:   models.BaseModel{ID: strings.TrimSpace(item.ID)},
-			Name:        strings.TrimSpace(item.Name),
-			Protocol:    strings.TrimSpace(string(item.Protocol)),
-			Description: strings.TrimSpace(item.Description),
-			Command:     strings.TrimSpace(item.Command),
-			Models:      agentModels,
-		})
 	}
-	return out
+	return false
 }
 
-func CloneProfiles(in []models.AgentProfile) []models.AgentProfile {
-	out := make([]models.AgentProfile, 0, len(in))
-	for _, item := range in {
-		cp := item
-		cp.Models = append([]string(nil), item.Models...)
-		cp.Args = append([]string(nil), item.Args...)
-		out = append(out, cp)
+func NewAgent(l *slog.Logger) (*Agent, error) {
+	agent := &Agent{logger: l}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	agent.ctx = ctx
+	agent.cancel = cancel
+
+	var cmd *exec.Cmd
+	cmd = exec.CommandContext(ctx, agent.Command, agent.Args...)
+	agent.cmd = cmd
+
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+
+	err := cmd.Start()
+	if err != nil {
+		return agent, err
 	}
-	return out
+
+	client := NewAcpClient(agent.logger)
+	conn := acp.NewClientSideConnection(client, stdin, stdout)
+	conn.SetLogger(agent.logger)
+
+	initResp, err := conn.Initialize(ctx, acp.InitializeRequest{
+		ProtocolVersion: acp.ProtocolVersionNumber,
+		ClientCapabilities: acp.ClientCapabilities{
+			Fs:       acp.FileSystemCapabilities{ReadTextFile: true, WriteTextFile: true},
+			Terminal: true,
+		},
+	})
+	if err != nil {
+		return agent, err
+	}
+
+	// 记录协议版本
+	agent.logger.Info("协议版本", "ProtocolVersion", initResp.ProtocolVersion)
+
+	agent.conn = conn
+	return agent, nil
+}
+
+func mustCwd() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return wd
+}
+
+func (a *Agent) SendMessage(msg string) error {
+	ctx := context.Background()
+	newSess, err := a.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: mustCwd(), McpServers: []acp.McpServer{}})
+	if err != nil {
+		if re, ok := err.(*acp.RequestError); ok {
+			if b, mErr := json.MarshalIndent(re, "", "  "); mErr == nil {
+				fmt.Fprintf(os.Stderr, "[Client] Error: %s\n", string(b))
+			} else {
+				fmt.Fprintf(os.Stderr, "newSession error (%d): %s\n", re.Code, re.Message)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "newSession error: %v\n", err)
+		}
+		_ = a.cmd.Process.Kill()
+		return err
+	}
+	_, err = a.conn.Prompt(ctx, acp.PromptRequest{
+		SessionId: newSess.SessionId,
+		Prompt:    []acp.ContentBlock{acp.TextBlock(msg)},
+	})
+	if err != nil {
+		if re, ok := err.(*acp.RequestError); ok {
+			if b, mErr := json.MarshalIndent(re, "", "  "); mErr == nil {
+				fmt.Fprintf(os.Stderr, "[Client] Error: %s\n", string(b))
+			} else {
+				fmt.Fprintf(os.Stderr, "prompt error (%d): %s\n", re.Code, re.Message)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "prompt error: %v\n", err)
+		}
+	}
+
+	return nil
 }

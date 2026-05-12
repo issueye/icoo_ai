@@ -16,7 +16,7 @@ func (e *GatewayError) Error() string {
 }
 
 type GatewayCRUD interface {
-	ListAgents(ctx context.Context) ([]models.AgentProfile, error)
+	ListAgents(ctx context.Context) ([]models.Agent, error)
 	ListSkills(ctx context.Context) ([]models.Skill, error)
 
 	GetManagementSettings(ctx context.Context) (models.ManagementSettings, error)

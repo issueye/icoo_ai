@@ -73,11 +73,11 @@ type testGateway struct {
 	task     *services.ScheduleTask
 }
 
-func (g *testGateway) ListAgents(ctx context.Context) ([]models.AgentProfile, error) {
+func (g *testGateway) ListAgents(ctx context.Context) ([]models.Agent, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return []models.AgentProfile{}, nil
+	return []models.Agent{}, nil
 }
 
 func (g *testGateway) ListSkills(ctx context.Context) ([]models.Skill, error) {
