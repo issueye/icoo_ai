@@ -8,11 +8,12 @@ import (
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/services"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/pkg/httpx"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/pkg/wshub"
 )
 
 type Handler struct {
 	service services.GatewayCRUD
-	bus     *events.Bus
+	wsHub   *wshub.Hub
 }
 
 type ErrorResponse struct {
@@ -20,10 +21,14 @@ type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
-func NewRouter(gateway services.GatewayCRUD) http.Handler {
+func NewRouter(gateway services.GatewayCRUD, buses ...*events.Bus) http.Handler {
+	bus := events.DefaultBus()
+	if len(buses) > 0 && buses[0] != nil {
+		bus = buses[0]
+	}
 	h := &Handler{
 		service: gateway,
-		bus:     events.DefaultBus(),
+		wsHub:   wshub.New(newEventSource(bus), wshub.WithFilter(eventFilter)),
 	}
 	engine := httpx.New()
 	engine.Use(
@@ -53,7 +58,7 @@ func NewRouter(gateway services.GatewayCRUD) http.Handler {
 	v1.GET("/approvals", h.handleApprovals)
 	v1.PUT("/approvals/:approvalID/decision", h.handleApprovalAction)
 	v1.POST("/approvals/:approvalID/decision", h.handleApprovalAction)
-	v1.GET("/events/stream", h.handleEventStream)
+	v1.GET("/events/ws", h.handleEventWebSocket)
 
 	registerCRUDRoutes(v1, "/agent-configs", h.handleAgentConfigAction)
 	registerCRUDRoutes(v1, "/channel-configs", h.handleChannelConfigAction)

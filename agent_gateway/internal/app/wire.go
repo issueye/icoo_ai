@@ -107,7 +107,7 @@ func Build(ctx context.Context, opts BuildOptions) (Components, error) {
 		GatewayCore:       core,
 		Gateway:           crud,
 		HealthHandler:     handlers.HealthHandler(cfg.Version, now),
-		Router:            handlers.NewRouter(crud),
+		Router:            handlers.NewRouter(crud, eventBus),
 		closeFn:           core.Close,
 	}
 	return components, nil
