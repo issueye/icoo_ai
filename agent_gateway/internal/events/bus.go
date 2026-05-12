@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"sync"
+
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 const defaultBufferSize = 256
@@ -13,14 +15,14 @@ var defaultBus = NewBus(defaultBufferSize)
 
 type Bus struct {
 	mu          sync.RWMutex
-	subscribers map[chan Envelope]struct{}
-	ring        []Envelope
+	subscribers map[chan models.EventEnvelope]struct{}
+	ring        []models.EventEnvelope
 	ringStart   int
 	ringCount   int
 }
 
 type Subscription struct {
-	ch   chan Envelope
+	ch   chan models.EventEnvelope
 	bus  *Bus
 	once sync.Once
 }
@@ -30,8 +32,8 @@ func NewBus(bufferSize int) *Bus {
 		bufferSize = defaultBufferSize
 	}
 	return &Bus{
-		subscribers: make(map[chan Envelope]struct{}),
-		ring:        make([]Envelope, bufferSize),
+		subscribers: make(map[chan models.EventEnvelope]struct{}),
+		ring:        make([]models.EventEnvelope, bufferSize),
 	}
 }
 
@@ -39,7 +41,7 @@ func DefaultBus() *Bus {
 	return defaultBus
 }
 
-func (b *Bus) Publish(event Envelope) {
+func (b *Bus) Publish(event models.EventEnvelope) {
 	b.mu.Lock()
 	b.pushToRing(event)
 
@@ -54,18 +56,18 @@ func (b *Bus) Publish(event Envelope) {
 
 // Subscribe returns a subscription and a snapshot of buffered events.
 // lastEventID is reserved for replay semantics in later phases.
-func (b *Bus) Subscribe(_ context.Context, lastEventID string) (*Subscription, []Envelope) {
+func (b *Bus) Subscribe(_ context.Context, lastEventID string) (*Subscription, []models.EventEnvelope) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	ch := make(chan Envelope, 32)
+	ch := make(chan models.EventEnvelope, 32)
 	b.subscribers[ch] = struct{}{}
 
 	buffered := b.snapshotSince(lastEventID)
 	return &Subscription{ch: ch, bus: b}, buffered
 }
 
-func (b *Bus) unsubscribe(ch chan Envelope) {
+func (b *Bus) unsubscribe(ch chan models.EventEnvelope) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, ok := b.subscribers[ch]; !ok {
@@ -75,7 +77,7 @@ func (b *Bus) unsubscribe(ch chan Envelope) {
 	close(ch)
 }
 
-func (s *Subscription) Events() <-chan Envelope {
+func (s *Subscription) Events() <-chan models.EventEnvelope {
 	return s.ch
 }
 
@@ -85,7 +87,7 @@ func (s *Subscription) Close() {
 	})
 }
 
-func (b *Bus) pushToRing(event Envelope) {
+func (b *Bus) pushToRing(event models.EventEnvelope) {
 	if len(b.ring) == 0 {
 		return
 	}
@@ -100,11 +102,11 @@ func (b *Bus) pushToRing(event Envelope) {
 	b.ringStart = (b.ringStart + 1) % len(b.ring)
 }
 
-func (b *Bus) snapshotSince(lastEventID string) []Envelope {
+func (b *Bus) snapshotSince(lastEventID string) []models.EventEnvelope {
 	if b.ringCount == 0 {
 		return nil
 	}
-	out := make([]Envelope, 0, b.ringCount)
+	out := make([]models.EventEnvelope, 0, b.ringCount)
 	startCollect := lastEventID == ""
 	for i := 0; i < b.ringCount; i++ {
 		idx := (b.ringStart + i) % len(b.ring)

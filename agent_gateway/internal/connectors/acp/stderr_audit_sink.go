@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
@@ -93,15 +94,15 @@ func (w *stderrAuditSink) consumeLineLocked(line string) {
 	}
 	summary, truncated := truncateUTF8(line, w.maxSummaryBytes)
 	w.seq++
-	meta := store.SafeMeta{
+	meta := models.SafeMeta{
 		"source":     "acp.stderr",
 		"line_index": w.lineIndex,
 	}
 	if truncated > 0 {
 		meta["truncated_bytes"] = truncated
 	}
-	_ = w.store.AppendAudit(context.Background(), store.AuditEvent{
-		ID:        fmt.Sprintf("audit_acp_stderr_%d", w.seq),
+	_ = w.store.AppendAudit(context.Background(), models.AuditEvent{
+		BaseModel: models.BaseModel{ID: fmt.Sprintf("audit_acp_stderr_%d", w.seq)},
 		Type:      "acp.stderr",
 		Level:     "warn",
 		AgentID:   w.agentID,

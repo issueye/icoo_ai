@@ -11,21 +11,22 @@ import (
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/config"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/handlers"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
 	crudservice "github.com/icoo-ai/icoo-ai/agent_gateway/internal/services"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
-var defaultManagedAgents = []service.AgentProfile{
+var defaultManagedAgents = []models.AgentProfile{
 	{
-		ID:          "icoo-ai-acp",
+		BaseModel:   models.BaseModel{ID: "icoo-ai-acp"},
 		Name:        "Icoo AI",
 		Protocol:    "icoo_acp",
 		Models:      []string{"gpt-5.4"},
 		Description: "Icoo ACP agent profile.",
 	},
 	{
-		ID:          "agent-acp",
+		BaseModel:   models.BaseModel{ID: "agent-acp"},
 		Name:        "Agent ACP",
 		Protocol:    "agent_acp",
 		Models:      []string{"gpt-5.4"},
@@ -94,7 +95,8 @@ func Build(ctx context.Context, opts BuildOptions) (Components, error) {
 	}
 
 	core := service.NewGatewayServiceWithAgentsStoreAndSettingsStore(defaultManagedAgents, conversationStore, settingsStore)
-	crud := crudservice.NewGateway(core)
+	managementConfigStore := store.NewManagementConfigStore(gatewaySettingsRepository{core: core})
+	crud := crudservice.NewGatewayWithManagementCRUD(core, managementConfigStore)
 
 	components := Components{
 		Config:            cfg,
@@ -109,4 +111,17 @@ func Build(ctx context.Context, opts BuildOptions) (Components, error) {
 		closeFn:           core.Close,
 	}
 	return components, nil
+}
+
+type gatewaySettingsRepository struct {
+	core service.GatewayService
+}
+
+func (r gatewaySettingsRepository) Load(ctx context.Context) (models.ManagementSettings, error) {
+	return r.core.GetManagementSettings(ctx)
+}
+
+func (r gatewaySettingsRepository) Save(ctx context.Context, settings models.ManagementSettings) error {
+	_, err := r.core.UpdateManagementSettings(ctx, settings)
+	return err
 }

@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/models"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 type Channel interface {
@@ -14,4 +14,4 @@ type Channel interface {
 	Stop(ctx context.Context) error
 }
 
-type ChannelFactory func(cfg models.ChannelConfig) (Channel, error)
+type ChannelFactory func(cfg models.ChannelRuntimeConfig) (Channel, error)

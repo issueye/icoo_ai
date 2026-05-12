@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 // Pool wraps multiple ACP connectors and exposes a single AgentConnector.
@@ -18,7 +19,7 @@ type Pool struct {
 
 	initMu      sync.Mutex
 	initialized bool
-	initResp    connector.InitializeResponse
+	initResp    models.ConnectorInitializeResponse
 	initErr     error
 
 	next uint64
@@ -50,7 +51,7 @@ func NewPool(backends []connector.AgentConnector) (*Pool, error) {
 	}, nil
 }
 
-func (p *Pool) Initialize(ctx context.Context, req connector.InitializeRequest) (connector.InitializeResponse, error) {
+func (p *Pool) Initialize(ctx context.Context, req models.ConnectorInitializeRequest) (models.ConnectorInitializeResponse, error) {
 	p.initMu.Lock()
 	defer p.initMu.Unlock()
 	if p.initialized {
@@ -75,18 +76,18 @@ func (p *Pool) Initialize(ctx context.Context, req connector.InitializeRequest) 
 	return p.initResp, p.initErr
 }
 
-func (p *Pool) NewSession(ctx context.Context, req connector.NewSessionRequest) (connector.NewSessionResponse, error) {
+func (p *Pool) NewSession(ctx context.Context, req models.ConnectorNewSessionRequest) (models.ConnectorNewSessionResponse, error) {
 	idx, backend, err := p.nextBackend()
 	if err != nil {
-		return connector.NewSessionResponse{}, err
+		return models.ConnectorNewSessionResponse{}, err
 	}
 
 	resp, err := backend.NewSession(ctx, req)
 	if err != nil {
-		return connector.NewSessionResponse{}, err
+		return models.ConnectorNewSessionResponse{}, err
 	}
 	if resp.SessionID == "" {
-		return connector.NewSessionResponse{}, connector.NewError(connector.ErrCodeProtocolError, "acp connector returned empty session id")
+		return models.ConnectorNewSessionResponse{}, connector.NewError(connector.ErrCodeProtocolError, "acp connector returned empty session id")
 	}
 
 	p.sessionMu.Lock()
@@ -95,11 +96,11 @@ func (p *Pool) NewSession(ctx context.Context, req connector.NewSessionRequest) 
 	return resp, nil
 }
 
-func (p *Pool) ListSessions(ctx context.Context, req connector.ListSessionsRequest) (connector.ListSessionsResponse, error) {
+func (p *Pool) ListSessions(ctx context.Context, req models.ConnectorListSessionsRequest) (models.ConnectorListSessionsResponse, error) {
 	var (
 		errs   []error
 		seen   = map[string]struct{}{}
-		merged connector.ListSessionsResponse
+		merged models.ConnectorListSessionsResponse
 	)
 	for idx, backend := range p.backends {
 		resp, err := backend.ListSessions(ctx, req)
@@ -120,12 +121,12 @@ func (p *Pool) ListSessions(ctx context.Context, req connector.ListSessionsReque
 		}
 	}
 	if len(merged.Sessions) == 0 && len(errs) > 0 {
-		return connector.ListSessionsResponse{}, errors.Join(errs...)
+		return models.ConnectorListSessionsResponse{}, errors.Join(errs...)
 	}
 	return merged, nil
 }
 
-func (p *Pool) ResumeSession(ctx context.Context, req connector.ResumeSessionRequest) (connector.ResumeSessionResponse, error) {
+func (p *Pool) ResumeSession(ctx context.Context, req models.ConnectorResumeSessionRequest) (models.ConnectorResumeSessionResponse, error) {
 	backend, err := p.backendForSession(req.SessionID)
 	if err == nil {
 		resp, callErr := backend.ResumeSession(ctx, req)
@@ -136,59 +137,59 @@ func (p *Pool) ResumeSession(ctx context.Context, req connector.ResumeSessionReq
 	return p.resumeSessionDiscover(ctx, req)
 }
 
-func (p *Pool) CloseSession(ctx context.Context, req connector.CloseSessionRequest) (connector.CloseSessionResponse, error) {
+func (p *Pool) CloseSession(ctx context.Context, req models.ConnectorCloseSessionRequest) (models.ConnectorCloseSessionResponse, error) {
 	backend, err := p.backendForSession(req.SessionID)
 	if err != nil {
 		var discoverErr error
 		backend, discoverErr = p.discoverSessionBackend(ctx, req.SessionID)
 		if discoverErr != nil {
-			return connector.CloseSessionResponse{}, discoverErr
+			return models.ConnectorCloseSessionResponse{}, discoverErr
 		}
 	}
 	resp, err := backend.CloseSession(ctx, req)
 	if err != nil {
-		return connector.CloseSessionResponse{}, err
+		return models.ConnectorCloseSessionResponse{}, err
 	}
 	p.unbindSession(req.SessionID)
 	return resp, nil
 }
 
-func (p *Pool) SetSessionMode(ctx context.Context, req connector.SetSessionModeRequest) (connector.SetSessionModeResponse, error) {
+func (p *Pool) SetSessionMode(ctx context.Context, req models.ConnectorSetSessionModeRequest) (models.ConnectorSetSessionModeResponse, error) {
 	backend, err := p.backendForSession(req.SessionID)
 	if err != nil {
 		var discoverErr error
 		backend, discoverErr = p.discoverSessionBackend(ctx, req.SessionID)
 		if discoverErr != nil {
-			return connector.SetSessionModeResponse{}, discoverErr
+			return models.ConnectorSetSessionModeResponse{}, discoverErr
 		}
 	}
 	return backend.SetSessionMode(ctx, req)
 }
 
-func (p *Pool) SetSessionConfigOption(ctx context.Context, req connector.SetSessionConfigOptionRequest) (connector.SetSessionConfigOptionResponse, error) {
+func (p *Pool) SetSessionConfigOption(ctx context.Context, req models.ConnectorSetSessionConfigOptionRequest) (models.ConnectorSetSessionConfigOptionResponse, error) {
 	backend, err := p.backendForSession(req.SessionID)
 	if err != nil {
 		var discoverErr error
 		backend, discoverErr = p.discoverSessionBackend(ctx, req.SessionID)
 		if discoverErr != nil {
-			return connector.SetSessionConfigOptionResponse{}, discoverErr
+			return models.ConnectorSetSessionConfigOptionResponse{}, discoverErr
 		}
 	}
 	return backend.SetSessionConfigOption(ctx, req)
 }
 
-func (p *Pool) Prompt(ctx context.Context, req connector.PromptRequest) (connector.PromptResponse, error) {
+func (p *Pool) Prompt(ctx context.Context, req models.ConnectorPromptRequest) (models.ConnectorPromptResponse, error) {
 	backend, err := p.backendForSession(req.SessionID)
 	if err != nil {
-		return connector.PromptResponse{}, err
+		return models.ConnectorPromptResponse{}, err
 	}
 	return backend.Prompt(ctx, req)
 }
 
-func (p *Pool) Cancel(ctx context.Context, req connector.CancelRequest) (connector.CancelResponse, error) {
+func (p *Pool) Cancel(ctx context.Context, req models.ConnectorCancelRequest) (models.ConnectorCancelResponse, error) {
 	backend, err := p.backendForSession(req.SessionID)
 	if err != nil {
-		return connector.CancelResponse{}, err
+		return models.ConnectorCancelResponse{}, err
 	}
 	return backend.Cancel(ctx, req)
 }
@@ -248,7 +249,7 @@ func (p *Pool) unbindSession(sessionID string) {
 	p.sessionMu.Unlock()
 }
 
-func (p *Pool) resumeSessionDiscover(ctx context.Context, req connector.ResumeSessionRequest) (connector.ResumeSessionResponse, error) {
+func (p *Pool) resumeSessionDiscover(ctx context.Context, req models.ConnectorResumeSessionRequest) (models.ConnectorResumeSessionResponse, error) {
 	var errs []error
 	for idx, backend := range p.backends {
 		resp, err := backend.ResumeSession(ctx, req)
@@ -260,9 +261,9 @@ func (p *Pool) resumeSessionDiscover(ctx context.Context, req connector.ResumeSe
 		return resp, nil
 	}
 	if len(errs) > 0 {
-		return connector.ResumeSessionResponse{}, errors.Join(errs...)
+		return models.ConnectorResumeSessionResponse{}, errors.Join(errs...)
 	}
-	return connector.ResumeSessionResponse{}, connector.NewError(connector.ErrCodeProtocolError, "acp connector pool could not resume session")
+	return models.ConnectorResumeSessionResponse{}, connector.NewError(connector.ErrCodeProtocolError, "acp connector pool could not resume session")
 }
 
 func (p *Pool) discoverSessionBackend(ctx context.Context, sessionID string) (connector.AgentConnector, error) {
@@ -271,7 +272,7 @@ func (p *Pool) discoverSessionBackend(ctx context.Context, sessionID string) (co
 	}
 	var errs []error
 	for idx, backend := range p.backends {
-		resp, err := backend.ListSessions(ctx, connector.ListSessionsRequest{})
+		resp, err := backend.ListSessions(ctx, models.ConnectorListSessionsRequest{})
 		if err != nil {
 			errs = append(errs, fmt.Errorf("acp connector pool backend %d discover session: %w", idx, err))
 			continue

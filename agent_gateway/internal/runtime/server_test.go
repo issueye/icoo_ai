@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/config"
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 func shutdownServer(t *testing.T, srv *Server) {
@@ -100,7 +100,7 @@ func TestServerStartExposesHealthAndProtectedRoutes(t *testing.T) {
 	if authResp.StatusCode != http.StatusOK {
 		t.Fatalf("authorized /v1/agents status = %d, want 200", authResp.StatusCode)
 	}
-	var agents []service.AgentProfile
+	var agents []models.AgentProfile
 	if err := json.NewDecoder(authResp.Body).Decode(&agents); err != nil {
 		t.Fatalf("Decode agents error = %v", err)
 	}
@@ -124,9 +124,9 @@ func TestServerPersistsManagementSettingsAcrossRestart(t *testing.T) {
 		t.Fatalf("first.Start() error = %v", err)
 	}
 
-	putResp := authedJSONRequest(t, first, http.MethodPut, "/v1/management/settings", service.ManagementSettings{
-		Agents: []service.AgentConfig{
-			{ID: "persisted-agent", Name: "Persisted", Protocol: "acp", Models: []string{"gpt-5.4"}, Enabled: true},
+	putResp := authedJSONRequest(t, first, http.MethodPut, "/v1/management/settings", models.ManagementSettings{
+		Agents: []models.AgentConfig{
+			{BaseModel: models.BaseModel{ID: "persisted-agent"}, Name: "Persisted", Protocol: "acp", Models: []string{"gpt-5.4"}, Enabled: true},
 		},
 	})
 	if putResp.StatusCode != http.StatusOK {
@@ -151,7 +151,7 @@ func TestServerPersistsManagementSettingsAcrossRestart(t *testing.T) {
 	if getResp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /v1/management/settings status = %d, want 200", getResp.StatusCode)
 	}
-	var settings service.ManagementSettings
+	var settings models.ManagementSettings
 	if err := json.NewDecoder(getResp.Body).Decode(&settings); err != nil {
 		t.Fatalf("Decode settings error = %v", err)
 	}

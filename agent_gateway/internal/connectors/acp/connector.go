@@ -13,6 +13,7 @@ import (
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 type Connector struct {
@@ -90,74 +91,74 @@ func New(opts Options) (*Connector, error) {
 	return c, nil
 }
 
-func (c *Connector) Initialize(ctx context.Context, req connector.InitializeRequest) (connector.InitializeResponse, error) {
+func (c *Connector) Initialize(ctx context.Context, req models.ConnectorInitializeRequest) (models.ConnectorInitializeResponse, error) {
 	resp, err := c.call(ctx, "initialize", initializeParams(req))
 	if err != nil {
-		return connector.InitializeResponse{}, err
+		return models.ConnectorInitializeResponse{}, err
 	}
 	return mapInitializeResponse(resp), nil
 }
 
-func (c *Connector) NewSession(ctx context.Context, req connector.NewSessionRequest) (connector.NewSessionResponse, error) {
+func (c *Connector) NewSession(ctx context.Context, req models.ConnectorNewSessionRequest) (models.ConnectorNewSessionResponse, error) {
 	resp, err := c.call(ctx, "session/new", newSessionParams(req))
 	if err != nil {
-		return connector.NewSessionResponse{}, err
+		return models.ConnectorNewSessionResponse{}, err
 	}
 	return mapNewSessionResponse(resp), nil
 }
 
-func (c *Connector) ListSessions(ctx context.Context, req connector.ListSessionsRequest) (connector.ListSessionsResponse, error) {
+func (c *Connector) ListSessions(ctx context.Context, req models.ConnectorListSessionsRequest) (models.ConnectorListSessionsResponse, error) {
 	resp, err := c.call(ctx, "session/list", listSessionsParams(req))
 	if err != nil {
-		return connector.ListSessionsResponse{}, err
+		return models.ConnectorListSessionsResponse{}, err
 	}
 	return mapListSessionsResponse(resp), nil
 }
 
-func (c *Connector) ResumeSession(ctx context.Context, req connector.ResumeSessionRequest) (connector.ResumeSessionResponse, error) {
+func (c *Connector) ResumeSession(ctx context.Context, req models.ConnectorResumeSessionRequest) (models.ConnectorResumeSessionResponse, error) {
 	resp, err := c.call(ctx, "session/resume", resumeSessionParams(req))
 	if err != nil {
-		return connector.ResumeSessionResponse{}, err
+		return models.ConnectorResumeSessionResponse{}, err
 	}
 	return mapResumeSessionResponse(resp), nil
 }
 
-func (c *Connector) CloseSession(ctx context.Context, req connector.CloseSessionRequest) (connector.CloseSessionResponse, error) {
+func (c *Connector) CloseSession(ctx context.Context, req models.ConnectorCloseSessionRequest) (models.ConnectorCloseSessionResponse, error) {
 	resp, err := c.call(ctx, "session/close", closeSessionParams(req))
 	if err != nil {
-		return connector.CloseSessionResponse{}, err
+		return models.ConnectorCloseSessionResponse{}, err
 	}
 	return mapCloseSessionResponse(resp), nil
 }
 
-func (c *Connector) SetSessionMode(ctx context.Context, req connector.SetSessionModeRequest) (connector.SetSessionModeResponse, error) {
+func (c *Connector) SetSessionMode(ctx context.Context, req models.ConnectorSetSessionModeRequest) (models.ConnectorSetSessionModeResponse, error) {
 	resp, err := c.call(ctx, "session/set_mode", setSessionModeParams(req))
 	if err != nil {
-		return connector.SetSessionModeResponse{}, err
+		return models.ConnectorSetSessionModeResponse{}, err
 	}
 	return mapSetSessionModeResponse(resp), nil
 }
 
-func (c *Connector) SetSessionConfigOption(ctx context.Context, req connector.SetSessionConfigOptionRequest) (connector.SetSessionConfigOptionResponse, error) {
+func (c *Connector) SetSessionConfigOption(ctx context.Context, req models.ConnectorSetSessionConfigOptionRequest) (models.ConnectorSetSessionConfigOptionResponse, error) {
 	resp, err := c.call(ctx, "session/set_config_option", setSessionConfigOptionParams(req))
 	if err != nil {
-		return connector.SetSessionConfigOptionResponse{}, err
+		return models.ConnectorSetSessionConfigOptionResponse{}, err
 	}
 	return mapSetSessionConfigOptionResponse(resp), nil
 }
 
-func (c *Connector) Prompt(ctx context.Context, req connector.PromptRequest) (connector.PromptResponse, error) {
+func (c *Connector) Prompt(ctx context.Context, req models.ConnectorPromptRequest) (models.ConnectorPromptResponse, error) {
 	resp, err := c.call(ctx, "session/prompt", promptParams(req))
 	if err != nil {
-		return connector.PromptResponse{}, err
+		return models.ConnectorPromptResponse{}, err
 	}
 	return mapPromptResponse(resp), nil
 }
 
-func (c *Connector) Cancel(ctx context.Context, req connector.CancelRequest) (connector.CancelResponse, error) {
+func (c *Connector) Cancel(ctx context.Context, req models.ConnectorCancelRequest) (models.ConnectorCancelResponse, error) {
 	resp, err := c.call(ctx, "session/cancel", cancelParams(req))
 	if err != nil {
-		return connector.CancelResponse{}, err
+		return models.ConnectorCancelResponse{}, err
 	}
 	return mapCancelResponse(resp), nil
 }

@@ -3,13 +3,13 @@ package services
 import (
 	"testing"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/models"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 func TestNormalizeConfigsFillsDefaultsAndTrims(t *testing.T) {
-	configs, err := NormalizeConfigs([]models.ChannelConfig{
+	configs, err := NormalizeConfigs([]models.ChannelRuntimeConfig{
 		{
-			ID:         "  ",
+			BaseModel:  models.BaseModel{ID: "  "},
 			Name:       "  ",
 			Type:       "  ",
 			Enabled:    true,
@@ -41,8 +41,8 @@ func TestNormalizeConfigsFillsDefaultsAndTrims(t *testing.T) {
 }
 
 func TestNormalizeConfigsRejectsUnsupportedType(t *testing.T) {
-	_, err := NormalizeConfigs([]models.ChannelConfig{
-		{ID: "c1", Type: "unknown"},
+	_, err := NormalizeConfigs([]models.ChannelRuntimeConfig{
+		{BaseModel: models.BaseModel{ID: "c1"}, Type: "unknown"},
 	})
 	if err == nil {
 		t.Fatal("NormalizeConfigs() error = nil, want unsupported type error")
@@ -50,9 +50,9 @@ func TestNormalizeConfigsRejectsUnsupportedType(t *testing.T) {
 }
 
 func TestNormalizeConfigsRejectsDuplicateIDs(t *testing.T) {
-	_, err := NormalizeConfigs([]models.ChannelConfig{
-		{ID: "dup", Type: models.ChannelTypeQQ},
-		{ID: "dup", Type: models.ChannelTypeMQTT},
+	_, err := NormalizeConfigs([]models.ChannelRuntimeConfig{
+		{BaseModel: models.BaseModel{ID: "dup"}, Type: models.ChannelTypeQQ},
+		{BaseModel: models.BaseModel{ID: "dup"}, Type: models.ChannelTypeMQTT},
 	})
 	if err == nil {
 		t.Fatal("NormalizeConfigs() error = nil, want duplicate id error")

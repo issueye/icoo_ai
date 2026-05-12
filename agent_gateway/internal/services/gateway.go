@@ -5,6 +5,7 @@ import (
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 	legacy "github.com/icoo-ai/icoo-ai/agent_gateway/internal/service"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
 type GatewayError struct {
@@ -42,14 +43,49 @@ type GatewayCRUD interface {
 	ListRuns(ctx context.Context) ([]models.Run, error)
 	ListApprovals(ctx context.Context) ([]models.Approval, error)
 	UpdateApprovalDecision(ctx context.Context, approvalID string, req models.ApprovalDecisionRequest) (models.Approval, error)
+
+	AgentConfigs() AgentConfigService
+	ChannelConfigs() ChannelConfigService
+	MCPServerConfigs() MCPServerConfigService
+	ScheduleTaskConfigs() ScheduleTaskConfigService
 }
 
 type Gateway struct {
-	core legacy.GatewayService
+	core          legacy.GatewayService
+	agentConfigs  AgentConfigService
+	channels      ChannelConfigService
+	mcpServers    MCPServerConfigService
+	scheduleTasks ScheduleTaskConfigService
 }
 
 func NewGateway(core legacy.GatewayService) *Gateway {
 	return &Gateway{core: core}
+}
+
+func NewGatewayWithManagementCRUD(core legacy.GatewayService, configStore *store.ManagementConfigStore) *Gateway {
+	return &Gateway{
+		core:          core,
+		agentConfigs:  NewAgentConfigCRUD(configStore),
+		channels:      NewChannelConfigCRUD(configStore),
+		mcpServers:    NewMCPServerConfigCRUD(configStore),
+		scheduleTasks: NewScheduleTaskConfigCRUD(configStore),
+	}
+}
+
+func (g *Gateway) AgentConfigs() AgentConfigService {
+	return g.agentConfigs
+}
+
+func (g *Gateway) ChannelConfigs() ChannelConfigService {
+	return g.channels
+}
+
+func (g *Gateway) MCPServerConfigs() MCPServerConfigService {
+	return g.mcpServers
+}
+
+func (g *Gateway) ScheduleTaskConfigs() ScheduleTaskConfigService {
+	return g.scheduleTasks
 }
 
 func (g *Gateway) ListAgents(ctx context.Context) ([]models.AgentProfile, error) {

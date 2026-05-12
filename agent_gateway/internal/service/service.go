@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	channelmodels "github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/models"
 	channelservices "github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/services"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
@@ -17,26 +16,26 @@ import (
 )
 
 type GatewayService interface {
-	ListAgents(ctx context.Context) ([]AgentProfile, error)
-	ListSkills(ctx context.Context) ([]Skill, error)
-	GetManagementSettings(ctx context.Context) (ManagementSettings, error)
-	UpdateManagementSettings(ctx context.Context, in ManagementSettings) (ManagementSettings, error)
-	GetChannelStatuses(ctx context.Context) ([]ChannelRuntimeStatus, error)
+	ListAgents(ctx context.Context) ([]models.AgentProfile, error)
+	ListSkills(ctx context.Context) ([]models.Skill, error)
+	GetManagementSettings(ctx context.Context) (models.ManagementSettings, error)
+	UpdateManagementSettings(ctx context.Context, in models.ManagementSettings) (models.ManagementSettings, error)
+	GetChannelStatuses(ctx context.Context) ([]models.ChannelRuntimeStatus, error)
 	StartChannels(ctx context.Context) error
 	StopChannels(ctx context.Context) error
-	CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error)
-	ListSessions(ctx context.Context) ([]Session, error)
-	GetSession(ctx context.Context, sessionID string) (Session, error)
-	ResumeSession(ctx context.Context, sessionID string, req ResumeSessionRequest) (Session, error)
-	CloseSession(ctx context.Context, sessionID string) (Session, error)
-	SetSessionMode(ctx context.Context, sessionID string, req SetSessionModeRequest) (Session, error)
-	SetSessionConfigOption(ctx context.Context, sessionID string, req SetSessionConfigOptionRequest) (Session, error)
-	ListMessages(ctx context.Context, sessionID string) ([]Message, error)
-	Prompt(ctx context.Context, sessionID string, req PromptRequest) (PromptResponse, error)
-	Cancel(ctx context.Context, sessionID string) (Run, error)
-	ListRuns(ctx context.Context) ([]Run, error)
-	ListApprovals(ctx context.Context) ([]Approval, error)
-	DecideApproval(ctx context.Context, approvalID string, req ApprovalDecisionRequest) (Approval, error)
+	CreateSession(ctx context.Context, req models.CreateSessionRequest) (models.Session, error)
+	ListSessions(ctx context.Context) ([]models.Session, error)
+	GetSession(ctx context.Context, sessionID string) (models.Session, error)
+	ResumeSession(ctx context.Context, sessionID string, req models.ResumeSessionRequest) (models.Session, error)
+	CloseSession(ctx context.Context, sessionID string) (models.Session, error)
+	SetSessionMode(ctx context.Context, sessionID string, req models.SetSessionModeRequest) (models.Session, error)
+	SetSessionConfigOption(ctx context.Context, sessionID string, req models.SetSessionConfigOptionRequest) (models.Session, error)
+	ListMessages(ctx context.Context, sessionID string) ([]models.Message, error)
+	Prompt(ctx context.Context, sessionID string, req models.PromptRequest) (models.PromptResponse, error)
+	Cancel(ctx context.Context, sessionID string) (models.Run, error)
+	ListRuns(ctx context.Context) ([]models.Run, error)
+	ListApprovals(ctx context.Context) ([]models.Approval, error)
+	DecideApproval(ctx context.Context, approvalID string, req models.ApprovalDecisionRequest) (models.Approval, error)
 }
 
 type Error struct {
@@ -56,15 +55,15 @@ type GatewayServiceImpl struct {
 	mu               sync.Mutex
 	now              func() time.Time
 	nextID           int
-	agents           []AgentProfile
-	bootstrapAgents  []AgentProfile
-	skills           []Skill
+	agents           []models.AgentProfile
+	bootstrapAgents  []models.AgentProfile
+	skills           []models.Skill
 	store            store.Store
 	connector        connector.AgentConnector
 	approvalBroker   *ApprovalBroker
 	managementStore  ManagementSettingsStore
 	managementLoaded bool
-	management       ManagementSettings
+	management       models.ManagementSettings
 	channelManager   *channelservices.Manager
 }
 
@@ -134,7 +133,7 @@ func NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore(agents []models.A
 func defaultAgents() []models.AgentProfile {
 	return []models.AgentProfile{
 		{
-			ID:          "icoo-ai-acp",
+			BaseModel:   models.BaseModel{ID: "icoo-ai-acp"},
 			Name:        "Icoo AI",
 			Protocol:    "acp",
 			Models:      []string{"gpt-5.4"},
@@ -298,12 +297,12 @@ func (s *GatewayServiceImpl) applyChannelsLocked(ctx context.Context, configs []
 	if s.channelManager == nil {
 		return nil
 	}
-	channelConfigs := make([]channelmodels.ChannelConfig, 0, len(configs))
+	channelConfigs := make([]models.ChannelRuntimeConfig, 0, len(configs))
 	for _, cfg := range configs {
-		channelConfigs = append(channelConfigs, channelmodels.ChannelConfig{
-			ID:         cfg.ID,
+		channelConfigs = append(channelConfigs, models.ChannelRuntimeConfig{
+			BaseModel:  models.BaseModel{ID: cfg.ID},
 			Name:       cfg.Name,
-			Type:       channelmodels.ChannelType(cfg.Type),
+			Type:       models.ChannelType(cfg.Type),
 			Enabled:    cfg.Enabled,
 			AppID:      cfg.AppID,
 			AppSecret:  cfg.AppSecret,
@@ -338,7 +337,7 @@ func normalizeManagementSettings(in models.ManagementSettings) models.Management
 			channelType = "qq"
 		}
 		out.Channels = append(out.Channels, models.ChannelConfig{
-			ID:         id,
+			BaseModel:  models.BaseModel{ID: id},
 			Name:       name,
 			Type:       channelType,
 			Enabled:    item.Enabled,
@@ -366,7 +365,7 @@ func normalizeManagementSettings(in models.ManagementSettings) models.Management
 			args = append(args, text)
 		}
 		out.MCPServers = append(out.MCPServers, models.MCPServerConfig{
-			ID: id, Name: name, Command: strings.TrimSpace(item.Command), Args: args, Enabled: item.Enabled,
+			BaseModel: models.BaseModel{ID: id}, Name: name, Command: strings.TrimSpace(item.Command), Args: args, Enabled: item.Enabled,
 		})
 	}
 	for index, item := range in.ScheduleTasks {
@@ -383,7 +382,7 @@ func normalizeManagementSettings(in models.ManagementSettings) models.Management
 			spec = "*/5 * * * *"
 		}
 		out.ScheduleTasks = append(out.ScheduleTasks, models.ScheduleTaskConfig{
-			ID: id, Name: name, Spec: spec, Content: strings.TrimSpace(item.Content), Enabled: item.Enabled,
+			BaseModel: models.BaseModel{ID: id}, Name: name, Spec: spec, Content: strings.TrimSpace(item.Content), Enabled: item.Enabled,
 		})
 	}
 	for index, item := range in.Agents {
@@ -404,18 +403,18 @@ func normalizeManagementSettings(in models.ManagementSettings) models.Management
 			modelList = append(modelList, text)
 		}
 		out.Agents = append(out.Agents, models.AgentConfig{
-			ID: id, Name: name, Protocol: strings.TrimSpace(item.Protocol), Description: strings.TrimSpace(item.Description), Models: modelList, Enabled: item.Enabled,
+			BaseModel: models.BaseModel{ID: id}, Name: name, Protocol: strings.TrimSpace(item.Protocol), Description: strings.TrimSpace(item.Description), Models: modelList, Enabled: item.Enabled,
 		})
 	}
 	return out
 }
 
-func cloneManagementSettings(in ManagementSettings) ManagementSettings {
-	out := ManagementSettings{
-		Channels:      make([]ChannelConfig, 0, len(in.Channels)),
-		MCPServers:    make([]MCPServerConfig, 0, len(in.MCPServers)),
-		ScheduleTasks: make([]ScheduleTaskConfig, 0, len(in.ScheduleTasks)),
-		Agents:        make([]AgentConfig, 0, len(in.Agents)),
+func cloneManagementSettings(in models.ManagementSettings) models.ManagementSettings {
+	out := models.ManagementSettings{
+		Channels:      make([]models.ChannelConfig, 0, len(in.Channels)),
+		MCPServers:    make([]models.MCPServerConfig, 0, len(in.MCPServers)),
+		ScheduleTasks: make([]models.ScheduleTaskConfig, 0, len(in.ScheduleTasks)),
+		Agents:        make([]models.AgentConfig, 0, len(in.Agents)),
 	}
 	out.Channels = append(out.Channels, in.Channels...)
 	out.MCPServers = append(out.MCPServers, in.MCPServers...)
@@ -431,11 +430,11 @@ func cloneManagementSettings(in ManagementSettings) ManagementSettings {
 	return out
 }
 
-func toAgentConfigs(profiles []AgentProfile) []AgentConfig {
-	out := make([]AgentConfig, 0, len(profiles))
+func toAgentConfigs(profiles []models.AgentProfile) []models.AgentConfig {
+	out := make([]models.AgentConfig, 0, len(profiles))
 	for _, item := range profiles {
-		out = append(out, AgentConfig{
-			ID:          strings.TrimSpace(item.ID),
+		out = append(out, models.AgentConfig{
+			BaseModel:   models.BaseModel{ID: strings.TrimSpace(item.ID)},
 			Name:        strings.TrimSpace(item.Name),
 			Protocol:    strings.TrimSpace(item.Protocol),
 			Description: strings.TrimSpace(item.Description),
@@ -446,14 +445,14 @@ func toAgentConfigs(profiles []AgentProfile) []AgentConfig {
 	return out
 }
 
-func toAgentProfiles(configs []AgentConfig) []AgentProfile {
-	out := make([]AgentProfile, 0, len(configs))
+func toAgentProfiles(configs []models.AgentConfig) []models.AgentProfile {
+	out := make([]models.AgentProfile, 0, len(configs))
 	for _, item := range configs {
 		if !item.Enabled {
 			continue
 		}
-		out = append(out, AgentProfile{
-			ID:          strings.TrimSpace(item.ID),
+		out = append(out, models.AgentProfile{
+			BaseModel:   models.BaseModel{ID: strings.TrimSpace(item.ID)},
 			Name:        strings.TrimSpace(item.Name),
 			Protocol:    strings.TrimSpace(item.Protocol),
 			Description: strings.TrimSpace(item.Description),
@@ -463,8 +462,8 @@ func toAgentProfiles(configs []AgentConfig) []AgentProfile {
 	return out
 }
 
-func cloneAgentProfiles(in []AgentProfile) []AgentProfile {
-	out := make([]AgentProfile, 0, len(in))
+func cloneAgentProfiles(in []models.AgentProfile) []models.AgentProfile {
+	out := make([]models.AgentProfile, 0, len(in))
 	for _, item := range in {
 		cp := item
 		cp.Models = append([]string(nil), item.Models...)
@@ -474,14 +473,14 @@ func cloneAgentProfiles(in []AgentProfile) []AgentProfile {
 	return out
 }
 
-func (s *GatewayServiceImpl) CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error) {
+func (s *GatewayServiceImpl) CreateSession(ctx context.Context, req models.CreateSessionRequest) (models.Session, error) {
 	if err := ctx.Err(); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 
 	agentID := strings.TrimSpace(req.AgentID)
@@ -491,7 +490,7 @@ func (s *GatewayServiceImpl) CreateSession(ctx context.Context, req CreateSessio
 	}
 	if agentID == "" {
 		if len(s.agents) == 0 {
-			return Session{}, NewError("agent_not_found", "no enabled agents configured")
+			return models.Session{}, NewError("agent_not_found", "no enabled agents configured")
 		}
 		agentID = s.agents[0].ID
 	}
@@ -499,7 +498,7 @@ func (s *GatewayServiceImpl) CreateSession(ctx context.Context, req CreateSessio
 		mode = agentID
 	}
 	if !s.hasAgentLocked(agentID) {
-		return Session{}, NewError("agent_not_found", fmt.Sprintf("agent %q was not found", agentID))
+		return models.Session{}, NewError("agent_not_found", fmt.Sprintf("agent %q was not found", agentID))
 	}
 
 	now := s.now()
@@ -528,21 +527,21 @@ func (s *GatewayServiceImpl) CreateSession(ctx context.Context, req CreateSessio
 		if len(metadata) == 0 {
 			metadata = nil
 		}
-		connResp, err := s.connector.NewSession(ctx, connector.NewSessionRequest{
+		connResp, err := s.connector.NewSession(ctx, models.ConnectorNewSessionRequest{
 			AgentID:  agentID,
 			Model:    req.Model,
 			CWD:      req.CWD,
 			Metadata: metadata,
 		})
 		if err != nil {
-			return Session{}, NewError("connector_request_failed", fmt.Sprintf("connector newSession failed: %v", err))
+			return models.Session{}, NewError("connector_request_failed", fmt.Sprintf("connector newSession failed: %v", err))
 		}
 		if strings.TrimSpace(connResp.SessionID) != "" {
 			sessionID = strings.TrimSpace(connResp.SessionID)
 		}
 	}
-	session := Session{
-		ID:                    sessionID,
+	session := models.Session{
+		BaseModel:             models.BaseModel{ID: sessionID},
 		Title:                 title,
 		WorkspaceID:           workspaceID,
 		CWD:                   req.CWD,
@@ -556,12 +555,12 @@ func (s *GatewayServiceImpl) CreateSession(ctx context.Context, req CreateSessio
 		UpdatedAt:             now,
 	}
 	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	return session, nil
 }
 
-func (s *GatewayServiceImpl) ListSessions(ctx context.Context) ([]Session, error) {
+func (s *GatewayServiceImpl) ListSessions(ctx context.Context) ([]models.Session, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -574,7 +573,7 @@ func (s *GatewayServiceImpl) ListSessions(ctx context.Context) ([]Session, error
 	if err != nil {
 		return nil, err
 	}
-	sessions := make([]Session, 0, len(conversations))
+	sessions := make([]models.Session, 0, len(conversations))
 	for _, conversation := range conversations {
 		sessions = append(sessions, fromStoreConversation(conversation))
 	}
@@ -584,43 +583,43 @@ func (s *GatewayServiceImpl) ListSessions(ctx context.Context) ([]Session, error
 	return sessions, nil
 }
 
-func (s *GatewayServiceImpl) GetSession(ctx context.Context, sessionID string) (Session, error) {
+func (s *GatewayServiceImpl) GetSession(ctx context.Context, sessionID string) (models.Session, error) {
 	if err := ctx.Err(); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
 	if err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	if !ok {
-		return Session{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
+		return models.Session{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
 	}
 	return fromStoreConversation(conversation), nil
 }
 
-func (s *GatewayServiceImpl) ResumeSession(ctx context.Context, sessionID string, req ResumeSessionRequest) (Session, error) {
+func (s *GatewayServiceImpl) ResumeSession(ctx context.Context, sessionID string, req models.ResumeSessionRequest) (models.Session, error) {
 	if err := ctx.Err(); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return Session{}, NewError("invalid_session", "session id is required")
+		return models.Session{}, NewError("invalid_session", "session id is required")
 	}
 	if s.connector == nil {
-		return Session{}, NewError("connector_unavailable", "connector is not configured")
+		return models.Session{}, NewError("connector_unavailable", "connector is not configured")
 	}
 
 	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
 	if err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
-	var session Session
+	var session models.Session
 	if ok {
 		session = fromStoreConversation(conversation)
 	} else {
@@ -629,8 +628,8 @@ func (s *GatewayServiceImpl) ResumeSession(ctx context.Context, sessionID string
 		if len(s.agents) > 0 {
 			agentID = s.agents[0].ID
 		}
-		session = Session{
-			ID:        sessionID,
+		session = models.Session{
+			BaseModel: models.BaseModel{ID: sessionID},
 			Title:     "Resumed Session",
 			AgentID:   agentID,
 			Mode:      agentID,
@@ -645,15 +644,15 @@ func (s *GatewayServiceImpl) ResumeSession(ctx context.Context, sessionID string
 		cwd = strings.TrimSpace(session.CWD)
 	}
 	if cwd == "" {
-		return Session{}, NewError("invalid_session_config", "cwd is required to resume session")
+		return models.Session{}, NewError("invalid_session_config", "cwd is required to resume session")
 	}
-	connReq := connector.ResumeSessionRequest{
+	connReq := models.ConnectorResumeSessionRequest{
 		SessionID:             sessionID,
 		CWD:                   cwd,
 		AdditionalDirectories: append([]string(nil), req.AdditionalDirectories...),
 	}
 	if _, err := s.connector.ResumeSession(ctx, connReq); err != nil {
-		return Session{}, NewError("connector_request_failed", fmt.Sprintf("connector resumeSession failed: %v", err))
+		return models.Session{}, NewError("connector_request_failed", fmt.Sprintf("connector resumeSession failed: %v", err))
 	}
 
 	session.CWD = cwd
@@ -665,67 +664,67 @@ func (s *GatewayServiceImpl) ResumeSession(ctx context.Context, sessionID string
 	}
 	session.UpdatedAt = s.now()
 	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	return session, nil
 }
 
-func (s *GatewayServiceImpl) CloseSession(ctx context.Context, sessionID string) (Session, error) {
+func (s *GatewayServiceImpl) CloseSession(ctx context.Context, sessionID string) (models.Session, error) {
 	if err := ctx.Err(); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
 	if err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	if !ok {
-		return Session{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
+		return models.Session{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
 	}
 	session := fromStoreConversation(conversation)
 	if s.connector != nil {
-		if _, err := s.connector.CloseSession(ctx, connector.CloseSessionRequest{SessionID: sessionID}); err != nil {
-			return Session{}, NewError("connector_request_failed", fmt.Sprintf("connector closeSession failed: %v", err))
+		if _, err := s.connector.CloseSession(ctx, models.ConnectorCloseSessionRequest{SessionID: sessionID}); err != nil {
+			return models.Session{}, NewError("connector_request_failed", fmt.Sprintf("connector closeSession failed: %v", err))
 		}
 	}
 	now := s.now()
 	session.Status = "closed"
 	session.UpdatedAt = now
 	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	return session, nil
 }
 
-func (s *GatewayServiceImpl) SetSessionMode(ctx context.Context, sessionID string, req SetSessionModeRequest) (Session, error) {
+func (s *GatewayServiceImpl) SetSessionMode(ctx context.Context, sessionID string, req models.SetSessionModeRequest) (models.Session, error) {
 	if err := ctx.Err(); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 
 	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
 	if err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	if !ok {
-		return Session{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
+		return models.Session{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
 	}
 	mode := strings.TrimSpace(req.Mode)
 	if mode == "" {
-		return Session{}, NewError("invalid_session_config", "mode is required")
+		return models.Session{}, NewError("invalid_session_config", "mode is required")
 	}
 	if s.connector != nil {
-		if _, err := s.connector.SetSessionMode(ctx, connector.SetSessionModeRequest{
+		if _, err := s.connector.SetSessionMode(ctx, models.ConnectorSetSessionModeRequest{
 			SessionID: sessionID,
 			ModeID:    mode,
 		}); err != nil {
-			return Session{}, NewError("connector_request_failed", fmt.Sprintf("connector setSessionMode failed: %v", err))
+			return models.Session{}, NewError("connector_request_failed", fmt.Sprintf("connector setSessionMode failed: %v", err))
 		}
 	}
 	session := fromStoreConversation(conversation)
@@ -735,51 +734,51 @@ func (s *GatewayServiceImpl) SetSessionMode(ctx context.Context, sessionID strin
 		session.AgentID = mode
 	}
 	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	return session, nil
 }
 
-func (s *GatewayServiceImpl) SetSessionConfigOption(ctx context.Context, sessionID string, req SetSessionConfigOptionRequest) (Session, error) {
+func (s *GatewayServiceImpl) SetSessionConfigOption(ctx context.Context, sessionID string, req models.SetSessionConfigOptionRequest) (models.Session, error) {
 	if err := ctx.Err(); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
 	if err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	if !ok {
-		return Session{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
+		return models.Session{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
 	}
 	configID := strings.TrimSpace(req.ConfigID)
 	if configID == "" {
-		return Session{}, NewError("invalid_session_config", "configId is required")
+		return models.Session{}, NewError("invalid_session_config", "configId is required")
 	}
 	if req.BooleanValue == nil && strings.TrimSpace(req.ValueID) == "" {
-		return Session{}, NewError("invalid_session_config", "booleanValue or valueId is required")
+		return models.Session{}, NewError("invalid_session_config", "booleanValue or valueId is required")
 	}
 	if s.connector != nil {
-		if _, err := s.connector.SetSessionConfigOption(ctx, connector.SetSessionConfigOptionRequest{
+		if _, err := s.connector.SetSessionConfigOption(ctx, models.ConnectorSetSessionConfigOptionRequest{
 			SessionID:    sessionID,
 			ConfigID:     configID,
 			BooleanValue: req.BooleanValue,
 			ValueID:      strings.TrimSpace(req.ValueID),
 		}); err != nil {
-			return Session{}, NewError("connector_request_failed", fmt.Sprintf("connector setSessionConfigOption failed: %v", err))
+			return models.Session{}, NewError("connector_request_failed", fmt.Sprintf("connector setSessionConfigOption failed: %v", err))
 		}
 	}
 	session := fromStoreConversation(conversation)
 	session.UpdatedAt = s.now()
 	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
-		return Session{}, err
+		return models.Session{}, err
 	}
 	return session, nil
 }
 
-func (s *GatewayServiceImpl) ListMessages(ctx context.Context, sessionID string) ([]Message, error) {
+func (s *GatewayServiceImpl) ListMessages(ctx context.Context, sessionID string) ([]models.Message, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -793,33 +792,33 @@ func (s *GatewayServiceImpl) ListMessages(ctx context.Context, sessionID string)
 	if err != nil {
 		return nil, err
 	}
-	messages := make([]Message, 0, len(events))
+	messages := make([]models.Message, 0, len(events))
 	for _, event := range events {
 		messages = append(messages, fromStoreMessageEvent(event))
 	}
 	return messages, nil
 }
 
-func (s *GatewayServiceImpl) Prompt(ctx context.Context, sessionID string, req PromptRequest) (PromptResponse, error) {
+func (s *GatewayServiceImpl) Prompt(ctx context.Context, sessionID string, req models.PromptRequest) (models.PromptResponse, error) {
 	if err := ctx.Err(); err != nil {
-		return PromptResponse{}, err
+		return models.PromptResponse{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
-		return PromptResponse{}, err
+		return models.PromptResponse{}, err
 	}
 
 	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
 	if err != nil {
-		return PromptResponse{}, err
+		return models.PromptResponse{}, err
 	}
 	if !ok {
-		return PromptResponse{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
+		return models.PromptResponse{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
 	}
 	content := strings.TrimSpace(req.Content)
 	if content == "" {
-		return PromptResponse{}, NewError("invalid_prompt", "prompt content is required")
+		return models.PromptResponse{}, NewError("invalid_prompt", "prompt content is required")
 	}
 
 	session := fromStoreConversation(conversation)
@@ -837,7 +836,7 @@ func (s *GatewayServiceImpl) Prompt(ctx context.Context, sessionID string, req P
 	}
 	if agentID := strings.TrimSpace(req.AgentID); agentID != "" {
 		if !s.hasAgentLocked(agentID) {
-			return PromptResponse{}, NewError("agent_not_found", fmt.Sprintf("agent %q was not found", agentID))
+			return models.PromptResponse{}, NewError("agent_not_found", fmt.Sprintf("agent %q was not found", agentID))
 		}
 		session.AgentID = agentID
 	}
@@ -850,19 +849,19 @@ func (s *GatewayServiceImpl) Prompt(ctx context.Context, sessionID string, req P
 	if s.connector != nil {
 		return s.promptViaConnectorLocked(ctx, session, content)
 	}
-	return PromptResponse{}, NewError("connector_unavailable", "connector is not configured")
+	return models.PromptResponse{}, NewError("connector_unavailable", "connector is not configured")
 }
 
-func (s *GatewayServiceImpl) promptViaConnectorLocked(ctx context.Context, session Session, content string) (PromptResponse, error) {
+func (s *GatewayServiceImpl) promptViaConnectorLocked(ctx context.Context, session models.Session, content string) (models.PromptResponse, error) {
 	startedAt := s.now().UTC()
 	connReqID := s.idLocked("connreq")
-	connResp, err := s.connector.Prompt(ctx, connector.PromptRequest{
+	connResp, err := s.connector.Prompt(ctx, models.ConnectorPromptRequest{
 		SessionID: session.ID,
 		Content:   content,
 		RequestID: connReqID,
 	})
 	if err != nil {
-		return PromptResponse{}, NewError("connector_request_failed", fmt.Sprintf("connector prompt failed: %v", err))
+		return models.PromptResponse{}, NewError("connector_request_failed", fmt.Sprintf("connector prompt failed: %v", err))
 	}
 
 	runID := strings.TrimSpace(connResp.RunID)
@@ -873,16 +872,16 @@ func (s *GatewayServiceImpl) promptViaConnectorLocked(ctx context.Context, sessi
 	if connResp.EndedAt == nil {
 		runStatus = "running"
 	}
-	run := Run{
-		ID:        runID,
+	run := models.Run{
+		BaseModel: models.BaseModel{ID: runID},
 		SessionID: session.ID,
 		AgentID:   session.AgentID,
 		Status:    runStatus,
 		StartedAt: startedAt,
 		EndedAt:   connResp.EndedAt,
 	}
-	userMessage := Message{
-		ID:        s.idLocked("msg"),
+	userMessage := models.Message{
+		BaseModel: models.BaseModel{ID: s.idLocked("msg")},
 		SessionID: session.ID,
 		RunID:     run.ID,
 		Role:      "user",
@@ -890,10 +889,10 @@ func (s *GatewayServiceImpl) promptViaConnectorLocked(ctx context.Context, sessi
 		CreatedAt: startedAt,
 	}
 
-	responseMessages := []Message{userMessage}
+	responseMessages := []models.Message{userMessage}
 	if output := strings.TrimSpace(connResp.Output); output != "" {
-		assistantMessage := Message{
-			ID:        s.idLocked("msg"),
+		assistantMessage := models.Message{
+			BaseModel: models.BaseModel{ID: s.idLocked("msg")},
 			SessionID: session.ID,
 			RunID:     run.ID,
 			Role:      "assistant",
@@ -904,22 +903,22 @@ func (s *GatewayServiceImpl) promptViaConnectorLocked(ctx context.Context, sessi
 	}
 
 	if err := s.store.UpsertRun(ctx, toStoreRun(run)); err != nil {
-		return PromptResponse{}, err
+		return models.PromptResponse{}, err
 	}
 	for _, message := range responseMessages {
 		if err := s.store.AppendMessage(ctx, toStoreMessageEvent(message)); err != nil {
-			return PromptResponse{}, err
+			return models.PromptResponse{}, err
 		}
 	}
 
-	var firstApproval *Approval
+	var firstApproval *models.Approval
 	for _, item := range connResp.Approvals {
 		requestID := strings.TrimSpace(item.RequestID)
 		if requestID == "" {
 			requestID = s.idLocked("connreq")
 		}
-		approval := Approval{
-			ID:                 s.idLocked("appr"),
+		approval := models.Approval{
+			BaseModel:          models.BaseModel{ID: s.idLocked("appr")},
 			AgentID:            session.AgentID,
 			SessionID:          session.ID,
 			RunID:              run.ID,
@@ -930,11 +929,11 @@ func (s *GatewayServiceImpl) promptViaConnectorLocked(ctx context.Context, sessi
 			CreatedAt:          startedAt,
 		}
 		if err := s.store.UpsertApproval(ctx, toStoreApproval(approval)); err != nil {
-			return PromptResponse{}, err
+			return models.PromptResponse{}, err
 		}
 		if s.approvalBroker != nil {
 			if err := s.approvalBroker.Register(approval); err != nil {
-				return PromptResponse{}, err
+				return models.PromptResponse{}, err
 			}
 		}
 		if firstApproval == nil {
@@ -945,29 +944,29 @@ func (s *GatewayServiceImpl) promptViaConnectorLocked(ctx context.Context, sessi
 
 	session.UpdatedAt = timePointerValue(connResp.EndedAt, startedAt)
 	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
-		return PromptResponse{}, err
+		return models.PromptResponse{}, err
 	}
 
-	return PromptResponse{
+	return models.PromptResponse{
 		Run:      run,
 		Messages: responseMessages,
 		Approval: firstApproval,
 	}, nil
 }
 
-func (s *GatewayServiceImpl) Cancel(ctx context.Context, sessionID string) (Run, error) {
+func (s *GatewayServiceImpl) Cancel(ctx context.Context, sessionID string) (models.Run, error) {
 	if err := ctx.Err(); err != nil {
-		return Run{}, err
+		return models.Run{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	conversation, ok, err := s.store.GetConversation(ctx, sessionID)
 	if err != nil {
-		return Run{}, err
+		return models.Run{}, err
 	}
 	if !ok {
-		return Run{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
+		return models.Run{}, NewError("session_not_found", fmt.Sprintf("session %q was not found", sessionID))
 	}
 	session := fromStoreConversation(conversation)
 	now := s.now()
@@ -976,18 +975,18 @@ func (s *GatewayServiceImpl) Cancel(ctx context.Context, sessionID string) (Run,
 	if s.connector != nil {
 		lastRunID, err := s.latestRunIDLocked(ctx, sessionID)
 		if err != nil {
-			return Run{}, err
+			return models.Run{}, err
 		}
 		if lastRunID == "" {
 			lastRunID = runID
 		}
-		connResp, err := s.connector.Cancel(ctx, connector.CancelRequest{
+		connResp, err := s.connector.Cancel(ctx, models.ConnectorCancelRequest{
 			SessionID: sessionID,
 			RunID:     lastRunID,
 			Reason:    "user_cancelled",
 		})
 		if err != nil {
-			return Run{}, NewError("connector_request_failed", fmt.Sprintf("connector cancel failed: %v", err))
+			return models.Run{}, NewError("connector_request_failed", fmt.Sprintf("connector cancel failed: %v", err))
 		}
 		if strings.TrimSpace(connResp.RunID) != "" {
 			runID = strings.TrimSpace(connResp.RunID)
@@ -998,8 +997,8 @@ func (s *GatewayServiceImpl) Cancel(ctx context.Context, sessionID string) (Run,
 			status = strings.TrimSpace(connResp.Status)
 		}
 	}
-	run := Run{
-		ID:        runID,
+	run := models.Run{
+		BaseModel: models.BaseModel{ID: runID},
 		SessionID: sessionID,
 		AgentID:   session.AgentID,
 		Status:    status,
@@ -1007,13 +1006,13 @@ func (s *GatewayServiceImpl) Cancel(ctx context.Context, sessionID string) (Run,
 		EndedAt:   &now,
 	}
 	if err := s.store.UpsertRun(ctx, toStoreRun(run)); err != nil {
-		return Run{}, err
+		return models.Run{}, err
 	}
 	storedApprovals, err := s.store.ListApprovals(ctx)
 	if err != nil {
-		return Run{}, err
+		return models.Run{}, err
 	}
-	approvalMap := make(map[string]Approval, len(storedApprovals))
+	approvalMap := make(map[string]models.Approval, len(storedApprovals))
 	for _, storedApproval := range storedApprovals {
 		approval := fromStoreApproval(storedApproval)
 		approvalMap[approval.ID] = approval
@@ -1039,17 +1038,17 @@ func (s *GatewayServiceImpl) Cancel(ctx context.Context, sessionID string) (Run,
 	}
 	for _, approval := range approvalMap {
 		if err := s.store.UpsertApproval(ctx, toStoreApproval(approval)); err != nil {
-			return Run{}, err
+			return models.Run{}, err
 		}
 	}
 	session.UpdatedAt = now
 	if err := s.store.UpsertConversation(ctx, toStoreConversation(session)); err != nil {
-		return Run{}, err
+		return models.Run{}, err
 	}
 	return run, nil
 }
 
-func (s *GatewayServiceImpl) ListRuns(ctx context.Context) ([]Run, error) {
+func (s *GatewayServiceImpl) ListRuns(ctx context.Context) ([]models.Run, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -1057,7 +1056,7 @@ func (s *GatewayServiceImpl) ListRuns(ctx context.Context) ([]Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	runs := make([]Run, 0, len(storedRuns))
+	runs := make([]models.Run, 0, len(storedRuns))
 	for _, storedRun := range storedRuns {
 		runs = append(runs, fromStoreRun(storedRun))
 	}
@@ -1067,7 +1066,7 @@ func (s *GatewayServiceImpl) ListRuns(ctx context.Context) ([]Run, error) {
 	return runs, nil
 }
 
-func (s *GatewayServiceImpl) ListApprovals(ctx context.Context) ([]Approval, error) {
+func (s *GatewayServiceImpl) ListApprovals(ctx context.Context) ([]models.Approval, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -1075,7 +1074,7 @@ func (s *GatewayServiceImpl) ListApprovals(ctx context.Context) ([]Approval, err
 	if err != nil {
 		return nil, err
 	}
-	approvals := make([]Approval, 0, len(storedApprovals))
+	approvals := make([]models.Approval, 0, len(storedApprovals))
 	for _, storedApproval := range storedApprovals {
 		approvals = append(approvals, fromStoreApproval(storedApproval))
 	}
@@ -1085,21 +1084,21 @@ func (s *GatewayServiceImpl) ListApprovals(ctx context.Context) ([]Approval, err
 	return approvals, nil
 }
 
-func (s *GatewayServiceImpl) DecideApproval(ctx context.Context, approvalID string, req ApprovalDecisionRequest) (Approval, error) {
+func (s *GatewayServiceImpl) DecideApproval(ctx context.Context, approvalID string, req models.ApprovalDecisionRequest) (models.Approval, error) {
 	if err := ctx.Err(); err != nil {
-		return Approval{}, err
+		return models.Approval{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	storedApprovals, err := s.store.ListApprovals(ctx)
 	if err != nil {
-		return Approval{}, err
+		return models.Approval{}, err
 	}
 
-	var approval Approval
+	var approval models.Approval
 	found := false
-	approvalMap := make(map[string]Approval, len(storedApprovals))
+	approvalMap := make(map[string]models.Approval, len(storedApprovals))
 	for _, storedApproval := range storedApprovals {
 		current := fromStoreApproval(storedApproval)
 		approvalMap[current.ID] = current
@@ -1110,7 +1109,7 @@ func (s *GatewayServiceImpl) DecideApproval(ctx context.Context, approvalID stri
 		}
 	}
 	if !found {
-		return Approval{}, NewError("approval_not_found", fmt.Sprintf("approval %q was not found", approvalID))
+		return models.Approval{}, NewError("approval_not_found", fmt.Sprintf("approval %q was not found", approvalID))
 	}
 	now := s.now()
 	if s.approvalBroker != nil {
@@ -1121,16 +1120,16 @@ func (s *GatewayServiceImpl) DecideApproval(ctx context.Context, approvalID stri
 		}
 		updated, err := s.approvalBroker.Decide(approvalID, req, approvalMap, now)
 		if err != nil {
-			return Approval{}, err
+			return models.Approval{}, err
 		}
 		approval = updated
 	} else {
 		if approval.Status != "pending" {
-			return Approval{}, NewError("invalid_decision", "approval is no longer pending")
+			return models.Approval{}, NewError("invalid_decision", "approval is no longer pending")
 		}
 		decision, err := normalizeDecision(req.Decision)
 		if err != nil {
-			return Approval{}, err
+			return models.Approval{}, err
 		}
 		approval.Status = decision
 		approval.Decision = decision
@@ -1140,7 +1139,7 @@ func (s *GatewayServiceImpl) DecideApproval(ctx context.Context, approvalID stri
 		}
 	}
 	if err := s.store.UpsertApproval(ctx, toStoreApproval(approval)); err != nil {
-		return Approval{}, err
+		return models.Approval{}, err
 	}
 	return approval, nil
 }
@@ -1169,7 +1168,7 @@ func (s *GatewayServiceImpl) latestRunIDLocked(ctx context.Context, sessionID st
 }
 
 func (s *GatewayServiceImpl) syncSessionsFromConnector(ctx context.Context) error {
-	resp, err := s.connector.ListSessions(ctx, connector.ListSessionsRequest{})
+	resp, err := s.connector.ListSessions(ctx, models.ConnectorListSessionsRequest{})
 	if err != nil {
 		return NewError("connector_request_failed", fmt.Sprintf("connector listSessions failed: %v", err))
 	}
@@ -1187,13 +1186,13 @@ func (s *GatewayServiceImpl) syncSessionsFromConnector(ctx context.Context) erro
 		if err != nil {
 			return err
 		}
-		var session Session
+		var session models.Session
 		if ok {
 			session = fromStoreConversation(conversation)
 		} else {
 			agentID := defaultAgentID
-			session = Session{
-				ID:        sessionID,
+			session = models.Session{
+				BaseModel: models.BaseModel{ID: sessionID},
 				Title:     "Restored Session",
 				AgentID:   agentID,
 				Mode:      agentID,
@@ -1239,8 +1238,8 @@ func (s *GatewayServiceImpl) idLocked(prefix string) string {
 	return id
 }
 
-func toStoreConversation(session Session) store.Conversation {
-	safeMeta := store.SafeMeta{}
+func toStoreConversation(session models.Session) models.Conversation {
+	safeMeta := models.SafeMeta{}
 	if strings.TrimSpace(session.StartupCommand) != "" {
 		safeMeta["startupCommand"] = strings.TrimSpace(session.StartupCommand)
 	}
@@ -1256,8 +1255,8 @@ func toStoreConversation(session Session) store.Conversation {
 	if len(safeMeta) == 0 {
 		safeMeta = nil
 	}
-	return store.Conversation{
-		ID:        session.ID,
+	return models.Conversation{
+		BaseModel: models.BaseModel{ID: session.ID},
 		AgentID:   session.AgentID,
 		SessionID: session.ID,
 		Title:     session.Title,
@@ -1270,7 +1269,7 @@ func toStoreConversation(session Session) store.Conversation {
 	}
 }
 
-func fromStoreConversation(conversation store.Conversation) Session {
+func fromStoreConversation(conversation models.Conversation) models.Session {
 	startupCommand, _ := conversation.SafeMeta["startupCommand"].(string)
 	workspaceID, _ := conversation.SafeMeta["workspaceId"].(string)
 	mode, _ := conversation.SafeMeta["mode"].(string)
@@ -1278,8 +1277,8 @@ func fromStoreConversation(conversation store.Conversation) Session {
 	if strings.TrimSpace(mode) == "" {
 		mode = conversation.AgentID
 	}
-	return Session{
-		ID:                    conversation.SessionID,
+	return models.Session{
+		BaseModel:             models.BaseModel{ID: conversation.SessionID},
 		Title:                 conversation.Title,
 		WorkspaceID:           strings.TrimSpace(workspaceID),
 		CWD:                   conversation.CWD,
@@ -1294,9 +1293,9 @@ func fromStoreConversation(conversation store.Conversation) Session {
 	}
 }
 
-func toStoreMessageEvent(message Message) store.MessageEvent {
-	return store.MessageEvent{
-		ID:        message.ID,
+func toStoreMessageEvent(message models.Message) models.MessageEvent {
+	return models.MessageEvent{
+		BaseModel: models.BaseModel{ID: message.ID},
 		Type:      "message",
 		SessionID: message.SessionID,
 		RunID:     message.RunID,
@@ -1306,9 +1305,9 @@ func toStoreMessageEvent(message Message) store.MessageEvent {
 	}
 }
 
-func fromStoreMessageEvent(event store.MessageEvent) Message {
-	return Message{
-		ID:        event.ID,
+func fromStoreMessageEvent(event models.MessageEvent) models.Message {
+	return models.Message{
+		BaseModel: models.BaseModel{ID: event.ID},
 		SessionID: event.SessionID,
 		RunID:     event.RunID,
 		Role:      event.Role,
@@ -1317,9 +1316,9 @@ func fromStoreMessageEvent(event store.MessageEvent) Message {
 	}
 }
 
-func toStoreRun(run Run) store.RunSummary {
-	return store.RunSummary{
-		ID:          run.ID,
+func toStoreRun(run models.Run) models.RunSummary {
+	return models.RunSummary{
+		BaseModel:   models.BaseModel{ID: run.ID},
 		AgentID:     run.AgentID,
 		SessionID:   run.SessionID,
 		RunID:       run.ID,
@@ -1330,9 +1329,9 @@ func toStoreRun(run Run) store.RunSummary {
 	}
 }
 
-func fromStoreRun(run store.RunSummary) Run {
-	return Run{
-		ID:        run.RunID,
+func fromStoreRun(run models.RunSummary) models.Run {
+	return models.Run{
+		BaseModel: models.BaseModel{ID: run.RunID},
 		SessionID: run.SessionID,
 		AgentID:   run.AgentID,
 		Status:    run.Status,
@@ -1341,9 +1340,9 @@ func fromStoreRun(run store.RunSummary) Run {
 	}
 }
 
-func toStoreApproval(approval Approval) store.ApprovalDecision {
-	return store.ApprovalDecision{
-		ID:                 approval.ID,
+func toStoreApproval(approval models.Approval) models.ApprovalDecision {
+	return models.ApprovalDecision{
+		BaseModel:          models.BaseModel{ID: approval.ID},
 		AgentID:            approval.AgentID,
 		SessionID:          approval.SessionID,
 		RunID:              approval.RunID,
@@ -1354,16 +1353,16 @@ func toStoreApproval(approval Approval) store.ApprovalDecision {
 		CreatedAt:          approval.CreatedAt,
 		UpdatedAt:          timePointerValue(approval.DecidedAt, approval.CreatedAt),
 		DecidedAt:          approval.DecidedAt,
-		SafeMeta: store.SafeMeta{
+		SafeMeta: models.SafeMeta{
 			"action": approval.Action,
 		},
 	}
 }
 
-func fromStoreApproval(approval store.ApprovalDecision) Approval {
+func fromStoreApproval(approval models.ApprovalDecision) models.Approval {
 	action, _ := approval.SafeMeta["action"].(string)
-	return Approval{
-		ID:                 approval.ID,
+	return models.Approval{
+		BaseModel:          models.BaseModel{ID: approval.ID},
 		AgentID:            approval.AgentID,
 		SessionID:          approval.SessionID,
 		RunID:              approval.RunID,

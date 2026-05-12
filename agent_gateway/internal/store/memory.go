@@ -3,30 +3,32 @@ package store
 import (
 	"context"
 	"sync"
+
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 type MemoryStore struct {
 	mu sync.RWMutex
 
-	conversations     map[string]Conversation
+	conversations     map[string]models.Conversation
 	conversationOrder []string
-	messages          []MessageEvent
-	runs              map[string]RunSummary
+	messages          []models.MessageEvent
+	runs              map[string]models.RunSummary
 	runOrder          []string
-	approvals         map[string]ApprovalDecision
+	approvals         map[string]models.ApprovalDecision
 	approvalOrder     []string
-	auditEvents       []AuditEvent
+	auditEvents       []models.AuditEvent
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		conversations: make(map[string]Conversation),
-		runs:          make(map[string]RunSummary),
-		approvals:     make(map[string]ApprovalDecision),
+		conversations: make(map[string]models.Conversation),
+		runs:          make(map[string]models.RunSummary),
+		approvals:     make(map[string]models.ApprovalDecision),
 	}
 }
 
-func (s *MemoryStore) UpsertConversation(ctx context.Context, conversation Conversation) error {
+func (s *MemoryStore) UpsertConversation(ctx context.Context, conversation models.Conversation) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -52,7 +54,7 @@ func (s *MemoryStore) UpsertConversation(ctx context.Context, conversation Conve
 	return nil
 }
 
-func (s *MemoryStore) ListConversations(ctx context.Context) ([]Conversation, error) {
+func (s *MemoryStore) ListConversations(ctx context.Context) ([]models.Conversation, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -60,16 +62,16 @@ func (s *MemoryStore) ListConversations(ctx context.Context) ([]Conversation, er
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	out := make([]Conversation, 0, len(s.conversationOrder))
+	out := make([]models.Conversation, 0, len(s.conversationOrder))
 	for _, sessionID := range s.conversationOrder {
 		out = append(out, cloneConversation(s.conversations[sessionID]))
 	}
 	return out, nil
 }
 
-func (s *MemoryStore) GetConversation(ctx context.Context, sessionID string) (Conversation, bool, error) {
+func (s *MemoryStore) GetConversation(ctx context.Context, sessionID string) (models.Conversation, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return Conversation{}, false, err
+		return models.Conversation{}, false, err
 	}
 
 	s.mu.RLock()
@@ -77,12 +79,12 @@ func (s *MemoryStore) GetConversation(ctx context.Context, sessionID string) (Co
 
 	conversation, ok := s.conversations[sessionID]
 	if !ok {
-		return Conversation{}, false, nil
+		return models.Conversation{}, false, nil
 	}
 	return cloneConversation(conversation), true, nil
 }
 
-func (s *MemoryStore) AppendMessage(ctx context.Context, event MessageEvent) error {
+func (s *MemoryStore) AppendMessage(ctx context.Context, event models.MessageEvent) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -97,7 +99,7 @@ func (s *MemoryStore) AppendMessage(ctx context.Context, event MessageEvent) err
 	return nil
 }
 
-func (s *MemoryStore) ListMessages(ctx context.Context, sessionID string) ([]MessageEvent, error) {
+func (s *MemoryStore) ListMessages(ctx context.Context, sessionID string) ([]models.MessageEvent, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -105,7 +107,7 @@ func (s *MemoryStore) ListMessages(ctx context.Context, sessionID string) ([]Mes
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	out := make([]MessageEvent, 0, len(s.messages))
+	out := make([]models.MessageEvent, 0, len(s.messages))
 	for _, event := range s.messages {
 		if event.SessionID == sessionID {
 			out = append(out, cloneMessageEvent(event))
@@ -114,7 +116,7 @@ func (s *MemoryStore) ListMessages(ctx context.Context, sessionID string) ([]Mes
 	return out, nil
 }
 
-func (s *MemoryStore) UpsertRun(ctx context.Context, run RunSummary) error {
+func (s *MemoryStore) UpsertRun(ctx context.Context, run models.RunSummary) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -140,7 +142,7 @@ func (s *MemoryStore) UpsertRun(ctx context.Context, run RunSummary) error {
 	return nil
 }
 
-func (s *MemoryStore) ListRuns(ctx context.Context, sessionID string) ([]RunSummary, error) {
+func (s *MemoryStore) ListRuns(ctx context.Context, sessionID string) ([]models.RunSummary, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -148,7 +150,7 @@ func (s *MemoryStore) ListRuns(ctx context.Context, sessionID string) ([]RunSumm
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	out := make([]RunSummary, 0, len(s.runOrder))
+	out := make([]models.RunSummary, 0, len(s.runOrder))
 	for _, runID := range s.runOrder {
 		run := s.runs[runID]
 		if sessionID == "" || run.SessionID == sessionID {
@@ -158,7 +160,7 @@ func (s *MemoryStore) ListRuns(ctx context.Context, sessionID string) ([]RunSumm
 	return out, nil
 }
 
-func (s *MemoryStore) UpsertApproval(ctx context.Context, approval ApprovalDecision) error {
+func (s *MemoryStore) UpsertApproval(ctx context.Context, approval models.ApprovalDecision) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -176,7 +178,7 @@ func (s *MemoryStore) UpsertApproval(ctx context.Context, approval ApprovalDecis
 	return nil
 }
 
-func (s *MemoryStore) ListApprovals(ctx context.Context) ([]ApprovalDecision, error) {
+func (s *MemoryStore) ListApprovals(ctx context.Context) ([]models.ApprovalDecision, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -184,14 +186,14 @@ func (s *MemoryStore) ListApprovals(ctx context.Context) ([]ApprovalDecision, er
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	out := make([]ApprovalDecision, 0, len(s.approvalOrder))
+	out := make([]models.ApprovalDecision, 0, len(s.approvalOrder))
 	for _, approvalID := range s.approvalOrder {
 		out = append(out, cloneApprovalDecision(s.approvals[approvalID]))
 	}
 	return out, nil
 }
 
-func (s *MemoryStore) AppendAudit(ctx context.Context, event AuditEvent) error {
+func (s *MemoryStore) AppendAudit(ctx context.Context, event models.AuditEvent) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -206,7 +208,7 @@ func (s *MemoryStore) AppendAudit(ctx context.Context, event AuditEvent) error {
 	return nil
 }
 
-func (s *MemoryStore) ListAuditEvents(ctx context.Context) ([]AuditEvent, error) {
+func (s *MemoryStore) ListAuditEvents(ctx context.Context) ([]models.AuditEvent, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -214,44 +216,44 @@ func (s *MemoryStore) ListAuditEvents(ctx context.Context) ([]AuditEvent, error)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	out := make([]AuditEvent, 0, len(s.auditEvents))
+	out := make([]models.AuditEvent, 0, len(s.auditEvents))
 	for _, event := range s.auditEvents {
 		out = append(out, cloneAuditEvent(event))
 	}
 	return out, nil
 }
 
-func cloneConversation(in Conversation) Conversation {
+func cloneConversation(in models.Conversation) models.Conversation {
 	in.SafeMeta = cloneSafeMeta(in.SafeMeta)
 	return in
 }
 
-func cloneMessageEvent(in MessageEvent) MessageEvent {
+func cloneMessageEvent(in models.MessageEvent) models.MessageEvent {
 	in.SafeMeta = cloneSafeMeta(in.SafeMeta)
 	return in
 }
 
-func cloneRunSummary(in RunSummary) RunSummary {
+func cloneRunSummary(in models.RunSummary) models.RunSummary {
 	in.SafeMeta = cloneSafeMeta(in.SafeMeta)
 	return in
 }
 
-func cloneApprovalDecision(in ApprovalDecision) ApprovalDecision {
+func cloneApprovalDecision(in models.ApprovalDecision) models.ApprovalDecision {
 	in.SafeMeta = cloneSafeMeta(in.SafeMeta)
 	return in
 }
 
-func cloneAuditEvent(in AuditEvent) AuditEvent {
+func cloneAuditEvent(in models.AuditEvent) models.AuditEvent {
 	in.SafeMeta = cloneSafeMeta(in.SafeMeta)
 	return in
 }
 
-func cloneSafeMeta(in SafeMeta) SafeMeta {
+func cloneSafeMeta(in models.SafeMeta) models.SafeMeta {
 	if len(in) == 0 {
 		return nil
 	}
 
-	out := make(SafeMeta, len(in))
+	out := make(models.SafeMeta, len(in))
 	for key, value := range in {
 		out[key] = value
 	}

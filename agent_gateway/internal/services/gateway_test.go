@@ -16,8 +16,8 @@ func TestReplaceManagementSettingsAffectsListAgents(t *testing.T) {
 
 	updated, err := gateway.ReplaceManagementSettings(ctx, models.ManagementSettings{
 		Agents: []models.AgentConfig{
-			{ID: "a-enabled", Name: "Enabled Agent", Protocol: "acp", Models: []string{"gpt-5.4", ""}, Enabled: true},
-			{ID: "a-disabled", Name: "Disabled Agent", Protocol: "acp", Models: []string{"gpt-5.4"}, Enabled: false},
+			{BaseModel: models.BaseModel{ID: "a-enabled"}, Name: "Enabled Agent", Protocol: "acp", Models: []string{"gpt-5.4", ""}, Enabled: true},
+			{BaseModel: models.BaseModel{ID: "a-disabled"}, Name: "Disabled Agent", Protocol: "acp", Models: []string{"gpt-5.4"}, Enabled: false},
 		},
 	})
 	if err != nil {

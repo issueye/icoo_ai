@@ -9,26 +9,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 const MaxSummaryChars = 500
 
 type StoreWriter interface {
-	AppendMessage(ctx context.Context, event store.MessageEvent) error
-	UpsertRun(ctx context.Context, run store.RunSummary) error
-	UpsertApproval(ctx context.Context, approval store.ApprovalDecision) error
+	AppendMessage(ctx context.Context, event models.MessageEvent) error
+	UpsertRun(ctx context.Context, run models.RunSummary) error
+	UpsertApproval(ctx context.Context, approval models.ApprovalDecision) error
 }
 
 type Result struct {
 	Ignored  bool
-	Message  store.MessageEvent
-	Run      *store.RunSummary
-	Approval *store.ApprovalDecision
+	Message  models.MessageEvent
+	Run      *models.RunSummary
+	Approval *models.ApprovalDecision
 }
 
-func Build(envelope events.Envelope) Result {
+func Build(envelope models.EventEnvelope) Result {
 	sessionID := strings.TrimSpace(envelope.SessionID)
 	if sessionID == "" {
 		return Result{Ignored: true}
@@ -50,8 +49,8 @@ func Build(envelope events.Envelope) Result {
 	summary := summarizeEnvelope(envelope.Type, payloadMap)
 	safeMeta := buildSafeMeta(envelope.Type, envelope.Payload, payloadMap, status)
 
-	message := store.MessageEvent{
-		ID:        eventID,
+	message := models.MessageEvent{
+		BaseModel: models.BaseModel{ID: eventID},
 		Type:      defaultString(strings.TrimSpace(envelope.Type), "event"),
 		AgentID:   strings.TrimSpace(envelope.AgentID),
 		SessionID: sessionID,
@@ -78,8 +77,8 @@ func Build(envelope events.Envelope) Result {
 	if runID == "" {
 		return result
 	}
-	run := store.RunSummary{
-		ID:        runID,
+	run := models.RunSummary{
+		BaseModel: models.BaseModel{ID: runID},
 		AgentID:   message.AgentID,
 		SessionID: sessionID,
 		RunID:     runID,
@@ -101,7 +100,7 @@ func Build(envelope events.Envelope) Result {
 	return result
 }
 
-func Apply(ctx context.Context, writer StoreWriter, envelope events.Envelope) (Result, error) {
+func Apply(ctx context.Context, writer StoreWriter, envelope models.EventEnvelope) (Result, error) {
 	result := Build(envelope)
 	if result.Ignored {
 		return result, nil
@@ -122,7 +121,7 @@ func Apply(ctx context.Context, writer StoreWriter, envelope events.Envelope) (R
 	return result, nil
 }
 
-func buildApproval(envelope events.Envelope, payloadMap map[string]any, createdAt time.Time, messageStatus string) *store.ApprovalDecision {
+func buildApproval(envelope models.EventEnvelope, payloadMap map[string]any, createdAt time.Time, messageStatus string) *models.ApprovalDecision {
 	eventType := strings.ToLower(strings.TrimSpace(envelope.Type))
 	if !strings.HasPrefix(eventType, "approval.") {
 		return nil
@@ -145,8 +144,8 @@ func buildApproval(envelope events.Envelope, payloadMap map[string]any, createdA
 		decision = decisionFromStatus(status)
 	}
 
-	approval := &store.ApprovalDecision{
-		ID:                 approvalID,
+	approval := &models.ApprovalDecision{
+		BaseModel:          models.BaseModel{ID: approvalID},
 		AgentID:            strings.TrimSpace(envelope.AgentID),
 		SessionID:          strings.TrimSpace(envelope.SessionID),
 		RunID:              strings.TrimSpace(envelope.RunID),
@@ -159,7 +158,7 @@ func buildApproval(envelope events.Envelope, payloadMap map[string]any, createdA
 	}
 	action := firstNonEmptyString(payloadMap, "action")
 	if action != "" {
-		approval.SafeMeta = store.SafeMeta{"action": action}
+		approval.SafeMeta = models.SafeMeta{"action": action}
 	}
 	if isTerminalApprovalStatus(status) {
 		terminalAt := createdAt
@@ -189,8 +188,8 @@ func summarizeEnvelope(eventType string, payload map[string]any) string {
 	return limitChars(strings.Join(parts, " "), MaxSummaryChars)
 }
 
-func buildSafeMeta(eventType string, payload any, payloadMap map[string]any, status string) store.SafeMeta {
-	meta := store.SafeMeta{}
+func buildSafeMeta(eventType string, payload any, payloadMap map[string]any, status string) models.SafeMeta {
+	meta := models.SafeMeta{}
 	if trimmedType := strings.TrimSpace(eventType); trimmedType != "" {
 		meta["eventType"] = trimmedType
 	}
@@ -213,7 +212,7 @@ func buildSafeMeta(eventType string, payload any, payloadMap map[string]any, sta
 	return meta
 }
 
-func resolveRunID(envelope events.Envelope, payloadMap map[string]any, fallback string) string {
+func resolveRunID(envelope models.EventEnvelope, payloadMap map[string]any, fallback string) string {
 	if id := strings.TrimSpace(envelope.RunID); id != "" {
 		return id
 	}
@@ -307,7 +306,7 @@ func safeJSONMarshal(value any) (raw []byte, err error) {
 	return json.Marshal(value)
 }
 
-func buildFallbackID(envelope events.Envelope, createdAt time.Time) string {
+func buildFallbackID(envelope models.EventEnvelope, createdAt time.Time) string {
 	raw := fmt.Sprintf("%s|%s|%s|%s|%d", envelope.Type, envelope.AgentID, envelope.SessionID, envelope.RunID, createdAt.UnixNano())
 	sum := sha256.Sum256([]byte(raw))
 	return "evt_proj_" + hex.EncodeToString(sum[:8])

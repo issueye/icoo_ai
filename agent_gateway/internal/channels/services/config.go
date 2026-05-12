@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/models"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
-func NormalizeConfigs(in []models.ChannelConfig) ([]models.ChannelConfig, error) {
-	out := make([]models.ChannelConfig, 0, len(in))
+func NormalizeConfigs(in []models.ChannelRuntimeConfig) ([]models.ChannelRuntimeConfig, error) {
+	out := make([]models.ChannelRuntimeConfig, 0, len(in))
 	seenIDs := make(map[string]struct{}, len(in))
 	for i, item := range in {
 		cfg := item

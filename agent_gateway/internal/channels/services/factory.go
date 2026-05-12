@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/models"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 type FactoryRegistry struct {
@@ -24,7 +24,7 @@ func (r *FactoryRegistry) Register(channelType models.ChannelType, factory Chann
 	r.factories[channelType] = factory
 }
 
-func (r *FactoryRegistry) Create(cfg models.ChannelConfig) (Channel, error) {
+func (r *FactoryRegistry) Create(cfg models.ChannelRuntimeConfig) (Channel, error) {
 	r.mu.RLock()
 	factory, ok := r.factories[cfg.Type]
 	r.mu.RUnlock()

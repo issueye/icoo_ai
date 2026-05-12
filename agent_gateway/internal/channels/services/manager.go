@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/models"
 	channelstore "github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/store"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 type Manager struct {
@@ -15,7 +15,7 @@ type Manager struct {
 	registry *FactoryRegistry
 	store    channelstore.StatusStore
 	channels map[string]Channel
-	configs  map[string]models.ChannelConfig
+	configs  map[string]models.ChannelRuntimeConfig
 }
 
 func NewManager(registry *FactoryRegistry, statusStore channelstore.StatusStore) *Manager {
@@ -29,11 +29,11 @@ func NewManager(registry *FactoryRegistry, statusStore channelstore.StatusStore)
 		registry: registry,
 		store:    statusStore,
 		channels: map[string]Channel{},
-		configs:  map[string]models.ChannelConfig{},
+		configs:  map[string]models.ChannelRuntimeConfig{},
 	}
 }
 
-func (m *Manager) Initialize(ctx context.Context, configs []models.ChannelConfig) error {
+func (m *Manager) Initialize(ctx context.Context, configs []models.ChannelRuntimeConfig) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -49,15 +49,15 @@ func (m *Manager) Initialize(ctx context.Context, configs []models.ChannelConfig
 		return err
 	}
 	m.channels = map[string]Channel{}
-	m.configs = map[string]models.ChannelConfig{}
+	m.configs = map[string]models.ChannelRuntimeConfig{}
 	m.store.Reset()
 
 	now := time.Now().UTC()
 	for _, cfg := range normalized {
 		channel, createErr := m.registry.Create(cfg)
 		if createErr != nil {
-			m.store.Upsert(models.ChannelStatus{
-				ID:          cfg.ID,
+			m.store.Upsert(models.ChannelRuntimeStatus{
+				BaseModel:   models.BaseModel{ID: cfg.ID},
 				Name:        cfg.Name,
 				Type:        cfg.Type,
 				Enabled:     cfg.Enabled,
@@ -74,8 +74,8 @@ func (m *Manager) Initialize(ctx context.Context, configs []models.ChannelConfig
 		if !cfg.Enabled {
 			state = models.StateDisabled
 		}
-		m.store.Upsert(models.ChannelStatus{
-			ID:          cfg.ID,
+		m.store.Upsert(models.ChannelRuntimeStatus{
+			BaseModel:   models.BaseModel{ID: cfg.ID},
 			Name:        cfg.Name,
 			Type:        cfg.Type,
 			Enabled:     cfg.Enabled,
@@ -101,8 +101,8 @@ func (m *Manager) StartEnabled(ctx context.Context) error {
 		}
 		now := time.Now().UTC()
 		if err := channel.Start(ctx); err != nil {
-			m.store.Upsert(models.ChannelStatus{
-				ID:          cfg.ID,
+			m.store.Upsert(models.ChannelRuntimeStatus{
+				BaseModel:   models.BaseModel{ID: cfg.ID},
 				Name:        cfg.Name,
 				Type:        cfg.Type,
 				Enabled:     cfg.Enabled,
@@ -114,8 +114,8 @@ func (m *Manager) StartEnabled(ctx context.Context) error {
 			return fmt.Errorf("start channel %s: %w", cfg.ID, err)
 		}
 		startedAt := now
-		m.store.Upsert(models.ChannelStatus{
-			ID:          cfg.ID,
+		m.store.Upsert(models.ChannelRuntimeStatus{
+			BaseModel:   models.BaseModel{ID: cfg.ID},
 			Name:        cfg.Name,
 			Type:        cfg.Type,
 			Enabled:     cfg.Enabled,
@@ -137,7 +137,7 @@ func (m *Manager) StopAll(ctx context.Context) error {
 	return m.stopAllLocked(ctx)
 }
 
-func (m *Manager) Status() []models.ChannelStatus {
+func (m *Manager) Status() []models.ChannelRuntimeStatus {
 	return m.store.List()
 }
 
@@ -146,8 +146,8 @@ func (m *Manager) stopAllLocked(ctx context.Context) error {
 		cfg := m.configs[id]
 		if err := channel.Stop(ctx); err != nil {
 			now := time.Now().UTC()
-			m.store.Upsert(models.ChannelStatus{
-				ID:          cfg.ID,
+			m.store.Upsert(models.ChannelRuntimeStatus{
+				BaseModel:   models.BaseModel{ID: cfg.ID},
 				Name:        cfg.Name,
 				Type:        cfg.Type,
 				Enabled:     cfg.Enabled,
@@ -164,8 +164,8 @@ func (m *Manager) stopAllLocked(ctx context.Context) error {
 		if !cfg.Enabled {
 			state = models.StateDisabled
 		}
-		m.store.Upsert(models.ChannelStatus{
-			ID:          cfg.ID,
+		m.store.Upsert(models.ChannelRuntimeStatus{
+			BaseModel:   models.BaseModel{ID: cfg.ID},
 			Name:        cfg.Name,
 			Type:        cfg.Type,
 			Enabled:     cfg.Enabled,

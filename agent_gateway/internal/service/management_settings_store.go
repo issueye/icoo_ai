@@ -65,61 +65,6 @@ type SQLiteManagementSettingsStore struct {
 	db *gorm.DB
 }
 
-type channelRow struct {
-	ID         string `gorm:"primaryKey;size:128"`
-	Name       string `gorm:"size:256;not null"`
-	Type       string `gorm:"size:64;not null"`
-	Enabled    bool   `gorm:"not null"`
-	AppID      string `gorm:"size:1024"`
-	AppSecret  string `gorm:"size:2048"`
-	BotToken   string `gorm:"size:2048"`
-	WebhookURL string `gorm:"size:2048"`
-	Position   int    `gorm:"not null;index"`
-}
-
-func (channelRow) TableName() string { return "management_channels" }
-
-type mcpServerRow struct {
-	ID       string `gorm:"primaryKey;size:128"`
-	Name     string `gorm:"size:256;not null"`
-	Command  string `gorm:"size:2048"`
-	ArgsJSON string `gorm:"type:text"`
-	Enabled  bool   `gorm:"not null"`
-	Position int    `gorm:"not null;index"`
-}
-
-func (mcpServerRow) TableName() string { return "management_mcp_servers" }
-
-type scheduleTaskRow struct {
-	ID       string `gorm:"primaryKey;size:128"`
-	Name     string `gorm:"size:256;not null"`
-	Spec     string `gorm:"size:256"`
-	Content  string `gorm:"type:text"`
-	Enabled  bool   `gorm:"not null"`
-	Position int    `gorm:"not null;index"`
-}
-
-func (scheduleTaskRow) TableName() string { return "management_schedule_tasks" }
-
-type agentRow struct {
-	ID          string `gorm:"primaryKey;size:128"`
-	Name        string `gorm:"size:256;not null"`
-	Protocol    string `gorm:"size:64"`
-	Description string `gorm:"size:2048"`
-	ModelsJSON  string `gorm:"type:text"`
-	Enabled     bool   `gorm:"not null"`
-	Position    int    `gorm:"not null;index"`
-}
-
-func (agentRow) TableName() string { return "management_agents" }
-
-type managementMetaRow struct {
-	Key   string `gorm:"primaryKey;size:128"`
-	Value string `gorm:"size:2048"`
-}
-
-func (managementMetaRow) TableName() string { return "management_meta" }
-
 func NewSQLiteManagementSettingsStore(path string) (*SQLiteManagementSettingsStore, error) {
 	target := strings.TrimSpace(path)
 	if target == "" {
@@ -132,7 +77,7 @@ func NewSQLiteManagementSettingsStore(path string) (*SQLiteManagementSettingsSto
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	if err := db.AutoMigrate(&channelRow{}, &mcpServerRow{}, &scheduleTaskRow{}, &agentRow{}, &managementMetaRow{}); err != nil {
+	if err := db.AutoMigrate(&models.ManagementChannel{}, &models.ManagementMCPServer{}, &models.ManagementScheduleTask{}, &models.ManagementAgent{}, &models.ManagementMeta{}); err != nil {
 		return nil, fmt.Errorf("migrate sqlite schema: %w", err)
 	}
 	return &SQLiteManagementSettingsStore{db: db}, nil
@@ -147,10 +92,10 @@ func (s *SQLiteManagementSettingsStore) Load(ctx context.Context) (models.Manage
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var channels []channelRow
-	var mcpRows []mcpServerRow
-	var taskRows []scheduleTaskRow
-	var agentRows []agentRow
+	var channels []models.ManagementChannel
+	var mcpRows []models.ManagementMCPServer
+	var taskRows []models.ManagementScheduleTask
+	var agentRows []models.ManagementAgent
 	if err := s.db.WithContext(ctx).Order("position asc").Find(&channels).Error; err != nil {
 		return empty, fmt.Errorf("load channels: %w", err)
 	}
@@ -163,7 +108,7 @@ func (s *SQLiteManagementSettingsStore) Load(ctx context.Context) (models.Manage
 	if err := s.db.WithContext(ctx).Order("position asc").Find(&agentRows).Error; err != nil {
 		return empty, fmt.Errorf("load agents: %w", err)
 	}
-	var meta managementMetaRow
+	var meta models.ManagementMeta
 	metaErr := s.db.WithContext(ctx).First(&meta, "key = ?", "initialized").Error
 	if errors.Is(metaErr, gorm.ErrRecordNotFound) {
 		return empty, ErrManagementSettingsNotFound
@@ -180,7 +125,7 @@ func (s *SQLiteManagementSettingsStore) Load(ctx context.Context) (models.Manage
 	}
 	for _, item := range channels {
 		out.Channels = append(out.Channels, models.ChannelConfig{
-			ID:         item.ID,
+			BaseModel:  models.BaseModel{ID: item.ID},
 			Name:       item.Name,
 			Type:       item.Type,
 			Enabled:    item.Enabled,
@@ -196,12 +141,12 @@ func (s *SQLiteManagementSettingsStore) Load(ctx context.Context) (models.Manage
 			return empty, fmt.Errorf("decode mcp args for %s: %w", item.ID, err)
 		}
 		out.MCPServers = append(out.MCPServers, models.MCPServerConfig{
-			ID: item.ID, Name: item.Name, Command: item.Command, Args: args, Enabled: item.Enabled,
+			BaseModel: models.BaseModel{ID: item.ID}, Name: item.Name, Command: item.Command, Args: args, Enabled: item.Enabled,
 		})
 	}
 	for _, item := range taskRows {
 		out.ScheduleTasks = append(out.ScheduleTasks, models.ScheduleTaskConfig{
-			ID: item.ID, Name: item.Name, Spec: item.Spec, Content: item.Content, Enabled: item.Enabled,
+			BaseModel: models.BaseModel{ID: item.ID}, Name: item.Name, Spec: item.Spec, Content: item.Content, Enabled: item.Enabled,
 		})
 	}
 	for _, item := range agentRows {
@@ -210,7 +155,7 @@ func (s *SQLiteManagementSettingsStore) Load(ctx context.Context) (models.Manage
 			return empty, fmt.Errorf("decode models for %s: %w", item.ID, err)
 		}
 		out.Agents = append(out.Agents, models.AgentConfig{
-			ID: item.ID, Name: item.Name, Protocol: item.Protocol, Description: item.Description, Models: list, Enabled: item.Enabled,
+			BaseModel: models.BaseModel{ID: item.ID}, Name: item.Name, Protocol: item.Protocol, Description: item.Description, Models: list, Enabled: item.Enabled,
 		})
 	}
 	return out, nil
@@ -224,22 +169,22 @@ func (s *SQLiteManagementSettingsStore) Save(ctx context.Context, settings model
 	defer s.mu.Unlock()
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("1 = 1").Delete(&channelRow{}).Error; err != nil {
+		if err := tx.Where("1 = 1").Delete(&models.ManagementChannel{}).Error; err != nil {
 			return fmt.Errorf("clear channels: %w", err)
 		}
-		if err := tx.Where("1 = 1").Delete(&mcpServerRow{}).Error; err != nil {
+		if err := tx.Where("1 = 1").Delete(&models.ManagementMCPServer{}).Error; err != nil {
 			return fmt.Errorf("clear mcp servers: %w", err)
 		}
-		if err := tx.Where("1 = 1").Delete(&scheduleTaskRow{}).Error; err != nil {
+		if err := tx.Where("1 = 1").Delete(&models.ManagementScheduleTask{}).Error; err != nil {
 			return fmt.Errorf("clear schedule tasks: %w", err)
 		}
-		if err := tx.Where("1 = 1").Delete(&agentRow{}).Error; err != nil {
+		if err := tx.Where("1 = 1").Delete(&models.ManagementAgent{}).Error; err != nil {
 			return fmt.Errorf("clear agents: %w", err)
 		}
 
 		for i, item := range settings.Channels {
-			row := channelRow{
-				ID:         item.ID,
+			row := models.ManagementChannel{
+				BaseModel:  models.BaseModel{ID: item.ID},
 				Name:       item.Name,
 				Type:       item.Type,
 				Enabled:    item.Enabled,
@@ -258,42 +203,42 @@ func (s *SQLiteManagementSettingsStore) Save(ctx context.Context, settings model
 			if err != nil {
 				return fmt.Errorf("encode mcp args for %s: %w", item.ID, err)
 			}
-			row := mcpServerRow{
-				ID:       item.ID,
-				Name:     item.Name,
-				Command:  item.Command,
-				ArgsJSON: args,
-				Enabled:  item.Enabled,
-				Position: i + 1,
+			row := models.ManagementMCPServer{
+				BaseModel: models.BaseModel{ID: item.ID},
+				Name:      item.Name,
+				Command:   item.Command,
+				ArgsJSON:  args,
+				Enabled:   item.Enabled,
+				Position:  i + 1,
 			}
 			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error; err != nil {
 				return fmt.Errorf("save mcp server %s: %w", item.ID, err)
 			}
 		}
 		for i, item := range settings.ScheduleTasks {
-			row := scheduleTaskRow{
-				ID:       item.ID,
-				Name:     item.Name,
-				Spec:     item.Spec,
-				Content:  item.Content,
-				Enabled:  item.Enabled,
-				Position: i + 1,
+			row := models.ManagementScheduleTask{
+				BaseModel: models.BaseModel{ID: item.ID},
+				Name:      item.Name,
+				Spec:      item.Spec,
+				Content:   item.Content,
+				Enabled:   item.Enabled,
+				Position:  i + 1,
 			}
 			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error; err != nil {
 				return fmt.Errorf("save schedule task %s: %w", item.ID, err)
 			}
 		}
 		for i, item := range settings.Agents {
-			models, err := encodeStringList(item.Models)
+			modelList, err := encodeStringList(item.Models)
 			if err != nil {
 				return fmt.Errorf("encode models for %s: %w", item.ID, err)
 			}
-			row := agentRow{
-				ID:          item.ID,
+			row := models.ManagementAgent{
+				BaseModel:   models.BaseModel{ID: item.ID},
 				Name:        item.Name,
 				Protocol:    item.Protocol,
 				Description: item.Description,
-				ModelsJSON:  models,
+				ModelsJSON:  modelList,
 				Enabled:     item.Enabled,
 				Position:    i + 1,
 			}
@@ -301,7 +246,7 @@ func (s *SQLiteManagementSettingsStore) Save(ctx context.Context, settings model
 				return fmt.Errorf("save agent %s: %w", item.ID, err)
 			}
 		}
-		meta := managementMetaRow{Key: "initialized", Value: "true"}
+		meta := models.ManagementMeta{Key: "initialized", Value: "true"}
 		if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&meta).Error; err != nil {
 			return fmt.Errorf("save management meta: %w", err)
 		}

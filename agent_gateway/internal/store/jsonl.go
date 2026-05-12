@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 const (
@@ -85,7 +87,7 @@ func (s *JSONLStore) load(ctx context.Context) error {
 func (s *JSONLStore) loadConversations(ctx context.Context) error {
 	path := filepath.Join(s.baseDir, conversationsFile)
 	return decodeJSONLLines(path, func(raw []byte, line int) error {
-		var item Conversation
+		var item models.Conversation
 		if err := json.Unmarshal(raw, &item); err != nil {
 			s.appendIssue(path, line, err)
 			return nil
@@ -100,7 +102,7 @@ func (s *JSONLStore) loadConversations(ctx context.Context) error {
 func (s *JSONLStore) loadMessages(ctx context.Context) error {
 	path := filepath.Join(s.baseDir, messagesFile)
 	return decodeJSONLLines(path, func(raw []byte, line int) error {
-		var item MessageEvent
+		var item models.MessageEvent
 		if err := json.Unmarshal(raw, &item); err != nil {
 			s.appendIssue(path, line, err)
 			return nil
@@ -115,7 +117,7 @@ func (s *JSONLStore) loadMessages(ctx context.Context) error {
 func (s *JSONLStore) loadRuns(ctx context.Context) error {
 	path := filepath.Join(s.baseDir, runsFile)
 	return decodeJSONLLines(path, func(raw []byte, line int) error {
-		var item RunSummary
+		var item models.RunSummary
 		if err := json.Unmarshal(raw, &item); err != nil {
 			s.appendIssue(path, line, err)
 			return nil
@@ -130,7 +132,7 @@ func (s *JSONLStore) loadRuns(ctx context.Context) error {
 func (s *JSONLStore) loadApprovals(ctx context.Context) error {
 	path := filepath.Join(s.baseDir, approvalsFile)
 	return decodeJSONLLines(path, func(raw []byte, line int) error {
-		var item ApprovalDecision
+		var item models.ApprovalDecision
 		if err := json.Unmarshal(raw, &item); err != nil {
 			s.appendIssue(path, line, err)
 			return nil
@@ -145,7 +147,7 @@ func (s *JSONLStore) loadApprovals(ctx context.Context) error {
 func (s *JSONLStore) loadAudit(ctx context.Context) error {
 	path := filepath.Join(s.baseDir, auditFile)
 	return decodeJSONLLines(path, func(raw []byte, line int) error {
-		var item AuditEvent
+		var item models.AuditEvent
 		if err := json.Unmarshal(raw, &item); err != nil {
 			s.appendIssue(path, line, err)
 			return nil
@@ -215,7 +217,7 @@ func appendJSONL(ctx context.Context, path string, item any) error {
 	return nil
 }
 
-func (s *JSONLStore) UpsertConversation(ctx context.Context, conversation Conversation) error {
+func (s *JSONLStore) UpsertConversation(ctx context.Context, conversation models.Conversation) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -229,15 +231,15 @@ func (s *JSONLStore) UpsertConversation(ctx context.Context, conversation Conver
 	return appendJSONL(ctx, filepath.Join(s.baseDir, conversationsFile), item)
 }
 
-func (s *JSONLStore) ListConversations(ctx context.Context) ([]Conversation, error) {
+func (s *JSONLStore) ListConversations(ctx context.Context) ([]models.Conversation, error) {
 	return s.mem.ListConversations(ctx)
 }
 
-func (s *JSONLStore) GetConversation(ctx context.Context, sessionID string) (Conversation, bool, error) {
+func (s *JSONLStore) GetConversation(ctx context.Context, sessionID string) (models.Conversation, bool, error) {
 	return s.mem.GetConversation(ctx, sessionID)
 }
 
-func (s *JSONLStore) AppendMessage(ctx context.Context, event MessageEvent) error {
+func (s *JSONLStore) AppendMessage(ctx context.Context, event models.MessageEvent) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -251,11 +253,11 @@ func (s *JSONLStore) AppendMessage(ctx context.Context, event MessageEvent) erro
 	return appendJSONL(ctx, filepath.Join(s.baseDir, messagesFile), item)
 }
 
-func (s *JSONLStore) ListMessages(ctx context.Context, sessionID string) ([]MessageEvent, error) {
+func (s *JSONLStore) ListMessages(ctx context.Context, sessionID string) ([]models.MessageEvent, error) {
 	return s.mem.ListMessages(ctx, sessionID)
 }
 
-func (s *JSONLStore) UpsertRun(ctx context.Context, run RunSummary) error {
+func (s *JSONLStore) UpsertRun(ctx context.Context, run models.RunSummary) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -269,11 +271,11 @@ func (s *JSONLStore) UpsertRun(ctx context.Context, run RunSummary) error {
 	return appendJSONL(ctx, filepath.Join(s.baseDir, runsFile), item)
 }
 
-func (s *JSONLStore) ListRuns(ctx context.Context, sessionID string) ([]RunSummary, error) {
+func (s *JSONLStore) ListRuns(ctx context.Context, sessionID string) ([]models.RunSummary, error) {
 	return s.mem.ListRuns(ctx, sessionID)
 }
 
-func (s *JSONLStore) UpsertApproval(ctx context.Context, approval ApprovalDecision) error {
+func (s *JSONLStore) UpsertApproval(ctx context.Context, approval models.ApprovalDecision) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -287,11 +289,11 @@ func (s *JSONLStore) UpsertApproval(ctx context.Context, approval ApprovalDecisi
 	return appendJSONL(ctx, filepath.Join(s.baseDir, approvalsFile), item)
 }
 
-func (s *JSONLStore) ListApprovals(ctx context.Context) ([]ApprovalDecision, error) {
+func (s *JSONLStore) ListApprovals(ctx context.Context) ([]models.ApprovalDecision, error) {
 	return s.mem.ListApprovals(ctx)
 }
 
-func (s *JSONLStore) AppendAudit(ctx context.Context, event AuditEvent) error {
+func (s *JSONLStore) AppendAudit(ctx context.Context, event models.AuditEvent) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -305,6 +307,6 @@ func (s *JSONLStore) AppendAudit(ctx context.Context, event AuditEvent) error {
 	return appendJSONL(ctx, filepath.Join(s.baseDir, auditFile), item)
 }
 
-func (s *JSONLStore) ListAuditEvents(ctx context.Context) ([]AuditEvent, error) {
+func (s *JSONLStore) ListAuditEvents(ctx context.Context) ([]models.AuditEvent, error) {
 	return s.mem.ListAuditEvents(ctx)
 }

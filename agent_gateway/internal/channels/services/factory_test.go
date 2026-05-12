@@ -3,7 +3,7 @@ package services
 import (
 	"testing"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/models"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 func TestDefaultFactoryRegistryCreatesFourChannelTypes(t *testing.T) {
@@ -16,11 +16,11 @@ func TestDefaultFactoryRegistryCreatesFourChannelTypes(t *testing.T) {
 	}
 
 	for _, channelType := range testCases {
-		channel, err := registry.Create(models.ChannelConfig{
-			ID:      "c-" + string(channelType),
-			Name:    "test",
-			Type:    channelType,
-			Enabled: true,
+		channel, err := registry.Create(models.ChannelRuntimeConfig{
+			BaseModel: models.BaseModel{ID: "c-" + string(channelType)},
+			Name:      "test",
+			Type:      channelType,
+			Enabled:   true,
 		})
 		if err != nil {
 			t.Fatalf("Create(%s) error = %v", channelType, err)

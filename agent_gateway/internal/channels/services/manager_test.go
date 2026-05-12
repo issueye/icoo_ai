@@ -4,16 +4,16 @@ import (
 	"context"
 	"testing"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/models"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 func TestManagerInitializeStartStopAndStatus(t *testing.T) {
 	manager := NewManager(NewDefaultFactoryRegistry(), nil)
 	ctx := context.Background()
 
-	err := manager.Initialize(ctx, []models.ChannelConfig{
-		{ID: "qq1", Name: "QQ One", Type: models.ChannelTypeQQ, Enabled: true},
-		{ID: "wx1", Name: "Weixin One", Type: models.ChannelTypeWeixin, Enabled: false},
+	err := manager.Initialize(ctx, []models.ChannelRuntimeConfig{
+		{BaseModel: models.BaseModel{ID: "qq1"}, Name: "QQ One", Type: models.ChannelTypeQQ, Enabled: true},
+		{BaseModel: models.BaseModel{ID: "wx1"}, Name: "Weixin One", Type: models.ChannelTypeWeixin, Enabled: false},
 	})
 	if err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -27,7 +27,7 @@ func TestManagerInitializeStartStopAndStatus(t *testing.T) {
 		t.Fatalf("len(Status()) = %d, want 2", len(statuses))
 	}
 
-	var qqStatus, wxStatus *models.ChannelStatus
+	var qqStatus, wxStatus *models.ChannelRuntimeStatus
 	for i := range statuses {
 		status := statuses[i]
 		if status.ID == "qq1" {

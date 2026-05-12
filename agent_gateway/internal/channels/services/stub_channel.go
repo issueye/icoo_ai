@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/models"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 type stubChannel struct {
@@ -15,7 +15,7 @@ type stubChannel struct {
 	running bool
 }
 
-func NewStubChannel(cfg models.ChannelConfig) Channel {
+func NewStubChannel(cfg models.ChannelRuntimeConfig) Channel {
 	return &stubChannel{
 		id:   cfg.ID,
 		name: cfg.Name,

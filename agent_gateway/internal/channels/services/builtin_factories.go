@@ -1,6 +1,6 @@
 package services
 
-import "github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/models"
+import "github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 
 func NewDefaultFactoryRegistry() *FactoryRegistry {
 	registry := NewFactoryRegistry()
@@ -9,16 +9,16 @@ func NewDefaultFactoryRegistry() *FactoryRegistry {
 }
 
 func registerBuiltinFactories(registry *FactoryRegistry) {
-	registry.Register(models.ChannelTypeQQ, func(cfg models.ChannelConfig) (Channel, error) {
+	registry.Register(models.ChannelTypeQQ, func(cfg models.ChannelRuntimeConfig) (Channel, error) {
 		return NewStubChannel(cfg), nil
 	})
-	registry.Register(models.ChannelTypeWeixin, func(cfg models.ChannelConfig) (Channel, error) {
+	registry.Register(models.ChannelTypeWeixin, func(cfg models.ChannelRuntimeConfig) (Channel, error) {
 		return NewStubChannel(cfg), nil
 	})
-	registry.Register(models.ChannelTypeFeishu, func(cfg models.ChannelConfig) (Channel, error) {
+	registry.Register(models.ChannelTypeFeishu, func(cfg models.ChannelRuntimeConfig) (Channel, error) {
 		return NewStubChannel(cfg), nil
 	})
-	registry.Register(models.ChannelTypeMQTT, func(cfg models.ChannelConfig) (Channel, error) {
+	registry.Register(models.ChannelTypeMQTT, func(cfg models.ChannelRuntimeConfig) (Channel, error) {
 		return NewStubChannel(cfg), nil
 	})
 }

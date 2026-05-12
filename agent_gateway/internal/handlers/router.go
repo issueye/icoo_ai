@@ -28,7 +28,11 @@ func NewRouter(gateway services.GatewayCRUD) http.Handler {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/agents", h.handleAgents)
+	mux.HandleFunc("/v1/agent-configs/", h.handleAgentConfigAction)
 	mux.HandleFunc("/v1/skills", h.handleSkills)
+	mux.HandleFunc("/v1/channel-configs/", h.handleChannelConfigAction)
+	mux.HandleFunc("/v1/mcp-server-configs/", h.handleMCPServerConfigAction)
+	mux.HandleFunc("/v1/schedule-task-configs/", h.handleScheduleTaskConfigAction)
 	mux.HandleFunc("/v1/management/settings", h.handleManagementSettings)
 	mux.HandleFunc("/v1/sessions", h.handleSessions)
 	mux.HandleFunc("/v1/sessions/", h.handleSessionAction)
@@ -62,7 +66,9 @@ func statusForServiceCode(code string) int {
 	switch code {
 	case "agent_not_found", "session_not_found", "approval_not_found":
 		return http.StatusNotFound
-	case "invalid_prompt", "invalid_decision", "invalid_session", "invalid_session_config":
+	case "not_found", "agent_config_not_found", "channel_config_not_found", "mcp_server_config_not_found", "schedule_task_config_not_found":
+		return http.StatusNotFound
+	case "invalid_prompt", "invalid_decision", "invalid_session", "invalid_session_config", "duplicate_id":
 		return http.StatusBadRequest
 	case "connector_unavailable":
 		return http.StatusServiceUnavailable

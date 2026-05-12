@@ -14,10 +14,10 @@ func TestUpdateManagementSettingsAppliesChannelsLifecycle(t *testing.T) {
 
 	_, err := svc.UpdateManagementSettings(ctx, models.ManagementSettings{
 		Channels: []models.ChannelConfig{
-			{ID: "qq-1", Name: "QQ One", Type: "qq", Enabled: true},
-			{ID: "wx-1", Name: "WX One", Type: "weixin", Enabled: true},
-			{ID: "fs-1", Name: "FS One", Type: "feishu", Enabled: true},
-			{ID: "mq-1", Name: "MQ One", Type: "mqtt", Enabled: false},
+			{BaseModel: models.BaseModel{ID: "qq-1"}, Name: "QQ One", Type: "qq", Enabled: true},
+			{BaseModel: models.BaseModel{ID: "wx-1"}, Name: "WX One", Type: "weixin", Enabled: true},
+			{BaseModel: models.BaseModel{ID: "fs-1"}, Name: "FS One", Type: "feishu", Enabled: true},
+			{BaseModel: models.BaseModel{ID: "mq-1"}, Name: "MQ One", Type: "mqtt", Enabled: false},
 		},
 	})
 	if err != nil {

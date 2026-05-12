@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/projection"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
@@ -40,7 +41,7 @@ func (p *eventProjector) Stop() {
 	<-p.done
 }
 
-func (p *eventProjector) run(ctx context.Context, st store.Store, buffered []events.Envelope) {
+func (p *eventProjector) run(ctx context.Context, st store.Store, buffered []models.EventEnvelope) {
 	defer close(p.done)
 
 	for _, event := range buffered {

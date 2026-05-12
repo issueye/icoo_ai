@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 type rpcRequest struct {
@@ -27,7 +26,7 @@ type rpcResponse struct {
 	Error   *rpcError      `json:"error,omitempty"`
 }
 
-func initializeParams(req connector.InitializeRequest) map[string]any {
+func initializeParams(req models.ConnectorInitializeRequest) map[string]any {
 	return map[string]any{
 		"protocolVersion": 1,
 		"clientInfo": map[string]any{
@@ -44,7 +43,7 @@ func initializeParams(req connector.InitializeRequest) map[string]any {
 	}
 }
 
-func newSessionParams(req connector.NewSessionRequest) map[string]any {
+func newSessionParams(req models.ConnectorNewSessionRequest) map[string]any {
 	params := map[string]any{
 		"cwd":        req.CWD,
 		"mcpServers": []any{},
@@ -60,7 +59,7 @@ func newSessionParams(req connector.NewSessionRequest) map[string]any {
 	return params
 }
 
-func promptParams(req connector.PromptRequest) map[string]any {
+func promptParams(req models.ConnectorPromptRequest) map[string]any {
 	params := map[string]any{
 		"sessionId": req.SessionID,
 		"prompt": []any{
@@ -78,13 +77,13 @@ func promptParams(req connector.PromptRequest) map[string]any {
 	return params
 }
 
-func cancelParams(req connector.CancelRequest) map[string]any {
+func cancelParams(req models.ConnectorCancelRequest) map[string]any {
 	return map[string]any{
 		"sessionId": req.SessionID,
 	}
 }
 
-func listSessionsParams(req connector.ListSessionsRequest) map[string]any {
+func listSessionsParams(req models.ConnectorListSessionsRequest) map[string]any {
 	params := map[string]any{}
 	if req.CWD != "" {
 		params["cwd"] = req.CWD
@@ -95,7 +94,7 @@ func listSessionsParams(req connector.ListSessionsRequest) map[string]any {
 	return params
 }
 
-func resumeSessionParams(req connector.ResumeSessionRequest) map[string]any {
+func resumeSessionParams(req models.ConnectorResumeSessionRequest) map[string]any {
 	params := map[string]any{
 		"sessionId": req.SessionID,
 		"cwd":       req.CWD,
@@ -106,20 +105,20 @@ func resumeSessionParams(req connector.ResumeSessionRequest) map[string]any {
 	return params
 }
 
-func closeSessionParams(req connector.CloseSessionRequest) map[string]any {
+func closeSessionParams(req models.ConnectorCloseSessionRequest) map[string]any {
 	return map[string]any{
 		"sessionId": req.SessionID,
 	}
 }
 
-func setSessionModeParams(req connector.SetSessionModeRequest) map[string]any {
+func setSessionModeParams(req models.ConnectorSetSessionModeRequest) map[string]any {
 	return map[string]any{
 		"sessionId": req.SessionID,
 		"modeId":    req.ModeID,
 	}
 }
 
-func setSessionConfigOptionParams(req connector.SetSessionConfigOptionRequest) map[string]any {
+func setSessionConfigOptionParams(req models.ConnectorSetSessionConfigOptionRequest) map[string]any {
 	params := map[string]any{
 		"sessionId": req.SessionID,
 		"configId":  req.ConfigID,
@@ -133,7 +132,7 @@ func setSessionConfigOptionParams(req connector.SetSessionConfigOptionRequest) m
 	return params
 }
 
-func mapInitializeResponse(result map[string]any) connector.InitializeResponse {
+func mapInitializeResponse(result map[string]any) models.ConnectorInitializeResponse {
 	serverName := stringField(result, "serverName")
 	serverVersion := stringField(result, "serverVersion")
 	agentInfo := mapField(result, "agentInfo")
@@ -143,20 +142,20 @@ func mapInitializeResponse(result map[string]any) connector.InitializeResponse {
 	if serverVersion == "" {
 		serverVersion = stringField(agentInfo, "version")
 	}
-	return connector.InitializeResponse{
+	return models.ConnectorInitializeResponse{
 		ServerName:    serverName,
 		ServerVersion: serverVersion,
 	}
 }
 
-func mapNewSessionResponse(result map[string]any) connector.NewSessionResponse {
-	return connector.NewSessionResponse{
+func mapNewSessionResponse(result map[string]any) models.ConnectorNewSessionResponse {
+	return models.ConnectorNewSessionResponse{
 		SessionID: stringField(result, "sessionId"),
 	}
 }
 
-func mapPromptResponse(result map[string]any) connector.PromptResponse {
-	resp := connector.PromptResponse{
+func mapPromptResponse(result map[string]any) models.ConnectorPromptResponse {
+	resp := models.ConnectorPromptResponse{
 		RunID:  stringField(result, "runId"),
 		Output: stringField(result, "output"),
 	}
@@ -177,7 +176,7 @@ func mapPromptResponse(result map[string]any) connector.PromptResponse {
 		if !ok {
 			continue
 		}
-		resp.Approvals = append(resp.Approvals, connector.ApprovalRequest{
+		resp.Approvals = append(resp.Approvals, models.ConnectorApprovalRequest{
 			RequestID: stringField(item, "requestId"),
 			Action:    stringField(item, "action"),
 			Message:   stringField(item, "message"),
@@ -186,8 +185,8 @@ func mapPromptResponse(result map[string]any) connector.PromptResponse {
 	return resp
 }
 
-func mapCancelResponse(result map[string]any) connector.CancelResponse {
-	resp := connector.CancelResponse{
+func mapCancelResponse(result map[string]any) models.ConnectorCancelResponse {
+	resp := models.ConnectorCancelResponse{
 		RunID:  stringField(result, "runId"),
 		Status: stringField(result, "status"),
 	}
@@ -197,15 +196,15 @@ func mapCancelResponse(result map[string]any) connector.CancelResponse {
 	return resp
 }
 
-func mapListSessionsResponse(result map[string]any) connector.ListSessionsResponse {
-	resp := connector.ListSessionsResponse{}
+func mapListSessionsResponse(result map[string]any) models.ConnectorListSessionsResponse {
+	resp := models.ConnectorListSessionsResponse{}
 	rawSessions, _ := result["sessions"].([]any)
 	for _, raw := range rawSessions {
 		item, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
-		resp.Sessions = append(resp.Sessions, connector.SessionInfo{
+		resp.Sessions = append(resp.Sessions, models.ConnectorSessionInfo{
 			SessionID:             stringField(item, "sessionId"),
 			CWD:                   stringField(item, "cwd"),
 			Title:                 stringField(item, "title"),
@@ -215,20 +214,20 @@ func mapListSessionsResponse(result map[string]any) connector.ListSessionsRespon
 	return resp
 }
 
-func mapResumeSessionResponse(_ map[string]any) connector.ResumeSessionResponse {
-	return connector.ResumeSessionResponse{}
+func mapResumeSessionResponse(_ map[string]any) models.ConnectorResumeSessionResponse {
+	return models.ConnectorResumeSessionResponse{}
 }
 
-func mapCloseSessionResponse(_ map[string]any) connector.CloseSessionResponse {
-	return connector.CloseSessionResponse{}
+func mapCloseSessionResponse(_ map[string]any) models.ConnectorCloseSessionResponse {
+	return models.ConnectorCloseSessionResponse{}
 }
 
-func mapSetSessionModeResponse(_ map[string]any) connector.SetSessionModeResponse {
-	return connector.SetSessionModeResponse{}
+func mapSetSessionModeResponse(_ map[string]any) models.ConnectorSetSessionModeResponse {
+	return models.ConnectorSetSessionModeResponse{}
 }
 
-func mapSetSessionConfigOptionResponse(_ map[string]any) connector.SetSessionConfigOptionResponse {
-	return connector.SetSessionConfigOptionResponse{}
+func mapSetSessionConfigOptionResponse(_ map[string]any) models.ConnectorSetSessionConfigOptionResponse {
+	return models.ConnectorSetSessionConfigOptionResponse{}
 }
 
 func stringField(m map[string]any, key string) string {
@@ -265,9 +264,9 @@ func stringSliceField(m map[string]any, key string) []string {
 	}
 }
 
-func mapSessionUpdateToEnvelope(eventID string, params map[string]any) (events.Envelope, bool) {
+func mapSessionUpdateToEnvelope(eventID string, params map[string]any) (models.EventEnvelope, bool) {
 	if params == nil {
-		return events.Envelope{}, false
+		return models.EventEnvelope{}, false
 	}
 	sessionID := stringField(params, "sessionId")
 	runID := stringField(params, "runId")
@@ -300,8 +299,8 @@ func mapSessionUpdateToEnvelope(eventID string, params map[string]any) (events.E
 		if eventType == "" {
 			eventType = "run.updated"
 		}
-		return events.Envelope{
-			ID:        eventID,
+		return models.EventEnvelope{
+			BaseModel: models.BaseModel{ID: eventID},
 			Type:      eventType,
 			AgentID:   stringField(params, "agentId"),
 			SessionID: sessionID,
@@ -324,8 +323,8 @@ func mapSessionUpdateToEnvelope(eventID string, params map[string]any) (events.E
 		delete(payload, "type")
 		delete(payload, "createdAt")
 	}
-	return events.Envelope{
-		ID:        eventID,
+	return models.EventEnvelope{
+		BaseModel: models.BaseModel{ID: eventID},
 		Type:      eventType,
 		AgentID:   stringField(params, "agentId"),
 		SessionID: sessionID,

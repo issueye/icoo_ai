@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 )
 
 func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +73,7 @@ func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func matchesEventFilter(event events.Envelope, sessionID string, agentID string) bool {
+func matchesEventFilter(event models.EventEnvelope, sessionID string, agentID string) bool {
 	if sessionID != "" && event.SessionID != sessionID {
 		return false
 	}
