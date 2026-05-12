@@ -4,18 +4,18 @@ import (
 	"context"
 	"sync"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
+	agentservice "github.com/icoo-ai/icoo-ai/agent_gateway/internal/services/agent"
 )
 
 type lazyConnector struct {
 	mu      sync.Mutex
-	factory func() (connector.AgentConnector, error)
+	factory func() (agentservice.Connector, error)
 	initReq models.ConnectorInitializeRequest
-	conn    connector.AgentConnector
+	conn    agentservice.Connector
 }
 
-func newLazyConnector(factory func() (connector.AgentConnector, error), initReq models.ConnectorInitializeRequest) *lazyConnector {
+func newLazyConnector(factory func() (agentservice.Connector, error), initReq models.ConnectorInitializeRequest) *lazyConnector {
 	return &lazyConnector{factory: factory, initReq: initReq}
 }
 
@@ -23,7 +23,7 @@ func (l *lazyConnector) Initialize(context.Context, models.ConnectorInitializeRe
 	return models.ConnectorInitializeResponse{}, nil
 }
 
-func (l *lazyConnector) ensureConnected(ctx context.Context) (connector.AgentConnector, error) {
+func (l *lazyConnector) ensureConnected(ctx context.Context) (agentservice.Connector, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.conn != nil {

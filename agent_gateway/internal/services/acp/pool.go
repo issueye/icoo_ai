@@ -7,8 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
+	connector "github.com/icoo-ai/icoo-ai/agent_gateway/internal/services/agent"
 )
 
 // Pool wraps multiple ACP connectors and exposes a single AgentConnector.

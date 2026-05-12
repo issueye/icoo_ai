@@ -10,8 +10,8 @@ import (
 	"time"
 
 	channelservices "github.com/icoo-ai/icoo-ai/agent_gateway/internal/channels/services"
-	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/connector"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
+	agentservice "github.com/icoo-ai/icoo-ai/agent_gateway/internal/services/agent"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
@@ -55,11 +55,10 @@ type GatewayServiceImpl struct {
 	mu               sync.Mutex
 	now              func() time.Time
 	nextID           int
-	agents           []models.AgentProfile
-	bootstrapAgents  []models.AgentProfile
+	agents           *agentservice.Manager
 	skills           []models.Skill
 	store            store.Store
-	connector        connector.AgentConnector
+	connector        agentservice.Connector
 	approvalBroker   *ApprovalBroker
 	managementStore  ManagementSettingsStore
 	managementLoaded bool
@@ -84,7 +83,7 @@ func NewGatewayService() *GatewayServiceImpl {
 }
 
 func NewGatewayServiceWithStore(st store.Store) *GatewayServiceImpl {
-	return NewGatewayServiceWithAgentsAndStore(defaultAgents(), st)
+	return NewGatewayServiceWithAgentsAndStore(agentservice.DefaultProfiles(), st)
 }
 
 func NewGatewayServiceWithAgentsAndStore(agents []models.AgentProfile, st store.Store) *GatewayServiceImpl {
@@ -93,17 +92,16 @@ func NewGatewayServiceWithAgentsAndStore(agents []models.AgentProfile, st store.
 
 func NewGatewayServiceWithAgentsStoreAndSettingsStore(agents []models.AgentProfile, st store.Store, settingsStore ManagementSettingsStore) *GatewayServiceImpl {
 	if len(agents) == 0 {
-		agents = defaultAgents()
+		agents = agentservice.DefaultProfiles()
 	}
 	if settingsStore == nil {
 		settingsStore = NewMemoryManagementSettingsStore()
 	}
-	bootstrapAgents := cloneAgentProfiles(agents)
+	agentManager := agentservice.NewManager(agents)
 	return &GatewayServiceImpl{
 		now:             time.Now,
 		nextID:          1,
-		agents:          cloneAgentProfiles(agents),
-		bootstrapAgents: bootstrapAgents,
+		agents:          agentManager,
 		skills:          defaultSkills(),
 		store:           st,
 		approvalBroker:  NewApprovalBroker(),
@@ -112,34 +110,26 @@ func NewGatewayServiceWithAgentsStoreAndSettingsStore(agents []models.AgentProfi
 			Channels:      []models.ChannelConfig{},
 			MCPServers:    []models.MCPServerConfig{},
 			ScheduleTasks: []models.ScheduleTaskConfig{},
-			Agents:        toAgentConfigs(bootstrapAgents),
+			Agents:        agentManager.BootstrapConfigs(),
 		},
 		channelManager: channelservices.NewManager(channelservices.NewDefaultFactoryRegistry(), nil),
 	}
 }
 
-func NewConnectorGatewayServiceWithAgentsAndStore(agents []models.AgentProfile, st store.Store, conn connector.AgentConnector) *GatewayServiceImpl {
+func NewConnectorGatewayServiceWithAgentsAndStore(agents []models.AgentProfile, st store.Store, conn agentservice.Connector) *GatewayServiceImpl {
 	svc := NewGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, NewMemoryManagementSettingsStore())
 	svc.connector = conn
 	return svc
 }
 
-func NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore(agents []models.AgentProfile, st store.Store, settingsStore ManagementSettingsStore, conn connector.AgentConnector) *GatewayServiceImpl {
+func NewConnectorGatewayServiceWithAgentsStoreAndSettingsStore(agents []models.AgentProfile, st store.Store, settingsStore ManagementSettingsStore, conn agentservice.Connector) *GatewayServiceImpl {
 	svc := NewGatewayServiceWithAgentsStoreAndSettingsStore(agents, st, settingsStore)
 	svc.connector = conn
 	return svc
 }
 
 func defaultAgents() []models.AgentProfile {
-	return []models.AgentProfile{
-		{
-			BaseModel:   models.BaseModel{ID: "icoo-ai-acp"},
-			Name:        "Icoo AI",
-			Protocol:    "acp",
-			Models:      []string{"gpt-5.4"},
-			Description: "Default ACP connector profile.",
-		},
-	}
+	return agentservice.DefaultProfiles()
 }
 
 func defaultSkills() []models.Skill {
@@ -156,7 +146,7 @@ func (s *GatewayServiceImpl) ListAgents(ctx context.Context) ([]models.AgentProf
 		return nil, err
 	}
 
-	return cloneAgentProfiles(s.agents), nil
+	return s.agents.List(ctx)
 }
 
 func (s *GatewayServiceImpl) ListSkills(ctx context.Context) ([]models.Skill, error) {
@@ -200,7 +190,7 @@ func (s *GatewayServiceImpl) UpdateManagementSettings(ctx context.Context, in mo
 		return models.ManagementSettings{}, err
 	}
 	s.management = updated
-	s.agents = toAgentProfiles(s.management.Agents)
+	s.agents.ReplaceConfigs(s.management.Agents)
 	return cloneManagementSettings(s.management), nil
 }
 
@@ -253,7 +243,7 @@ func (s *GatewayServiceImpl) ensureManagementLoadedLocked(ctx context.Context) e
 	}
 	if s.managementStore == nil {
 		s.management = normalizeManagementSettings(s.management)
-		s.agents = toAgentProfiles(s.management.Agents)
+		s.agents.ReplaceConfigs(s.management.Agents)
 		if err := s.applyChannelsLocked(ctx, s.management.Channels); err != nil {
 			return err
 		}
@@ -270,13 +260,13 @@ func (s *GatewayServiceImpl) ensureManagementLoadedLocked(ctx context.Context) e
 			Channels:      []models.ChannelConfig{},
 			MCPServers:    []models.MCPServerConfig{},
 			ScheduleTasks: []models.ScheduleTaskConfig{},
-			Agents:        toAgentConfigs(s.bootstrapAgents),
+			Agents:        s.agents.BootstrapConfigs(),
 		})
 		if err := s.managementStore.Save(ctx, seed); err != nil {
 			return err
 		}
 		s.management = seed
-		s.agents = toAgentProfiles(s.management.Agents)
+		s.agents.ReplaceConfigs(s.management.Agents)
 		if err := s.applyChannelsLocked(ctx, s.management.Channels); err != nil {
 			return err
 		}
@@ -285,7 +275,7 @@ func (s *GatewayServiceImpl) ensureManagementLoadedLocked(ctx context.Context) e
 	}
 
 	s.management = normalizeManagementSettings(settings)
-	s.agents = toAgentProfiles(s.management.Agents)
+	s.agents.ReplaceConfigs(s.management.Agents)
 	if err := s.applyChannelsLocked(ctx, s.management.Channels); err != nil {
 		return err
 	}
@@ -430,49 +420,6 @@ func cloneManagementSettings(in models.ManagementSettings) models.ManagementSett
 	return out
 }
 
-func toAgentConfigs(profiles []models.AgentProfile) []models.AgentConfig {
-	out := make([]models.AgentConfig, 0, len(profiles))
-	for _, item := range profiles {
-		out = append(out, models.AgentConfig{
-			BaseModel:   models.BaseModel{ID: strings.TrimSpace(item.ID)},
-			Name:        strings.TrimSpace(item.Name),
-			Protocol:    strings.TrimSpace(item.Protocol),
-			Description: strings.TrimSpace(item.Description),
-			Models:      append([]string(nil), item.Models...),
-			Enabled:     true,
-		})
-	}
-	return out
-}
-
-func toAgentProfiles(configs []models.AgentConfig) []models.AgentProfile {
-	out := make([]models.AgentProfile, 0, len(configs))
-	for _, item := range configs {
-		if !item.Enabled {
-			continue
-		}
-		out = append(out, models.AgentProfile{
-			BaseModel:   models.BaseModel{ID: strings.TrimSpace(item.ID)},
-			Name:        strings.TrimSpace(item.Name),
-			Protocol:    strings.TrimSpace(item.Protocol),
-			Description: strings.TrimSpace(item.Description),
-			Models:      append([]string(nil), item.Models...),
-		})
-	}
-	return out
-}
-
-func cloneAgentProfiles(in []models.AgentProfile) []models.AgentProfile {
-	out := make([]models.AgentProfile, 0, len(in))
-	for _, item := range in {
-		cp := item
-		cp.Models = append([]string(nil), item.Models...)
-		cp.Args = append([]string(nil), item.Args...)
-		out = append(out, cp)
-	}
-	return out
-}
-
 func (s *GatewayServiceImpl) CreateSession(ctx context.Context, req models.CreateSessionRequest) (models.Session, error) {
 	if err := ctx.Err(); err != nil {
 		return models.Session{}, err
@@ -489,10 +436,11 @@ func (s *GatewayServiceImpl) CreateSession(ctx context.Context, req models.Creat
 		agentID = mode
 	}
 	if agentID == "" {
-		if len(s.agents) == 0 {
+		defaultAgentID, err := s.agents.DefaultID()
+		if err != nil {
 			return models.Session{}, NewError("agent_not_found", "no enabled agents configured")
 		}
-		agentID = s.agents[0].ID
+		agentID = defaultAgentID
 	}
 	if mode == "" {
 		mode = agentID
@@ -624,9 +572,9 @@ func (s *GatewayServiceImpl) ResumeSession(ctx context.Context, sessionID string
 		session = fromStoreConversation(conversation)
 	} else {
 		now := s.now()
-		agentID := "icoo-ai-acp"
-		if len(s.agents) > 0 {
-			agentID = s.agents[0].ID
+		agentID, err := s.agents.DefaultID()
+		if err != nil {
+			agentID = "icoo-ai-acp"
 		}
 		session = models.Session{
 			BaseModel: models.BaseModel{ID: sessionID},
@@ -1145,12 +1093,7 @@ func (s *GatewayServiceImpl) DecideApproval(ctx context.Context, approvalID stri
 }
 
 func (s *GatewayServiceImpl) hasAgentLocked(agentID string) bool {
-	for _, agent := range s.agents {
-		if agent.ID == agentID {
-			return true
-		}
-	}
-	return false
+	return s.agents.Has(agentID)
 }
 
 func (s *GatewayServiceImpl) latestRunIDLocked(ctx context.Context, sessionID string) (string, error) {
@@ -1226,8 +1169,9 @@ func (s *GatewayServiceImpl) defaultAgentID(ctx context.Context) (string, error)
 	if err := s.ensureManagementLoadedLocked(ctx); err != nil {
 		return "", err
 	}
-	if len(s.agents) > 0 {
-		return s.agents[0].ID, nil
+	agentID, err := s.agents.DefaultID()
+	if err == nil {
+		return agentID, nil
 	}
 	return "icoo-ai-acp", nil
 }
