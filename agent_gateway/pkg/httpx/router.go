@@ -78,12 +78,16 @@ func (e *Engine) PATCH(path string, handler HandlerFunc, middleware ...Middlewar
 
 func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	optionsPathMatched := false
+	pathMatched := false
+	allowedMethods := []string{}
 	for _, route := range e.routes {
 		params, ok := match(route, r.URL.Path)
 		if !ok {
 			continue
 		}
+		pathMatched = true
 		if route.method != r.Method {
+			allowedMethods = append(allowedMethods, route.method)
 			if r.Method == http.MethodOptions {
 				optionsPathMatched = true
 			}
@@ -97,6 +101,14 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if optionsPathMatched {
 		chain := buildChain(func(c *Context) {}, e.middleware)
 		ctx := &Context{Writer: w, Request: r, index: -1, chain: []HandlerFunc{chain}}
+		ctx.Next()
+		return
+	}
+	if pathMatched {
+		w.Header().Set("Allow", strings.Join(uniqueStrings(allowedMethods), ", "))
+		ctx := &Context{Writer: w, Request: r, index: -1, chain: []HandlerFunc{func(c *Context) {
+			c.JSON(http.StatusMethodNotAllowed, map[string]string{"code": "method_not_allowed", "message": "method not allowed"})
+		}}}
 		ctx.Next()
 		return
 	}
@@ -221,4 +233,17 @@ func splitSegments(path string) []string {
 		return nil
 	}
 	return strings.Split(strings.Trim(path, "/"), "/")
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }

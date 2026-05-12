@@ -8,18 +8,16 @@ import (
 	"time"
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/pkg/httpx"
 )
 
-func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
+func (h *Handler) handleEventStream(c *httpx.Context) {
+	w := c.Writer
+	r := c.Request
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeError(w, http.StatusInternalServerError, "stream_unsupported", "streaming unsupported")
+		writeError(c, http.StatusInternalServerError, "stream_unsupported", "streaming unsupported")
 		return
 	}
 

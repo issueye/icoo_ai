@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/pkg/httpx"
 )
 
 type deleteRequest struct {
@@ -14,8 +15,7 @@ type deleteRequest struct {
 }
 
 func handleCRUDAction[T any](
-	w http.ResponseWriter,
-	r *http.Request,
+	c *httpx.Context,
 	action string,
 	create func(context.Context, T) (T, error),
 	update func(context.Context, T) (T, error),
@@ -25,59 +25,46 @@ func handleCRUDAction[T any](
 	getByID func(context.Context, string) (T, error),
 	status func(context.Context, string) (models.ResourceStatus, error),
 ) {
+	r := c.Request
 	switch action {
 	case "create":
-		requireMethod(w, r, http.MethodPost, func() {
-			var req T
-			if decodeOr400(w, r, &req) {
-				out, err := create(r.Context(), req)
-				writeCRUDResult(w, http.StatusCreated, out, err)
-			}
-		})
+		var req T
+		if decodeOr400(c, &req) {
+			out, err := create(r.Context(), req)
+			writeCRUDResult(c, http.StatusCreated, out, err)
+		}
 	case "update":
-		requireMethod(w, r, http.MethodPut, func() {
-			var req T
-			if decodeOr400(w, r, &req) {
-				out, err := update(r.Context(), req)
-				writeCRUDResult(w, http.StatusOK, out, err)
-			}
-		})
+		var req T
+		if decodeOr400(c, &req) {
+			out, err := update(r.Context(), req)
+			writeCRUDResult(c, http.StatusOK, out, err)
+		}
 	case "delete":
-		requireMethod(w, r, http.MethodDelete, func() {
-			id, ok := idFromRequest(w, r)
-			if ok {
-				err := deleteFn(r.Context(), id)
-				writeCRUDResult(w, http.StatusOK, map[string]string{"id": id}, err)
-			}
-		})
+		id, ok := idFromRequest(c)
+		if ok {
+			err := deleteFn(r.Context(), id)
+			writeCRUDResult(c, http.StatusOK, map[string]string{"id": id}, err)
+		}
 	case "page":
-		requireMethod(w, r, http.MethodGet, func() {
-			out, err := pageFn(r.Context(), pageQuery(r))
-			writeCRUDResult(w, http.StatusOK, out, err)
-		})
+		out, err := pageFn(r.Context(), pageQuery(r))
+		writeCRUDResult(c, http.StatusOK, out, err)
 	case "list":
-		requireMethod(w, r, http.MethodGet, func() {
-			out, err := list(r.Context())
-			writeCRUDResult(w, http.StatusOK, out, err)
-		})
+		out, err := list(r.Context())
+		writeCRUDResult(c, http.StatusOK, out, err)
 	case "getById":
-		requireMethod(w, r, http.MethodGet, func() {
-			id, ok := idFromRequest(w, r)
-			if ok {
-				out, err := getByID(r.Context(), id)
-				writeCRUDResult(w, http.StatusOK, out, err)
-			}
-		})
+		id, ok := idFromRequest(c)
+		if ok {
+			out, err := getByID(r.Context(), id)
+			writeCRUDResult(c, http.StatusOK, out, err)
+		}
 	case "status":
-		requireMethod(w, r, http.MethodGet, func() {
-			id, ok := idFromRequest(w, r)
-			if ok {
-				out, err := status(r.Context(), id)
-				writeCRUDResult(w, http.StatusOK, out, err)
-			}
-		})
+		id, ok := idFromRequest(c)
+		if ok {
+			out, err := status(r.Context(), id)
+			writeCRUDResult(c, http.StatusOK, out, err)
+		}
 	default:
-		writeError(w, http.StatusNotFound, "not_found", "route not found")
+		writeError(c, http.StatusNotFound, "not_found", "route not found")
 	}
 }
 
@@ -89,43 +76,35 @@ func singleAction(path string, prefix string) (string, bool) {
 	return parts[0], true
 }
 
-func requireMethod(w http.ResponseWriter, r *http.Request, method string, next func()) {
-	if r.Method != method {
-		w.Header().Set("Allow", method)
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-	next()
-}
-
-func decodeOr400(w http.ResponseWriter, r *http.Request, dst any) bool {
-	if err := decodeJSON(r, dst); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+func decodeOr400(c *httpx.Context, dst any) bool {
+	if err := decodeJSON(c, dst); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
 		return false
 	}
 	return true
 }
 
-func writeCRUDResult(w http.ResponseWriter, status int, value any, err error) {
+func writeCRUDResult(c *httpx.Context, status int, value any, err error) {
 	if err != nil {
-		writeServiceError(w, err)
+		writeServiceError(c, err)
 		return
 	}
-	writeJSON(w, status, value)
+	writeJSON(c, status, value)
 }
 
-func idFromRequest(w http.ResponseWriter, r *http.Request) (string, bool) {
+func idFromRequest(c *httpx.Context) (string, bool) {
+	r := c.Request
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
 	if id == "" && r.Body != nil && r.ContentLength != 0 {
 		var req deleteRequest
-		if err := decodeJSON(r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+		if err := decodeJSON(c, &req); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
 			return "", false
 		}
 		id = strings.TrimSpace(req.ID)
 	}
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "invalid_id", "id is required")
+		writeError(c, http.StatusBadRequest, "invalid_id", "id is required")
 		return "", false
 	}
 	return id, true

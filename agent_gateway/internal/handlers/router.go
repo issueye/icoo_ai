@@ -1,14 +1,13 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strings"
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/services"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/pkg/httpx"
 )
 
 type Handler struct {
@@ -26,40 +25,69 @@ func NewRouter(gateway services.GatewayCRUD) http.Handler {
 		service: gateway,
 		bus:     events.DefaultBus(),
 	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/agents", h.handleAgents)
-	mux.HandleFunc("/v1/agent-configs/", h.handleAgentConfigAction)
-	mux.HandleFunc("/v1/skills", h.handleSkills)
-	mux.HandleFunc("/v1/channel-configs/", h.handleChannelConfigAction)
-	mux.HandleFunc("/v1/mcp-server-configs/", h.handleMCPServerConfigAction)
-	mux.HandleFunc("/v1/schedule-task-configs/", h.handleScheduleTaskConfigAction)
-	mux.HandleFunc("/v1/management/settings", h.handleManagementSettings)
-	mux.HandleFunc("/v1/sessions", h.handleSessions)
-	mux.HandleFunc("/v1/sessions/", h.handleSessionAction)
-	mux.HandleFunc("/v1/runs", h.handleRuns)
-	mux.HandleFunc("/v1/approvals", h.handleApprovals)
-	mux.HandleFunc("/v1/approvals/", h.handleApprovalAction)
-	mux.HandleFunc("/v1/events/stream", h.handleEventStream)
-	return mux
+	engine := httpx.New()
+	engine.Use(
+		httpx.Recovery(),
+		httpx.CORS(httpx.CORSConfig{}),
+	)
+
+	v1 := engine.Group("/v1")
+	v1.GET("/agents", h.handleAgents)
+	v1.GET("/skills", h.handleSkills)
+	v1.GET("/management/settings", h.handleManagementSettings)
+	v1.PUT("/management/settings", h.handleManagementSettingsUpdate)
+	v1.GET("/sessions", h.handleSessions)
+	v1.POST("/sessions", h.handleSessionCreate)
+	v1.GET("/sessions/:sessionID", h.handleSessionGet)
+	v1.DELETE("/sessions/:sessionID", h.handleSessionDelete)
+	v1.GET("/sessions/:sessionID/messages", h.handleSessionMessages)
+	v1.POST("/sessions/:sessionID/messages", h.handleSessionMessageCreate)
+	v1.POST("/sessions/:sessionID/resume", h.handleSessionResume)
+	v1.PUT("/sessions/:sessionID/mode", h.handleSessionMode)
+	v1.PUT("/sessions/:sessionID/config", h.handleSessionConfig)
+	v1.POST("/sessions/:sessionID/runs/cancel", h.handleSessionRunCancel)
+	v1.POST("/sessions/:sessionID/prompt", h.handleSessionMessageCreate)
+	v1.POST("/sessions/:sessionID/cancel", h.handleSessionRunCancel)
+	v1.POST("/sessions/:sessionID/close", h.handleSessionClose)
+	v1.GET("/runs", h.handleRuns)
+	v1.GET("/approvals", h.handleApprovals)
+	v1.PUT("/approvals/:approvalID/decision", h.handleApprovalAction)
+	v1.POST("/approvals/:approvalID/decision", h.handleApprovalAction)
+	v1.GET("/events/stream", h.handleEventStream)
+
+	registerCRUDRoutes(v1, "/agent-configs", h.handleAgentConfigAction)
+	registerCRUDRoutes(v1, "/channel-configs", h.handleChannelConfigAction)
+	registerCRUDRoutes(v1, "/mcp-server-configs", h.handleMCPServerConfigAction)
+	registerCRUDRoutes(v1, "/schedule-task-configs", h.handleScheduleTaskConfigAction)
+
+	return engine
 }
 
-func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+func registerCRUDRoutes(group *httpx.Group, path string, handler httpx.HandlerFunc) {
+	group.POST(path+"/create", handler)
+	group.PUT(path+"/update", handler)
+	group.DELETE(path+"/delete", handler)
+	group.GET(path+"/page", handler)
+	group.GET(path+"/list", handler)
+	group.GET(path+"/getById", handler)
+	group.GET(path+"/status", handler)
 }
 
-func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, ErrorResponse{Code: code, Message: message})
+func writeJSON(c *httpx.Context, status int, value any) {
+	c.JSON(status, value)
 }
 
-func writeServiceError(w http.ResponseWriter, err error) {
+func writeError(c *httpx.Context, status int, code, message string) {
+	writeJSON(c, status, ErrorResponse{Code: code, Message: message})
+}
+
+func writeServiceError(c *httpx.Context, err error) {
 	var gatewayErr *services.GatewayError
 	if errors.As(err, &gatewayErr) {
-		writeError(w, statusForServiceCode(gatewayErr.Code), gatewayErr.Code, gatewayErr.Message)
+		writeError(c, statusForServiceCode(gatewayErr.Code), gatewayErr.Code, gatewayErr.Message)
 		return
 	}
-	writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+	writeError(c, http.StatusInternalServerError, "internal_error", err.Error())
 }
 
 func statusForServiceCode(code string) int {
@@ -79,16 +107,8 @@ func statusForServiceCode(code string) int {
 	}
 }
 
-func decodeJSON(r *http.Request, dst any) error {
-	defer r.Body.Close()
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(dst); err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		return err
-	}
-	return nil
+func decodeJSON(c *httpx.Context, dst any) error {
+	return c.BindJSON(dst)
 }
 
 func splitPath(path, prefix string) ([]string, bool) {
