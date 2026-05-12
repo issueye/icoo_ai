@@ -1,46 +1,14 @@
 package models
 
-import "time"
-
-type ChannelType string
-
-const (
-	ChannelTypeQQ     ChannelType = "qq"
-	ChannelTypeWeixin ChannelType = "weixin"
-	ChannelTypeFeishu ChannelType = "feishu"
-	ChannelTypeMQTT   ChannelType = "mqtt"
-)
-
-type ChannelRuntimeConfig struct {
+type Channel struct {
 	BaseModel
-	Name       string      `gorm:"size:256;not null"`
-	Type       ChannelType `gorm:"size:64;not null"`
-	Enabled    bool        `gorm:"not null"`
-	AppID      string      `gorm:"size:1024"`
-	AppSecret  string      `gorm:"size:2048"`
-	BotToken   string      `gorm:"size:2048"`
-	WebhookURL string      `gorm:"size:2048"`
+	Name          string `gorm:"size:256;not null;comment:渠道名称"`
+	Type          string `gorm:"size:64;not null;comment:渠道类型"`
+	Enabled       bool   `gorm:"not null;comment:是否启用渠道"`
+	AppID         string `gorm:"size:-1;comment:渠道应用ID"`
+	AppSecret     string `gorm:"size:-1;comment:渠道应用密钥"`
+	BotToken      string `gorm:"size:-1;comment:渠道应用机器人令牌"`
+	BotWebhookURL string `gorm:"size:-1;comment:渠道应用机器人URL"`
 }
 
-type LifecycleState string
-
-const (
-	StateInitialized LifecycleState = "initialized"
-	StateRunning     LifecycleState = "running"
-	StateStopped     LifecycleState = "stopped"
-	StateDisabled    LifecycleState = "disabled"
-	StateError       LifecycleState = "error"
-)
-
-type ChannelRuntimeStatus struct {
-	BaseModel
-	Name        string         `json:"name" gorm:"size:256;not null"`
-	Type        ChannelType    `json:"type" gorm:"size:64;not null"`
-	Enabled     bool           `json:"enabled" gorm:"not null"`
-	State       LifecycleState `json:"state" gorm:"size:64;not null;index"`
-	LastError   string         `json:"lastError,omitempty" gorm:"type:text"`
-	UpdatedAt   time.Time      `json:"updatedAt" gorm:"autoUpdateTime"`
-	StartedAt   *time.Time     `json:"startedAt,omitempty"`
-	StoppedAt   *time.Time     `json:"stoppedAt,omitempty"`
-	Initialized bool           `json:"initialized" gorm:"not null"`
-}
+func (Channel) TableName() string { return "channels" }

@@ -1,6 +1,8 @@
 package models
 
 import (
+	"strings"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -14,4 +16,10 @@ func (m *BaseModel) BeforeCreate(_ *gorm.DB) error {
 		m.ID = uuid.NewString()
 	}
 	return nil
+}
+
+type ArrayString []string
+
+func (a ArrayString) String() string {
+	return strings.Join(a, ",")
 }

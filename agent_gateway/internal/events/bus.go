@@ -9,22 +9,30 @@ import (
 )
 
 const defaultBufferSize = 256
+const defaultSubscriberBufferSize = 32
 
 var ErrSubscriberQueueFull = errors.New("subscriber queue full")
 var defaultBus = NewBus(defaultBufferSize)
 
 type Bus struct {
 	mu          sync.RWMutex
-	subscribers map[chan models.EventEnvelope]struct{}
+	subscribers map[*subscriber]struct{}
 	ring        []models.EventEnvelope
 	ringStart   int
 	ringCount   int
 }
 
 type Subscription struct {
-	ch   chan models.EventEnvelope
+	sub  *subscriber
 	bus  *Bus
+	done chan struct{}
 	once sync.Once
+}
+
+type subscriber struct {
+	mu     sync.Mutex
+	ch     chan models.EventEnvelope
+	closed bool
 }
 
 func NewBus(bufferSize int) *Bus {
@@ -32,7 +40,7 @@ func NewBus(bufferSize int) *Bus {
 		bufferSize = defaultBufferSize
 	}
 	return &Bus{
-		subscribers: make(map[chan models.EventEnvelope]struct{}),
+		subscribers: make(map[*subscriber]struct{}),
 		ring:        make([]models.EventEnvelope, bufferSize),
 	}
 }
@@ -44,47 +52,83 @@ func DefaultBus() *Bus {
 func (b *Bus) Publish(event models.EventEnvelope) {
 	b.mu.Lock()
 	b.pushToRing(event)
-
-	for ch := range b.subscribers {
-		select {
-		case ch <- event:
-		default:
-		}
+	subscribers := make([]*subscriber, 0, len(b.subscribers))
+	for sub := range b.subscribers {
+		subscribers = append(subscribers, sub)
 	}
 	b.mu.Unlock()
+
+	for _, sub := range subscribers {
+		_ = sub.deliver(event)
+	}
 }
 
-// Subscribe returns a subscription and a snapshot of buffered events.
-// lastEventID is reserved for replay semantics in later phases.
-func (b *Bus) Subscribe(_ context.Context, lastEventID string) (*Subscription, []models.EventEnvelope) {
+// Subscribe 创建一个事件订阅，并返回从 lastEventID 之后开始的缓冲事件快照。
+// ctx 取消时订阅会自动关闭；调用方也可以主动调用 Subscription.Close。
+func (b *Bus) Subscribe(ctx context.Context, lastEventID string) (*Subscription, []models.EventEnvelope) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	ch := make(chan models.EventEnvelope, 32)
-	b.subscribers[ch] = struct{}{}
+	sub := &subscriber{ch: make(chan models.EventEnvelope, defaultSubscriberBufferSize)}
+	b.subscribers[sub] = struct{}{}
 
 	buffered := b.snapshotSince(lastEventID)
-	return &Subscription{ch: ch, bus: b}, buffered
+	subscription := &Subscription{sub: sub, bus: b, done: make(chan struct{})}
+	if ctx != nil {
+		go func() {
+			select {
+			case <-ctx.Done():
+				subscription.Close()
+			case <-subscription.done:
+			}
+		}()
+	}
+	return subscription, buffered
 }
 
-func (b *Bus) unsubscribe(ch chan models.EventEnvelope) {
+func (b *Bus) unsubscribe(sub *subscriber) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.subscribers[ch]; !ok {
+	if _, ok := b.subscribers[sub]; !ok {
 		return
 	}
-	delete(b.subscribers, ch)
-	close(ch)
+	delete(b.subscribers, sub)
+	sub.close()
 }
 
 func (s *Subscription) Events() <-chan models.EventEnvelope {
-	return s.ch
+	return s.sub.ch
 }
 
 func (s *Subscription) Close() {
 	s.once.Do(func() {
-		s.bus.unsubscribe(s.ch)
+		close(s.done)
+		s.bus.unsubscribe(s.sub)
 	})
+}
+
+func (s *subscriber) deliver(event models.EventEnvelope) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
+	select {
+	case s.ch <- event:
+		return nil
+	default:
+		return ErrSubscriberQueueFull
+	}
+}
+
+func (s *subscriber) close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	s.closed = true
+	close(s.ch)
 }
 
 func (b *Bus) pushToRing(event models.EventEnvelope) {

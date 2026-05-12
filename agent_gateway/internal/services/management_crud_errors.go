@@ -6,6 +6,11 @@ import (
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/store"
 )
 
+const (
+	MCP_NOT_FOUND_MSG  = "mcp server not found"
+	MCP_NOT_FOUND_CODE = "mcp_server_not_found"
+)
+
 func mapStoreError(err error) error {
 	if err == nil {
 		return nil
