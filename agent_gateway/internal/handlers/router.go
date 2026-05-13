@@ -37,10 +37,6 @@ func NewRouter(gateway services.GatewayCRUD, buses ...*events.Bus) http.Handler 
 	)
 
 	v1 := engine.Group("/v1")
-	v1.GET("/agent-profiles", h.handleAgents)
-	v1.GET("/skills", h.handleSkills)
-	v1.GET("/management/settings", h.handleManagementSettings)
-	v1.PUT("/management/settings", h.handleManagementSettingsUpdate)
 	v1.GET("/sessions", h.handleSessions)
 	v1.POST("/sessions", h.handleSessionCreate)
 	v1.GET("/sessions/:sessionID", h.handleSessionGet)

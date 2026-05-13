@@ -14,53 +14,57 @@ type deleteRequest struct {
 	ID string `json:"id"`
 }
 
+type CURDHandlers[T any] interface {
+	Create(ctx context.Context, req T) (T, error)
+	Update(ctx context.Context, req T) (T, error)
+	Delete(ctx context.Context, id string) error
+	Page(ctx context.Context, query models.PageQuery) (models.PageResult[T], error)
+	List(ctx context.Context) ([]T, error)
+	GetByID(ctx context.Context, id string) (T, error)
+	Status(ctx context.Context, id string) (models.ResourceStatus, error)
+}
+
 func handleCRUDAction[T any](
 	c *httpx.Context,
 	action string,
-	create func(context.Context, T) (T, error),
-	update func(context.Context, T) (T, error),
-	deleteFn func(context.Context, string) error,
-	pageFn func(context.Context, models.PageQuery) (models.PageResult[T], error),
-	list func(context.Context) ([]T, error),
-	getByID func(context.Context, string) (T, error),
-	status func(context.Context, string) (models.ResourceStatus, error),
+	curd CURDHandlers[T],
 ) {
 	r := c.Request
 	switch action {
 	case "create":
 		var req T
 		if decodeOr400(c, &req) {
-			out, err := create(r.Context(), req)
+			out, err := curd.Create(r.Context(), req)
 			writeCRUDResult(c, http.StatusCreated, out, err)
 		}
 	case "update":
 		var req T
 		if decodeOr400(c, &req) {
-			out, err := update(r.Context(), req)
+			out, err := curd.Update(r.Context(), req)
 			writeCRUDResult(c, http.StatusOK, out, err)
 		}
 	case "delete":
 		id, ok := idFromRequest(c)
 		if ok {
-			err := deleteFn(r.Context(), id)
+			err := curd.Delete(r.Context(), id)
 			writeCRUDResult(c, http.StatusOK, map[string]string{"id": id}, err)
 		}
 	case "page":
-		out, err := pageFn(r.Context(), pageQuery(r))
+		out, err := curd.Page(r.Context(), pageQuery(r))
 		writeCRUDResult(c, http.StatusOK, out, err)
 	case "list":
-		out, err := list(r.Context())
+		out, err := curd.List(r.Context())
 		writeCRUDResult(c, http.StatusOK, out, err)
 	case "getById":
 		id, ok := idFromRequest(c)
 		if ok {
-			out, err := getByID(r.Context(), id)
+			out, err := curd.GetByID(r.Context(), id)
 			writeCRUDResult(c, http.StatusOK, out, err)
 		}
 	case "status":
 		id, ok := idFromRequest(c)
 		if ok {
-			out, err := status(r.Context(), id)
+			out, err := curd.Status(r.Context(), id)
 			writeCRUDResult(c, http.StatusOK, out, err)
 		}
 	default:
@@ -76,7 +80,7 @@ func singleAction(path string, prefix string) (string, bool) {
 	return parts[0], true
 }
 
-func decodeOr400(c *httpx.Context, dst any) bool {
+func decodeOr400[T any](c *httpx.Context, dst T) bool {
 	if err := decodeJSON(c, dst); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
 		return false
@@ -84,7 +88,7 @@ func decodeOr400(c *httpx.Context, dst any) bool {
 	return true
 }
 
-func writeCRUDResult(c *httpx.Context, status int, value any, err error) {
+func writeCRUDResult[T any](c *httpx.Context, status int, value T, err error) {
 	if err != nil {
 		writeServiceError(c, err)
 		return
