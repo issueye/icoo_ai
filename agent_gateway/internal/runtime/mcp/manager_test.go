@@ -148,6 +148,25 @@ func TestServerConfigEnvironmentLoadsAndOverridesEnvFile(t *testing.T) {
 	}
 }
 
+func TestRefreshToolsExpandsHomeCommand(t *testing.T) {
+	var got ServerConfig
+	manager := NewManager(WithConnector(ConnectorFunc(func(_ context.Context, cfg ServerConfig) (Client, error) {
+		got = cfg
+		return &fakeClient{tools: []Tool{{Name: "tool"}}}, nil
+	})))
+
+	if _, err := manager.RefreshTools(context.Background(), ServerConfig{
+		ID:      "srv-1",
+		Enabled: true,
+		Command: "~/bin/mcp-server",
+	}); err != nil {
+		t.Fatalf("RefreshTools() error = %v", err)
+	}
+	if got.Command == "" || got.Command[0] == '~' {
+		t.Fatalf("Command = %q, want expanded home path", got.Command)
+	}
+}
+
 type fakeClient struct {
 	tools   []Tool
 	listErr error

@@ -1,7 +1,6 @@
 package gatewayclient
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/gorilla/websocket"
 )
 
 type Client struct {
@@ -85,64 +86,28 @@ func (c *Client) StreamEvents(ctx context.Context, lastEventID string, onEvent f
 }
 
 func (c *Client) StreamEventsWithFilter(ctx context.Context, lastEventID string, sessionID string, agentID string, onEvent func(StreamEnvelope) error) error {
-	if c == nil {
-		return fmt.Errorf("gateway client is nil")
-	}
-	if c.baseURL == "" {
-		return fmt.Errorf("gateway base URL is empty")
-	}
-	streamURL, err := url.JoinPath(c.baseURL, "v1", "events", "stream")
+	conn, err := c.dialEvents(ctx, lastEventID, sessionID, agentID)
 	if err != nil {
-		return fmt.Errorf("build stream URL: %w", err)
+		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
-	if err != nil {
-		return fmt.Errorf("create stream request: %w", err)
-	}
-	query := req.URL.Query()
-	if strings.TrimSpace(sessionID) != "" {
-		query.Set("sessionId", strings.TrimSpace(sessionID))
-	}
-	if strings.TrimSpace(agentID) != "" {
-		query.Set("agentId", strings.TrimSpace(agentID))
-	}
-	req.URL.RawQuery = query.Encode()
-	req.Header.Set("Accept", "text/event-stream")
-	if lastEventID != "" {
-		req.Header.Set("Last-Event-ID", lastEventID)
-	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
+	defer conn.Close()
 
-	httpClient := c.httpClient
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("gateway event stream request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		detail := strings.TrimSpace(string(body))
-		if detail == "" {
-			detail = fmt.Sprintf("gateway event stream returned status %d", resp.StatusCode)
+	for {
+		var msg rpcMessage
+		if err := conn.ReadJSON(&msg); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				return io.EOF
+			}
+			return fmt.Errorf("read gateway event websocket: %w", err)
 		}
-		return &httpStatusError{statusCode: resp.StatusCode, message: detail}
-	}
-
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 0, 4096), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
+		if msg.Method != "event" || len(msg.Params) == 0 {
 			continue
 		}
-		raw := strings.TrimPrefix(line, "data: ")
 		var event StreamEnvelope
-		if err := json.Unmarshal([]byte(raw), &event); err != nil {
+		if err := json.Unmarshal(msg.Params, &event); err != nil {
 			return fmt.Errorf("decode stream envelope: %w", err)
 		}
 		if onEvent != nil {
@@ -151,13 +116,72 @@ func (c *Client) StreamEventsWithFilter(ctx context.Context, lastEventID string,
 			}
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read stream: %w", err)
+}
+
+func (c *Client) ProbeEvents(ctx context.Context) error {
+	conn, err := c.dialEvents(ctx, "", "", "")
+	if err != nil {
+		return err
 	}
-	if ctx.Err() != nil {
-		return ctx.Err()
+	return conn.Close()
+}
+
+func (c *Client) dialEvents(ctx context.Context, lastEventID string, sessionID string, agentID string) (*websocket.Conn, error) {
+	if c == nil {
+		return nil, fmt.Errorf("gateway client is nil")
 	}
-	return io.EOF
+	if c.baseURL == "" {
+		return nil, fmt.Errorf("gateway base URL is empty")
+	}
+	eventsURL, err := url.JoinPath(c.baseURL, "v1", "events")
+	if err != nil {
+		return nil, fmt.Errorf("build websocket URL: %w", err)
+	}
+	u, err := url.Parse(eventsURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse websocket URL: %w", err)
+	}
+	switch u.Scheme {
+	case "https":
+		u.Scheme = "wss"
+	default:
+		u.Scheme = "ws"
+	}
+	query := u.Query()
+	if strings.TrimSpace(lastEventID) != "" {
+		query.Set("lastEventId", strings.TrimSpace(lastEventID))
+	}
+	if strings.TrimSpace(sessionID) != "" {
+		query.Set("sessionId", strings.TrimSpace(sessionID))
+	}
+	if strings.TrimSpace(agentID) != "" {
+		query.Set("agentId", strings.TrimSpace(agentID))
+	}
+	u.RawQuery = query.Encode()
+	header := http.Header{}
+	if c.token != "" {
+		header.Set("Authorization", "Bearer "+c.token)
+	}
+	dialer := websocket.DefaultDialer
+	conn, resp, err := dialer.DialContext(ctx, u.String(), header)
+	if err != nil {
+		if resp != nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			detail := strings.TrimSpace(string(body))
+			if detail == "" {
+				detail = fmt.Sprintf("gateway event websocket returned status %d", resp.StatusCode)
+			}
+			return nil, &httpStatusError{statusCode: resp.StatusCode, message: detail}
+		}
+		return nil, fmt.Errorf("gateway event websocket request: %w", err)
+	}
+	return conn, nil
+}
+
+type rpcMessage struct {
+	JSONRPC string          `json:"jsonrpc"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params"`
 }
 
 type httpStatusError struct {

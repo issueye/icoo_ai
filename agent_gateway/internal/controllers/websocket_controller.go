@@ -1,4 +1,4 @@
-package handlers
+package controllers
 
 import (
 	"context"
@@ -6,10 +6,27 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/gin-gonic/gin"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/pkg/wshub"
 )
+
+type WebSocketController struct {
+	hub *wshub.Hub
+}
+
+func NewWebSocketController(bus *events.Bus) *WebSocketController {
+	return &WebSocketController{
+		hub: wshub.New(eventSource{bus: bus}, wshub.WithFilter(eventFilter)),
+	}
+}
+
+func (ctl *WebSocketController) Register(router gin.IRouter) {
+	router.GET("/events", func(c *gin.Context) {
+		ctl.hub.Serve(c.Request.Context(), c.Writer, c.Request)
+	})
+}
 
 type eventSource struct {
 	bus *events.Bus
@@ -22,15 +39,12 @@ type eventSubscription struct {
 	once sync.Once
 }
 
-func newEventSource(bus *events.Bus) wshub.EventSource {
+func (s eventSource) Subscribe(ctx context.Context, lastEventID string) (wshub.Subscription, []any) {
+	bus := s.bus
 	if bus == nil {
 		bus = events.DefaultBus()
 	}
-	return eventSource{bus: bus}
-}
-
-func (s eventSource) Subscribe(ctx context.Context, lastEventID string) (wshub.Subscription, []any) {
-	sub, buffered := s.bus.Subscribe(ctx, lastEventID)
+	sub, buffered := bus.Subscribe(ctx, lastEventID)
 	out := make([]any, 0, len(buffered))
 	for _, event := range buffered {
 		out = append(out, event)
@@ -85,6 +99,10 @@ func eventFilter(event any, r *http.Request) bool {
 	}
 	agentID := strings.TrimSpace(r.URL.Query().Get("agentId"))
 	if agentID != "" && envelope.AgentID != agentID {
+		return false
+	}
+	eventType := strings.TrimSpace(r.URL.Query().Get("type"))
+	if eventType != "" && envelope.Type != eventType {
 		return false
 	}
 	return true

@@ -2,7 +2,6 @@ package bridge
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -88,15 +87,6 @@ func (s *AgentService) GetAppSettings() (AppSettings, error) {
 	if s == nil {
 		return settings, nil
 	}
-	remote, remoteErr := s.fetchGatewayManagementSettings(context.Background())
-	if remoteErr != nil {
-		logger.Warn("fetch management settings through gateway failed, fallback to local settings", "error", remoteErr)
-		return settings, nil
-	}
-	settings.Channels = normalizeChannels(remote.Channels)
-	settings.Agents = normalizeAgents(remote.Agents)
-	settings.MCPServers = normalizeMCPServers(remote.MCPServers)
-	settings.ScheduleTasks = normalizeScheduleTasks(remote.ScheduleTasks)
 	return settings, nil
 }
 
@@ -107,22 +97,6 @@ func (s *AgentService) UpdateAppSettings(in AppSettings) (AppSettings, error) {
 		return AppSettings{}, err
 	}
 	settings := normalizeAppSettings(in)
-	if s != nil && !in.LocalOnly {
-		remote, remoteErr := s.updateGatewayManagementSettings(context.Background(), gatewayManagementSettingsPayload{
-			Channels:      settings.Channels,
-			Agents:        settings.Agents,
-			MCPServers:    settings.MCPServers,
-			ScheduleTasks: settings.ScheduleTasks,
-		})
-		if remoteErr != nil {
-			logger.Error("update management settings through gateway failed", "error", remoteErr)
-			return AppSettings{}, remoteErr
-		}
-		settings.Channels = normalizeChannels(remote.Channels)
-		settings.Agents = normalizeAgents(remote.Agents)
-		settings.MCPServers = normalizeMCPServers(remote.MCPServers)
-		settings.ScheduleTasks = normalizeScheduleTasks(remote.ScheduleTasks)
-	}
 	if err := writeSettingsFile(path, settings); err != nil {
 		logger.Error("write settings file failed", "path", path, "error", err)
 		return AppSettings{}, err
@@ -179,29 +153,6 @@ func loadAppSettings() (AppSettings, error) {
 		"scheduleTasks", len(normalized.ScheduleTasks),
 	)
 	return normalized, nil
-}
-
-type gatewayManagementSettingsPayload struct {
-	Channels      []ChannelConfig      `json:"channels,omitempty"`
-	MCPServers    []MCPServerConfig    `json:"mcpServers,omitempty"`
-	ScheduleTasks []ScheduleTaskConfig `json:"scheduleTasks,omitempty"`
-	Agents        []AgentConfig        `json:"agents,omitempty"`
-}
-
-func (s *AgentService) fetchGatewayManagementSettings(ctx context.Context) (gatewayManagementSettingsPayload, error) {
-	var out gatewayManagementSettingsPayload
-	if err := s.gatewayJSON(ctx, "GET", "/v1/management/settings", nil, &out); err != nil {
-		return gatewayManagementSettingsPayload{}, err
-	}
-	return out, nil
-}
-
-func (s *AgentService) updateGatewayManagementSettings(ctx context.Context, payload gatewayManagementSettingsPayload) (gatewayManagementSettingsPayload, error) {
-	var out gatewayManagementSettingsPayload
-	if err := s.gatewayJSON(ctx, "PUT", "/v1/management/settings", payload, &out); err != nil {
-		return gatewayManagementSettingsPayload{}, err
-	}
-	return out, nil
 }
 
 func decodeSettingsTOML(data []byte) (AppSettings, error) {

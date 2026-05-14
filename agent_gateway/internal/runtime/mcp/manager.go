@@ -71,6 +71,14 @@ func NewManager(opts ...ManagerOption) *Manager {
 // RefreshTools connects or reconnects a server and returns its current tool list.
 // If tool discovery fails, the manager reconnects once and retries the list call.
 func (m *Manager) RefreshTools(ctx context.Context, cfg ServerConfig) ([]Tool, error) {
+	var normalizeErr error
+	cfg, normalizeErr = cfg.Normalized()
+	if normalizeErr != nil {
+		key := cfg.ServerKey()
+		m.recordFailure(key, cfg, normalizeErr)
+		return nil, normalizeErr
+	}
+
 	key := cfg.ServerKey()
 	if key == "" {
 		return nil, fmt.Errorf("MCP server id or name is required")

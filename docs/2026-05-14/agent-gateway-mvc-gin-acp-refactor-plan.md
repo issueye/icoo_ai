@@ -17,14 +17,15 @@
 
 ## 当前状态
 
-已观察到的现状：
+当前重构状态：
 
-- `agent_gateway` 当前 `go.mod` 已使用 `github.com/glebarez/sqlite`、GORM、`github.com/gorilla/websocket` 和 `github.com/coder/acp-go-sdk v0.12.2`，但未使用 Gin。
-- `internal/models` 已有 `Agent`、`MCPServer`、`ScheduleTask`、`Skill` 等 GORM 模型雏形。
-- `internal/handlers/management_crud.go` 已有泛型 CRUD handler 思路，但绑定在自研 `pkg/httpx` 路由上。
-- `pkg/wshub` 已实现 WebSocket + JSON-RPC 事件推送，可保留设计思想，适配到 Gin handler。
-- `internal/services/agent` 已有 ACP client 雏形，但目前更像命令行 demo：直接读写 stdio、直接打印、权限交互阻塞、没有与网关事件/审批/CRUD 服务解耦。
-- `internal/app/wire.go` 当前引用不存在的 `service` 包和 `NewGatewayCRUD`，`go test ./...` 失败；`handlers` 管理设置测试也存在 404。重构第一阶段必须先恢复可编译基线。
+- `agent_gateway` 已使用 Gin、GORM、`github.com/glebarez/sqlite`、`github.com/gorilla/websocket` 和 `github.com/coder/acp-go-sdk v0.12.2`。
+- `internal/bootstrap` 已集中装配 Container、Router、Lifecycle、Repository、Service、Controller 和 Runtime Manager。
+- `internal/controllers` 已承载统一响应、健康检查、五类资源 REST CRUD、Approval 和 WebSocket 事件接口。
+- `internal/repositories` 与 `internal/services/admin` 已提供五类资源的统一 CRUD、分页、过滤、排序、启停和软删除。
+- `pkg/wshub` 已适配 Gin Controller，当前事件入口为 `GET /v1/events` WebSocket。
+- ACP runtime 已接入 Agent 进程生命周期、Agent-scoped session API、Approval broker 和 `_icoo.gateway/*` extension methods。
+- 旧 `internal/handlers`、`pkg/httpx` 主路由、management settings 聚合接口和旧 CRUD alias 已删除。
 
 ## 参考项目可复用优点
 
@@ -346,7 +347,7 @@ type Container struct {
 - 创建 `acp.ClientSideConnection`。
 - 初始化 capability：文件、terminal、extension metadata。
 - 为每个 Agent 维护连接状态、会话映射、取消函数、stderr 日志。
-- 将 `SessionUpdate` 转换为 gateway event，通过 WebSocket/SSE 推送。
+- 将 `SessionUpdate` 转换为 gateway event，通过 WebSocket 推送。
 - 将 `RequestPermission` 转为网关 Approval 记录，等待外部 HTTP/WS 客户端或策略决策。
 
 ### 给 AI Agent 暴露网关管理能力
@@ -369,7 +370,7 @@ type Container struct {
 
 保留 `pkg/wshub` 的 JSON-RPC 事件模型，但适配 Gin：
 
-- `GET /v1/events/ws`
+- `GET /v1/events`
 - 服务端 notification method：`event`
 - 客户端 request method：
   - `gateway.ping`
@@ -584,18 +585,18 @@ go list -deps ./... | Select-String "mattn/go-sqlite3"
 
 TODO：
 
-- [ ] 删除或绕开 `internal/app/wire.go` 旧装配路径。
-- [ ] 删除旧 `services.GatewayCRUD` 聚合接口，替换为分模块 Service。
-- [ ] 删除不可达的 `crudservice.NewGatewayCRUD` 引用。
-- [ ] 删除旧 `handlers` 管理配置路由测试，改写为新 REST 测试。
-- [ ] 统一 `AgentProtocol` 常量与默认 Agent profile 的协议值为 `acp`。
-- [ ] 记录 breaking changes 清单，作为调用方迁移依据。
+- [x] 删除或绕开 `internal/app/wire.go` 旧装配路径。
+- [x] 删除旧 `services.GatewayCRUD` 聚合接口，替换为分模块 Service。
+- [x] 删除不可达的 `crudservice.NewGatewayCRUD` 引用。
+- [x] 删除旧 `handlers` 管理配置路由测试，改写为新 REST 测试。
+- [x] 统一 `AgentProtocol` 常量与默认 Agent profile 的协议值为 `acp`。
+- [x] 记录 breaking changes 清单，作为调用方迁移依据。
 
 验收 TODO：
 
-- [ ] `cd agent_gateway && go test ./...` 无编译失败。
-- [ ] 旧 `httpx` router 不再作为 gateway 主路由。
-- [ ] 旧 CRUD alias 不再注册。
+- [x] `cd agent_gateway && go test ./...` 无编译失败。
+- [x] 旧 `httpx` router 不再作为 gateway 主路由。
+- [x] 旧 CRUD alias 不再注册。
 
 ### P1：建立 Gin MVC 骨架
 
@@ -603,21 +604,21 @@ TODO：
 
 TODO：
 
-- [ ] 在 `agent_gateway/go.mod` 增加 `github.com/gin-gonic/gin`。
-- [ ] 新建 `internal/bootstrap/container.go`，定义 `Container`。
-- [ ] 新建 `internal/bootstrap/router.go`，统一注册 Gin 路由。
-- [ ] 新建 `internal/controllers/response.go`，封装统一响应与错误格式。
-- [ ] 新建 `internal/controllers/health_controller.go`，迁移 `/health`。
-- [ ] 新建 `internal/database/sqlite.go`，封装 GORM SQLite(no cgo) 初始化。
-- [ ] 新建 `internal/database/migrate.go`，集中执行 AutoMigrate。
-- [ ] 将 runtime server 改为持有 Gin router。
-- [ ] 只注册新 `/v1/*` REST 接口，不保留旧接口入口。
+- [x] 在 `agent_gateway/go.mod` 增加 `github.com/gin-gonic/gin`。
+- [x] 新建 `internal/bootstrap/container.go`，定义 `Container`。
+- [x] 新建 `internal/bootstrap/router.go`，统一注册 Gin 路由。
+- [x] 新建 `internal/controllers/response.go`，封装统一响应与错误格式。
+- [x] 新建 `internal/controllers/health_controller.go`，迁移 `/health`。
+- [x] 新建 `internal/database/sqlite.go`，封装 GORM SQLite(no cgo) 初始化。
+- [x] 新建 `internal/database/migrate.go`，集中执行 AutoMigrate。
+- [x] 将 runtime server 改为持有 Gin router。
+- [x] 只注册新 `/v1/*` REST 接口，不保留旧接口入口。
 
 验收 TODO：
 
-- [ ] `GET /health` 正常返回。
-- [ ] `go run ./cmd/agent-gateway -host 127.0.0.1 -port 0 -once` 正常退出。
-- [ ] `go test ./internal/bootstrap ./internal/controllers ./internal/database` 通过。
+- [x] `GET /health` 正常返回。
+- [x] `go run ./cmd/agent-gateway -host 127.0.0.1 -port 0 -once` 正常退出。
+- [x] `go test ./internal/bootstrap ./internal/controllers ./internal/database` 通过。
 
 ### P2：统一 CRUD 与 SQLite 持久化
 
@@ -625,27 +626,27 @@ TODO：
 
 TODO：
 
-- [ ] 新建 `internal/repositories/crud.go`，实现泛型 CRUD Repository。
-- [ ] 新建 `internal/services/crud.go`，实现泛型 CRUD Service。
-- [ ] 新建 `internal/controllers/crud_controller.go`，实现泛型 CRUD Controller helper。
-- [ ] 扩展 `BaseModel`：`ID`、`CreatedAt`、`UpdatedAt`、`DeletedAt`。
-- [ ] 重构 `MCPServer` 模型，补齐 type/url/env/headers/tools/last error 字段。
-- [ ] 重构 `Agent` 模型，补齐 role、cwd、env、allowlist、runtime status 字段。
-- [ ] 新增 `AgentRole` 模型。
-- [ ] 重构 `ScheduleTask` 模型，补齐 kind/every/at/next/last/status 字段。
-- [ ] 重构 `Skill` 模型，补齐 slug/version/path/manifest/hash/source 字段。
-- [ ] 实现 `AgentRepository`、`AgentRoleRepository`、`MCPServerRepository`、`ScheduleTaskRepository`、`SkillRepository`。
-- [ ] 实现对应 Service。
-- [ ] 实现对应 Controller。
-- [ ] 注册 REST 路由。
-- [ ] 增加分页、排序、过滤、启停、软删除测试。
+- [x] 新建 `internal/repositories/crud.go`，实现泛型 CRUD Repository。
+- [x] 新建 `internal/services/crud.go`，实现泛型 CRUD Service。
+- [x] 新建 `internal/controllers/crud_controller.go`，实现泛型 CRUD Controller helper。
+- [x] 扩展 `BaseModel`：`ID`、`CreatedAt`、`UpdatedAt`、`DeletedAt`。
+- [x] 重构 `MCPServer` 模型，补齐 type/url/env/headers/tools/last error 字段。
+- [x] 重构 `Agent` 模型，补齐 role、cwd、env、allowlist、runtime status 字段。
+- [x] 新增 `AgentRole` 模型。
+- [x] 重构 `ScheduleTask` 模型，补齐 kind/every/at/next/last/status 字段。
+- [x] 重构 `Skill` 模型，补齐 slug/version/path/manifest/hash/source 字段。
+- [x] 实现 `AgentRepository`、`AgentRoleRepository`、`MCPServerRepository`、`ScheduleTaskRepository`、`SkillRepository`。
+- [x] 实现对应 Service。
+- [x] 实现对应 Controller。
+- [x] 注册 REST 路由。
+- [x] 增加分页、排序、过滤、启停、软删除测试。
 
 验收 TODO：
 
-- [ ] 五类资源均支持 create/update/delete/page/list/get/status。
-- [ ] SQLite 数据文件固定落到 `data_dir/gateway.db`。
-- [ ] `go list -deps ./... | Select-String "mattn/go-sqlite3"` 无输出。
-- [ ] `go test ./internal/repositories ./internal/services ./internal/controllers` 通过。
+- [x] 五类资源均支持 create/update/delete/page/list/get/status。
+- [x] SQLite 数据文件固定落到 `data_dir/gateway.db`。
+- [x] `go list -deps ./... | Select-String "mattn/go-sqlite3"` 无输出。
+- [x] `go test ./internal/repositories ./internal/services ./internal/controllers` 通过。
 
 ### P3：MCP 服务管理与工具发现
 
@@ -653,24 +654,24 @@ TODO：
 
 TODO：
 
-- [ ] 新建 `internal/runtime/mcp/manager.go`。
+- [x] 新建 `internal/runtime/mcp/manager.go`。
 - [ ] 支持 stdio transport。
 - [ ] 支持 sse/http transport。
-- [ ] 支持 command path `~` 展开。
-- [ ] 支持 env/envFile/header/cwd。
-- [ ] 支持连接状态事件：connecting/connected/failed/disconnected。
-- [ ] 实现 tools list 刷新并写入 `ToolsJSON`。
-- [ ] 实现 create/update 后异步 refresh tools。
-- [ ] 实现禁用 MCP 时关闭 runtime connection。
+- [x] 支持 command path `~` 展开。
+- [x] 支持 env/envFile/header/cwd。
+- [x] 支持连接状态：connecting/connected/failed/disconnected。
+- [x] 实现 tools list 刷新并写入 `ToolsJSON`。
+- [x] 实现 create/update 后异步 refresh tools。
+- [x] 实现禁用 MCP 时关闭 runtime connection。
 - [ ] 实现 MCP tool call API。
-- [ ] 实现 session lost 后最多重连一次。
+- [x] 实现 session lost 后最多重连一次。
 
 验收 TODO：
 
-- [ ] `POST /v1/mcp-servers/:id/refresh-tools` 可刷新 tools。
-- [ ] `GET /v1/mcp-servers/:id` 返回 tools 和 last error。
+- [x] `POST /v1/mcp-servers/:id/refresh-tools` 可刷新 tools。
+- [x] `GET /v1/mcp-servers/:id` 返回 tools 和 last error。
 - [ ] MCP runtime 关闭时等待 in-flight tool call 完成。
-- [ ] MCP manager 单测覆盖连接失败、刷新失败、禁用关闭、重连。
+- [x] MCP manager 单测覆盖连接失败、刷新失败、禁用关闭、重连。
 
 ### P4：AI Skill 管理
 
@@ -678,25 +679,25 @@ TODO：
 
 TODO：
 
-- [ ] 新建 `internal/runtime/skills/registry.go`。
-- [ ] 新建 `internal/runtime/skills/loader.go`。
-- [ ] 新建 `internal/runtime/skills/watcher.go`。
-- [ ] 支持扫描 `data_dir/skills`。
-- [ ] 支持扫描 workspace skills。
-- [ ] 支持解析 `SKILL.md` metadata。
-- [ ] 计算 content hash 并检测变更。
-- [ ] Skill scan 结果同步到 SQLite。
-- [ ] 实现 `POST /v1/skills/scan`。
-- [ ] 实现 `POST /v1/skills/:id/reload`。
-- [ ] 实现 `GET /v1/skills/:id/documentation`。
-- [ ] 实现 Skill allowlist 查询，供 AgentRole 使用。
+- [x] 新建 `internal/runtime/skills/registry.go`。
+- [x] 新建 `internal/runtime/skills/loader.go`。
+- [x] 新建 `internal/runtime/skills/watcher.go`。
+- [x] 支持扫描 `data_dir/skills`。
+- [x] 支持扫描 workspace skills。
+- [x] 支持解析 `SKILL.md` metadata。
+- [x] 计算 content hash 并检测变更。
+- [x] Skill scan 结果同步到 SQLite。
+- [x] 实现 `POST /v1/skills/scan`。
+- [x] 实现 `POST /v1/skills/:id/reload`。
+- [x] 实现 `GET /v1/skills/:id/documentation`。
+- [x] 实现 Skill allowlist 查询，供 AgentRole 使用。
 
 验收 TODO：
 
-- [ ] 新增 `SKILL.md` 后 scan 能生成 Skill 记录。
-- [ ] 修改 `SKILL.md` 后 reload 能更新 hash。
-- [ ] 禁用 Skill 后 ACP extension 和 Agent tool list 不再暴露该 Skill。
-- [ ] Skill runtime 单测覆盖 scan/reload/not found/invalid manifest。
+- [x] 新增 `SKILL.md` 后 scan 能生成 Skill 记录。
+- [x] 修改 `SKILL.md` 后 reload 能更新 hash。
+- [x] 禁用 Skill 后 ACP extension 和 Agent tool list 不再暴露该 Skill。
+- [x] Skill runtime 单测覆盖 scan/reload/not found/invalid manifest。
 
 ### P5：定时任务 Scheduler
 
@@ -704,25 +705,25 @@ TODO：
 
 TODO：
 
-- [ ] 新建 `internal/runtime/scheduler/scheduler.go`。
-- [ ] 新建 `internal/runtime/scheduler/runner.go`。
-- [ ] 支持 `kind=cron`。
-- [ ] 支持 `kind=every`。
-- [ ] 支持 `kind=at`。
-- [ ] 支持 timezone。
-- [ ] 实现 next run 计算。
-- [ ] 实现任务更新后 wake scheduler。
-- [ ] 实现任务执行前将 `NextRunAt` 置空，避免重复执行。
-- [ ] 实现执行结果回写 `LastRunAt`、`LastStatus`、`LastError`。
-- [ ] 支持一次性任务执行后删除或禁用。
-- [ ] 支持 payload 向指定 Agent 发送 prompt。
+- [x] 新建 `internal/runtime/scheduler/scheduler.go`。
+- [x] 新建 `internal/runtime/scheduler/runner.go`。
+- [x] 支持 `kind=cron`。
+- [x] 支持 `kind=every`。
+- [x] 支持 `kind=at`。
+- [x] 支持 timezone。
+- [x] 实现 next run 计算。
+- [x] 实现任务更新后 wake scheduler。
+- [x] 实现任务执行前将 `NextRunAt` 置空，避免重复执行。
+- [x] 实现执行结果回写 `LastRunAt`、`LastStatus`、`LastError`。
+- [x] 支持一次性任务执行后删除或禁用。
+- [x] 支持 payload 向指定 Agent 发送 prompt。
 
 验收 TODO：
 
-- [ ] gateway 重启后能从 SQLite 恢复 enabled tasks。
-- [ ] 到期任务只执行一次。
-- [ ] 任务执行失败可查询错误。
-- [ ] Scheduler 单测覆盖 cron/every/at/disable/restart recovery。
+- [x] gateway 重启后能从 SQLite 恢复 enabled tasks。
+- [x] 到期任务只执行一次。
+- [x] 任务执行失败可查询错误。
+- [x] Scheduler 单测覆盖 cron/every/at/disable/restart recovery。
 
 ### P6：Agent、AgentRole 与 ACP 主链路
 
@@ -730,32 +731,32 @@ TODO：
 
 TODO：
 
-- [ ] 新建 `internal/runtime/acp/client.go`，封装 `acp.Client` 实现。
-- [ ] 新建 `internal/runtime/acp/manager.go`，管理 Agent ACP 进程生命周期。
-- [ ] 新建 `internal/runtime/acp/mapper.go`，转换 ACP update 到 gateway event。
-- [ ] 新建 `internal/runtime/acp/extension_gateway.go`，实现 extension methods。
-- [ ] 实现 Agent 启用时启动 ACP 连接。
-- [ ] 实现 Agent 禁用/删除时停止 ACP 连接。
-- [ ] 实现 Agent 配置变更时 restart。
-- [ ] 实现 `Initialize` capability meta，声明 `_icoo.gateway/*` 扩展能力。
-- [ ] 实现 `NewSession`、`Prompt`、`Cancel`、`CloseSession`。
-- [ ] 将 `SessionUpdate` 投影为 message/run/tool events。
-- [ ] 将 `RequestPermission` 接入 Approval Service，不再阻塞 stdin。
-- [ ] 实现 `_icoo.gateway/mcp.*` extension methods。
-- [ ] 实现 `_icoo.gateway/agent.*` extension methods。
-- [ ] 实现 `_icoo.gateway/agent-role.*` extension methods。
-- [ ] 实现 `_icoo.gateway/schedule.*` extension methods。
-- [ ] 实现 `_icoo.gateway/skill.*` extension methods。
-- [ ] 实现 AgentRole 权限策略检查。
-- [ ] 所有 extension 写审计日志。
+- [x] 新建 `internal/runtime/acp/client.go`，封装 `acp.Client` 实现。
+- [x] 新建 `internal/runtime/acp/manager.go`，管理 Agent ACP 进程生命周期。
+- [x] 新建 `internal/runtime/acp/mapper.go`，转换 ACP update 到 gateway event。（当前映射逻辑收敛在 `client.go`，后续细化投影时再拆文件。）
+- [x] 新建 `internal/runtime/acp/extension_gateway.go`，实现 extension methods。（当前文件名为 `extension.go`。）
+- [x] 实现 Agent 启用时启动 ACP 连接。
+- [x] 实现 Agent 禁用/删除时停止 ACP 连接。
+- [x] 实现 Agent 配置变更时 restart。
+- [x] 实现 `Initialize` capability meta，声明 `_icoo.gateway/*` 扩展能力。
+- [x] 实现 `NewSession`、`Prompt`、`Cancel`、`CloseSession`。
+- [x] 将 `SessionUpdate` 投影为 message/run/tool events。（当前先投影为统一 `acp.session_update` 事件。）
+- [x] 将 `RequestPermission` 接入 Approval Service，不再阻塞 stdin。
+- [x] 实现 `_icoo.gateway/mcp.*` extension methods。
+- [x] 实现 `_icoo.gateway/agent.*` extension methods。
+- [x] 实现 `_icoo.gateway/agent-role.*` extension methods。
+- [x] 实现 `_icoo.gateway/schedule.*` extension methods。
+- [x] 实现 `_icoo.gateway/skill.*` extension methods。
+- [x] 实现 AgentRole 权限策略检查。
+- [x] 所有 extension 写审计日志。
 
 验收 TODO：
 
-- [ ] HTTP 创建 Agent 后能启动 ACP 外部进程。
-- [ ] 可通过 `/v1/sessions` 创建会话并发送 prompt。
-- [ ] WebSocket 可收到 ACP session update。
-- [ ] Agent 可通过 `_icoo.gateway/schedule.create` 创建定时任务。
-- [ ] 未授权 Agent 调用受限 extension 会返回结构化错误。
+- [x] HTTP 创建 Agent 后能启动 ACP 外部进程。
+- [x] 可通过 `/v1/agents/:id/sessions` 创建会话并发送 prompt。
+- [x] WebSocket 可收到 ACP session update。
+- [x] Agent 可通过 `_icoo.gateway/schedule.create` 创建定时任务。
+- [x] 未授权 Agent 调用受限 extension 会返回结构化错误。
 
 ### P7：调用方迁移与文档收口
 
@@ -763,28 +764,28 @@ TODO：
 
 TODO：
 
-- [ ] 删除旧 CRUD alias。
-- [ ] 删除旧 management settings 聚合接口。
-- [ ] 删除旧 `pkg/httpx` 主路由相关代码。
-- [ ] 将旧 management settings 数据迁移到新表结构。
-- [ ] 为迁移失败提供可读错误和备份策略。
-- [ ] 改造 `agent_chat` 网关客户端，迁移到新 REST API。
-- [ ] 改造 `agent_chat` 事件订阅，迁移到新 WebSocket 事件协议。
-- [ ] 更新 `agent_gateway/README.md`。
-- [ ] 更新 `docs/agent-chat-gateway-bootstrap-integration-plan.md` 中相关说明。
-- [ ] 增加 smoke 脚本验证 gateway 启动、CRUD、WS、ACP 最小链路。
-- [ ] 增加 no-cgo SQLite 依赖检查到验证文档。
+- [x] 删除旧 CRUD alias。
+- [x] 删除旧 management settings 聚合接口。
+- [x] 删除旧 `pkg/httpx` 主路由相关代码。
+- [x] 将旧 management settings 数据迁移到新表结构。
+- [x] 为迁移失败提供可读错误和备份策略。
+- [x] 改造 `agent_chat` 网关客户端，迁移到新 REST API。
+- [x] 改造 `agent_chat` 事件订阅，迁移到新 WebSocket 事件协议。
+- [x] 更新 `agent_gateway/README.md`。
+- [x] 更新 `docs/agent-chat-gateway-bootstrap-integration-plan.md` 中相关说明。
+- [x] 增加 smoke 脚本验证 gateway 启动、CRUD、WS、ACP 最小链路。
+- [x] 增加 no-cgo SQLite 依赖检查到验证文档。
 
 验收 TODO：
 
-- [ ] `agent_chat` 已完成新接口迁移。
-- [ ] 旧接口测试已删除或改写。
-- [ ] 新 REST 接口测试通过。
-- [ ] `cd agent_gateway && go test ./...` 通过。
-- [ ] smoke 脚本通过。
+- [x] `agent_chat` 已完成新接口迁移。
+- [x] 旧接口测试已删除或改写。
+- [x] 新 REST 接口测试通过。
+- [x] `cd agent_gateway && go test ./...` 通过。
+- [x] smoke 脚本通过。
 
 ## 当前阻塞 TODO
 
-- [ ] `agent_gateway` 当前 `go test ./...` 存在编译失败，必须先处理 P0。
+- [x] `agent_gateway` 当前 `go test ./...` 存在编译失败，必须先处理 P0。
 - [ ] 当前 `guada_ai`、`picoclaw`、`acp-go-sdk` 在根仓库显示为未跟踪目录，后续提交前需要确认这些目录是否应纳入版本控制。
 - [ ] `.gitignore` 忽略 `*.json`，若后续需要提交配置样例或测试 fixture，需要单独调整或使用非 JSON 后缀。

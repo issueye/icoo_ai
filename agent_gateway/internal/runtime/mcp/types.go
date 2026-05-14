@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -64,6 +65,25 @@ func (c ServerConfig) ResolveTransport() (TransportType, error) {
 		return TransportStdio, nil
 	}
 	return "", fmt.Errorf("either url or command is required")
+}
+
+func (c ServerConfig) Normalized() (ServerConfig, error) {
+	if strings.HasPrefix(c.Command, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return c, err
+		}
+		switch c.Command {
+		case "~":
+			c.Command = home
+		default:
+			next := strings.TrimPrefix(c.Command, "~")
+			next = strings.TrimPrefix(next, string(filepath.Separator))
+			next = strings.TrimPrefix(next, "/")
+			c.Command = filepath.Join(home, next)
+		}
+	}
+	return c, nil
 }
 
 // Environment builds the process environment for stdio transports. Values in

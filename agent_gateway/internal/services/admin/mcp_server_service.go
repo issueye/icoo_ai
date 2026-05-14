@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/repositories"
@@ -27,6 +28,55 @@ func normalizeMCPServer(item *models.MCPServer) {
 	if item.Transport == "" {
 		item.Transport = "stdio"
 	}
+}
+
+func (s *MCPServerService) Create(ctx context.Context, item models.MCPServer) (models.MCPServer, error) {
+	normalizeMCPServer(&item)
+	out, err := s.repo.Create(ctx, item)
+	if err != nil {
+		return out, err
+	}
+	s.syncRuntimeAsync(out)
+	return out, nil
+}
+
+func (s *MCPServerService) Update(ctx context.Context, id string, item models.MCPServer) (models.MCPServer, error) {
+	normalizeMCPServer(&item)
+	out, err := s.Service.Update(ctx, id, item)
+	if err != nil {
+		return out, err
+	}
+	s.syncRuntimeAsync(out)
+	return out, nil
+}
+
+func (s *MCPServerService) Delete(ctx context.Context, id string) error {
+	if err := s.Service.Delete(ctx, id); err != nil {
+		return err
+	}
+	if s.runtime != nil {
+		_ = s.runtime.CloseServer(id)
+	}
+	return nil
+}
+
+func (s *MCPServerService) SetStatus(ctx context.Context, id string, enabled bool) (models.ResourceStatus, error) {
+	out, err := s.Service.SetStatus(ctx, id, enabled)
+	if err != nil {
+		return out, err
+	}
+	if s.runtime == nil {
+		return out, nil
+	}
+	if !enabled {
+		_ = s.runtime.CloseServer(id)
+		return out, nil
+	}
+	item, getErr := s.GetByID(ctx, id)
+	if getErr == nil {
+		s.syncRuntimeAsync(item)
+	}
+	return out, nil
 }
 
 func (s *MCPServerService) RefreshTools(ctx context.Context, id string) (models.MCPServer, error) {
@@ -62,6 +112,15 @@ func (s *MCPServerService) RefreshTools(ctx context.Context, id string) (models.
 	}
 	item.LastError = ""
 	return item, s.repo.UpdateRuntimeState(ctx, item)
+}
+
+func (s *MCPServerService) syncRuntimeAsync(item models.MCPServer) {
+	if s.runtime == nil || !item.Enabled || strings.TrimSpace(item.ID) == "" {
+		return
+	}
+	go func(id string) {
+		_, _ = s.RefreshTools(context.Background(), id)
+	}(item.ID)
 }
 
 func (s *MCPServerService) RuntimeStatus(id string) runtimemcp.ServerStatus {

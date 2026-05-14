@@ -25,6 +25,8 @@ func NewRouter(container *Container) *gin.Engine {
 	container.Controllers.MCPServers.Register(v1)
 	container.Controllers.Schedules.Register(v1)
 	container.Controllers.Skills.Register(v1)
+	container.Controllers.Approvals.Register(v1)
+	container.Controllers.Events.Register(v1)
 
 	return router
 }

@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -10,7 +11,9 @@ import (
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/config"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/controllers"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/database"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/repositories"
+	runtimeacp "github.com/icoo-ai/icoo-ai/agent_gateway/internal/runtime/acp"
 	runtimemcp "github.com/icoo-ai/icoo-ai/agent_gateway/internal/runtime/mcp"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/runtime/scheduler"
 	runtimeskills "github.com/icoo-ai/icoo-ai/agent_gateway/internal/runtime/skills"
@@ -43,6 +46,8 @@ type Controllers struct {
 	MCPServers *controllers.MCPController
 	Schedules  *controllers.ScheduleController
 	Skills     *controllers.SkillController
+	Events     *controllers.WebSocketController
+	Approvals  *controllers.ApprovalController
 }
 
 type Repositories struct {
@@ -62,9 +67,11 @@ type Services struct {
 }
 
 type Managers struct {
+	ACP       *runtimeacp.Manager
 	MCP       *runtimemcp.Manager
 	Scheduler *scheduler.Scheduler
 	Skills    *runtimeskills.Scanner
+	Events    *events.Bus
 }
 
 func Build(ctx context.Context, opts Options) (*Container, error) {
@@ -100,7 +107,8 @@ func Build(ctx context.Context, opts Options) (*Container, error) {
 		Skills:     repositories.NewSkillRepository(db),
 	}
 	managers := Managers{
-		MCP: runtimemcp.NewManager(),
+		MCP:    runtimemcp.NewManager(),
+		Events: events.NewBus(256),
 	}
 	services := Services{
 		Agents:     adminservice.NewAgentService(repos.Agents),
@@ -109,21 +117,33 @@ func Build(ctx context.Context, opts Options) (*Container, error) {
 		Schedules:  adminservice.NewScheduleTaskService(repos.Schedules),
 		Skills:     adminservice.NewSkillService(repos.Skills),
 	}
-	managers.Scheduler = scheduler.New(services.Schedules, scheduler.NewRunner(nil), nil)
 	managers.Skills = runtimeskills.NewScanner(
 		runtimeskills.NewLoader(),
 		runtimeskills.NewRegistry(),
 		services.Skills,
-		filepath.Join(cfg.DataDir, "skills"),
+		defaultSkillRoots(cfg.DataDir)...,
 	)
 	services.Skills.SetScanner(managers.Skills)
+	extensionGateway := runtimeacp.NewExtensionGateway(runtimeacp.Services{
+		Agents:     services.Agents,
+		AgentRoles: services.AgentRoles,
+		MCPServers: services.MCPServers,
+		Schedules:  services.Schedules,
+		Skills:     services.Skills,
+		Events:     managers.Events,
+	})
+	managers.ACP = runtimeacp.NewManager(extensionGateway, runtimeacp.WithEventBus(managers.Events))
+	managers.Scheduler = scheduler.New(services.Schedules, scheduler.NewRunner(runtimeacp.NewSchedulerRunner(managers.ACP)), nil)
+	services.Schedules.SetOnChange(managers.Scheduler.Wake)
 	ctrls := Controllers{
 		Health:     controllers.NewHealthController(cfg.Version, startedAt),
-		Agents:     controllers.NewAgentController(services.Agents),
+		Agents:     controllers.NewAgentController(services.Agents, managers.ACP),
 		AgentRoles: controllers.NewAgentRoleController(services.AgentRoles),
 		MCPServers: controllers.NewMCPController(services.MCPServers),
 		Schedules:  controllers.NewScheduleController(services.Schedules),
 		Skills:     controllers.NewSkillController(services.Skills),
+		Events:     controllers.NewWebSocketController(managers.Events),
+		Approvals:  controllers.NewApprovalController(managers.ACP.ApprovalBroker()),
 	}
 	container := &Container{
 		Config:       cfg,
@@ -138,6 +158,17 @@ func Build(ctx context.Context, opts Options) (*Container, error) {
 	return container, nil
 }
 
+func defaultSkillRoots(dataDir string) []string {
+	roots := []string{filepath.Join(dataDir, "skills")}
+	if wd, err := os.Getwd(); err == nil {
+		roots = append(roots,
+			filepath.Join(wd, "skills"),
+			filepath.Join(filepath.Dir(wd), "skills"),
+		)
+	}
+	return roots
+}
+
 func (c *Container) Close() error {
 	if c == nil {
 		return nil
@@ -148,6 +179,9 @@ func (c *Container) Close() error {
 	}
 	if c.Managers.MCP != nil {
 		err = errors.Join(err, c.Managers.MCP.Close())
+	}
+	if c.Managers.ACP != nil {
+		err = errors.Join(err, c.Managers.ACP.Close())
 	}
 	err = errors.Join(err, database.Close(c.DB))
 	return err

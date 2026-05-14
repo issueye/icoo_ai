@@ -4,7 +4,6 @@ package models
 type AgentProtocol string
 
 const AgentProtocolACP AgentProtocol = "acp"
-const AgentProtocolICOO AgentProtocol = "icoo"
 
 func (p AgentProtocol) String() string { return string(p) }
 

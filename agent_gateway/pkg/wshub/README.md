@@ -11,13 +11,13 @@
 网关注册的地址：
 
 ```text
-GET /v1/events/ws
+GET /v1/events
 ```
 
 HTTP 请求会升级为 WebSocket。支持以下查询过滤参数：
 
 ```text
-/v1/events/ws?sessionId=sess_1&agentId=agent_1&lastEventId=evt_1
+/v1/events?sessionId=sess_1&agentId=agent_1&lastEventId=evt_1
 ```
 
 ## 服务端事件

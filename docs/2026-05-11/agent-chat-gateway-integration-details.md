@@ -1,173 +1,180 @@
-# agent_chat 与 agent_gateway 对接详情梳理（2026-05-11）
+# agent_chat 与 agent_gateway 对接详情梳理（2026-05-11 历史文档，已被重构取代）
 
-## 1. 目标与结论
+## 1. 文档状态
 
-本文基于当前仓库代码，梳理 `agent_chat` 与 `agent_gateway` 的真实对接状态（非仅文档口径）。
+本文最初记录的是 2026-05-11 当时的 `agent_chat` 与 `agent_gateway` 对接状态。该内容已经被后续 breaking refactor 取代，不能再作为当前接口契约依据。
 
-结论：
+当前 `agent_gateway` 已重构为：
 
-- 主链路已打通：网关启动/发现、鉴权、业务接口调用、SSE 事件流接入均可运行。
-- 存在对接偏移：`README` 与冒烟脚本中的 ACP 配置口径，和网关当前实际参数/配置实现不一致。
-- 建议先收敛配置契约，再处理 SSE 回放边界与命名语义问题。
+- Gin HTTP 路由
+- GORM 数据访问
+- SQLite no cgo 本地存储
+- WebSocket 事件通道
+- ACP 执行链路
 
----
+旧版设计中的以下接口与契约已经废弃：
 
-## 2. 启动与发现链路
+- 不再提供 `GET /v1/events/stream` SSE 事件流。
+- 不再提供全局 `GET/POST /v1/sessions`、`/v1/sessions/:id/*` 会话接口。
+- 不再提供全局 `GET /v1/runs`。
+- 不再提供 `GET/POST /v1/management/settings`。
 
-### 2.1 `agent_chat` 启动流程
-
-1. `ServiceStartup` 调用 `ensureGatewayRunning`，保障网关可用。  
-   代码：`agent_chat/internal/bridge/agent_service.go`
-2. 若已有网关实例可探活，则复用；否则由 `gatewayBootstrapper` 拉起网关并轮询健康。  
-   代码：`agent_chat/internal/bridge/gateway_bootstrap.go`
-3. 启动后读取 `endpoint.json + token` 生成网关代理客户端。  
-   代码：`agent_chat/internal/gatewayclient/discovery.go`
-4. 首次探测事件流可用性，成功置 `gateway_ready`，失败置 `gateway_reconnecting` 并后台重连。  
-   代码：`agent_chat/internal/bridge/agent_service.go`
-
-### 2.2 网关运行时行为
-
-1. 网关启动后绑定本地地址，生成随机或指定端口。  
-   代码：`agent_gateway/internal/runtime/server.go`
-2. 写入运行时文件（endpoint/token）供客户端发现。  
-   代码：`agent_gateway/internal/runtime/server.go`, `agent_gateway/internal/runtime/endpoint.go`
-3. `/v1/*` 统一 Bearer Token 鉴权。  
-   代码：`agent_gateway/internal/runtime/server.go`
+后续排障、联调、测试与文档更新，应以本文下方“当前接口契约”为准。
 
 ---
 
-## 3. 接口对接矩阵
+## 2. 当前对接结论
 
-`agent_chat` 侧调用（Go bridge）：
+`agent_chat` 当前通过本地发现文件连接 `agent_gateway`，使用 Bearer Token 访问 `/v1/*` 接口，并通过 WebSocket `GET /v1/events` 接收网关事件。
+
+会话生命周期已调整为 Agent-scoped 模型：会话必须挂在具体 Agent 下创建、发送 prompt、取消和删除。客户端不应再调用旧的全局 session 或 run 接口。
+
+---
+
+## 3. 启动与发现链路
+
+### 3.1 `agent_chat` 启动流程
+
+1. `ServiceStartup` 保障本地网关可用。
+2. 若已有网关实例可探活，则复用；否则拉起 `agent_gateway` 并轮询健康状态。
+3. 启动后读取 `endpoint.json` 和 token，生成网关代理客户端。
+4. 使用当前事件通道 `GET /v1/events` 建立 WebSocket 连接。
+
+### 3.2 `agent_gateway` 运行时行为
+
+1. 网关启动后绑定本地地址，生成随机或指定端口。
+2. 写入运行时发现文件供 `agent_chat` 读取。
+3. `/v1/*` 统一 Bearer Token 鉴权。
+4. 使用 Gin 承载 HTTP/WebSocket 路由。
+5. 使用 GORM + SQLite no cgo 持久化本地状态。
+6. 通过 ACP 承接 Agent prompt 执行与事件产出。
+
+---
+
+## 4. 当前接口契约
+
+### 4.1 发现与基础资源
+
+`agent_chat` 可调用：
 
 - `GET /v1/agents`
 - `GET /v1/skills`
-- `GET /v1/sessions`
-- `POST /v1/sessions`
-- `GET /v1/sessions/{id}`
-- `POST /v1/sessions/{id}/prompt`
-- `POST /v1/sessions/{id}/cancel`
-- `GET /v1/sessions/{id}/messages`
-- `GET /v1/runs`
 - `GET /v1/approvals`
-- `POST /v1/approvals/{id}/decision`
+- `POST /v1/approvals/:id/decision`
+
+### 4.2 Agent-scoped 会话接口
+
+当前会话接口必须带 Agent ID：
+
+- `POST /v1/agents/:id/sessions`
+- `POST /v1/agents/:id/sessions/:sessionId/prompts`
+- `POST /v1/agents/:id/sessions/:sessionId/cancel`
+- `DELETE /v1/agents/:id/sessions/:sessionId`
+
+这些接口替代了旧版全局会话接口：
+
+- 废弃：`GET /v1/sessions`
+- 废弃：`POST /v1/sessions`
+- 废弃：`GET /v1/sessions/:id`
+- 废弃：`POST /v1/sessions/:id/prompt`
+- 废弃：`POST /v1/sessions/:id/cancel`
+- 废弃：`GET /v1/sessions/:id/messages`
+
+### 4.3 事件接口
+
+当前事件接口为：
+
+- `GET /v1/events`
+
+该接口为 WebSocket 连接，不是 SSE。旧版 `GET /v1/events/stream` 已废弃，客户端不应再依赖 `Last-Event-ID`、SSE keep-alive 注释帧或 SSE 回放语义。
+
+事件消费模型应按 WebSocket 连接生命周期处理：
+
+- 建连时携带 Bearer Token。
+- 连接断开后由客户端按当前策略重连。
+- 事件内容按网关当前事件 schema 映射到 `agent_chat` 前端事件。
+
+### 4.4 已移除接口
+
+以下旧接口不属于当前设计：
+
 - `GET /v1/events/stream`
-
-调用入口：`agent_chat/internal/bridge/agent_service.go`
-
-网关路由已提供对应处理器：  
-`agent_gateway/internal/api/routes.go`
-
-评估：接口路径与方法当前已对齐，无明显“客户端调用存在但网关缺失”断点。
+- `GET /v1/runs`
+- `GET /v1/management/settings`
+- `POST /v1/management/settings`
+- 所有全局 `/v1/sessions/*` 接口
 
 ---
 
-## 4. 事件流（SSE）对接细节
+## 5. 事件对接细节
 
-### 4.1 网关侧
+### 5.1 网关侧
 
-- 事件流端点：`GET /v1/events/stream`
-- 支持 `Last-Event-ID`（header）与 `lastEventId`（query）回放起点
-- 支持 `sessionId`、`agentId` 过滤
-- 15 秒 keep-alive 注释帧
+网关通过 WebSocket `GET /v1/events` 推送事件。事件来源包括 Agent 会话执行、ACP 过程、审批、工具调用和运行状态变化等。
 
-代码：`agent_gateway/internal/api/events.go`
+该通道替代旧 SSE 事件流，不再描述以下旧行为：
 
-### 4.2 `agent_chat` 侧
+- `Last-Event-ID` header 续传
+- `lastEventId` query 回放
+- SSE comment keep-alive
+- SSE ring buffer replay
 
-- 使用 `StreamEventsWithFilter` 建立订阅
-- 支持 `Last-Event-ID` 续传
-- 失败指数退避重连
-- 鉴权失败收敛为 `gateway_failed`
-- 达到最大失败次数后停止重连
+### 5.2 `agent_chat` 侧
 
-代码：`agent_chat/internal/gatewayclient/client.go`, `agent_chat/internal/bridge/agent_service.go`
+`agent_chat` 应维护 WebSocket 订阅状态，并在连接失败或断开时进入重连流程。鉴权失败、网关不可达和连接异常应映射到现有网关状态机。
 
-### 4.3 事件映射
-
-网关事件类型会归一到前端事件 Kind（`message/tool_call/tool_result/approval/run/audit/subagent`）。  
-代码：`mapGatewayEventTypeToBridgeKind` in `agent_chat/internal/bridge/agent_service.go`
+旧版 `StreamEventsWithFilter` / SSE 语义如果仍出现在注释、测试或外部文档中，应按 WebSocket 事件流重新命名和改写。
 
 ---
 
-## 5. 配置契约现状（重点）
+## 6. 会话与运行模型变化
 
-### 5.1 当前实际生效的网关启动参数
+旧版文档将 session 和 run 视作全局资源：
 
-`agent_chat` 在拉起网关时目前仅传：
+- 全局列出 sessions
+- 全局创建 session
+- 全局查询 runs
+- 通过 `/v1/sessions/:id/prompt` 触发执行
 
-- `-host`
-- `-port`
+当前设计中，session 是 Agent-scoped 资源：
 
-代码：`gatewayLaunchArgsFromSettings` in `agent_chat/internal/bridge/gateway_bootstrap.go`
+- 创建会话时必须指定 Agent：`POST /v1/agents/:id/sessions`
+- 发送 prompt 时必须同时指定 Agent 和 Session：`POST /v1/agents/:id/sessions/:sessionId/prompts`
+- 取消执行绑定到具体 Agent Session：`POST /v1/agents/:id/sessions/:sessionId/cancel`
+- 删除会话也绑定到具体 Agent Session：`DELETE /v1/agents/:id/sessions/:sessionId`
 
-网关 CLI 目前仅支持：
-
-- `-host`
-- `-port`
-- `-once`
-
-代码：`agent_gateway/cmd/agent-gateway/main.go`
-
-### 5.2 当前实际生效的网关配置文件键
-
-`config/agent-gateway.toml` 读取器当前仅支持：
-
-- `host`
-- `port`
-- `data_dir`
-
-代码：`agent_gateway/internal/config/file.go`
+因此，客户端状态、缓存 key、错误日志和前端事件关联字段都应同时保留 `agentId` 与 `sessionId`，避免继续假设 `sessionId` 是全局入口。
 
 ---
 
-## 6. 对接偏移与风险
+## 7. 配置与管理接口变化
 
-## P1：ACP 配置契约偏移（优先修复）
+旧版关于 `/v1/management/settings` 的描述已失效。当前不应通过该接口读取或修改网关设置。
 
-- `agent_chat/README.md` 仍声明 `acp_enabled/acp_command` 等配置要求。
-- `scripts/smoke-gateway-chat.ps1` 仍使用 `-acp-enabled/-acp-command/-acp-args` 启动参数。
-- 但网关当前 CLI/配置加载器并不支持这些参数和键。
-
-影响：
-
-- 按文档配置可能与真实行为不一致；
-- 冒烟脚本在当前实现下存在失效风险；
-- 联调与排障成本上升。
-
-## P2：服务命名语义偏移
-
-- 网关核心实现类型仍命名为 `MockGatewayService`，但已承载真实主链路能力。
-
-影响：维护者容易误判代码角色，排障效率降低。
-
-## P2：SSE 回放边界风险
-
-- `snapshotSince` 为内存 ring 回放，断连过久且事件被覆盖时可能产生回放缺口。
-
-代码：`agent_gateway/internal/events/bus.go`
+当前配置来源应以实际启动参数、配置文件和运行时发现文件为准。若需要新增管理能力，应在新接口设计中显式定义，不应复用已移除的 `/v1/management/settings` 路径。
 
 ---
 
-## 7. 测试状态
+## 8. 迁移检查清单
 
-已执行：
+更新或排查 `agent_chat` / `agent_gateway` 对接时，优先检查：
 
-- `agent_gateway`: `go test ./...` 通过
-- `agent_chat`: `go test ./...` 通过
-
-说明：当前测试基线与“主链路可运行”结论一致，但不能覆盖全部契约偏移问题（尤其文档/脚本层面的漂移）。
+1. 是否仍调用 `GET /v1/events/stream`。如有，应迁移到 WebSocket `GET /v1/events`。
+2. 是否仍调用全局 `/v1/sessions/*`。如有，应迁移到 `/v1/agents/:id/sessions/*`。
+3. 是否仍调用 `GET /v1/runs`。如有，应改为从会话事件或当前 Agent-scoped 状态模型获取信息。
+4. 是否仍调用 `/v1/management/settings`。如有，应移除或改为当前配置来源。
+5. 日志、测试、README、冒烟脚本是否仍宣称 SSE、global sessions/runs 或 management settings 可用。
 
 ---
 
-## 8. 建议的收敛动作
+## 9. 历史内容处理说明
 
-1. 统一配置契约（优先）  
-   在“README、smoke 脚本、网关 CLI、网关配置读取”中选择一个一致方案，并一次性同步。
+本文件保留 2026-05-11 日期是为了延续文档位置和历史索引，但原始结论已经不再适用。尤其是旧文档中的以下判断已被当前重构推翻：
 
-2. 清理命名语义  
-   将 `MockGatewayService` 更名为更贴近实际职责的名称（例如 `GatewayServiceImpl` / `InMemoryGatewayService`）。
+- “SSE 事件流接入可运行”
+- “接口路径与方法当前已对齐”
+- “`GET /v1/runs` 属于当前调用矩阵”
+- “SSE 回放边界风险是当前主要事件流风险”
+- “`/v1/management/settings` 是可对接的管理设置接口”
 
-3. 强化事件回放策略  
-   为 SSE 回放缺口增加显式告警与补偿策略（如回退全量消息拉取或会话级重扫）。
-
+当前集成判断应基于 Gin + GORM + SQLite(no cgo) + WebSocket + ACP 的新网关实现，以及 Agent-scoped session API。

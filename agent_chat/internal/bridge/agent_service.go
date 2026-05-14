@@ -30,12 +30,14 @@ const (
 type AgentService struct {
 	mu                sync.RWMutex
 	messages          []MessageEvent
+	conversations     []Conversation
 	auditEvents       []AuditEvent
 	gateway           *gatewayProxy
 	bootstrap         *gatewayBootstrapper
 	lastEventID       string
 	currentSessionID  string
 	activeSessions    map[string]struct{}
+	sessionAgents     map[string]string
 	eventSink         func(MessageEvent)
 	gatewayStatus     string
 	gatewaySummary    string
@@ -51,10 +53,12 @@ func NewAgentService() *AgentService {
 	logger.Debug("creating agent service")
 	return &AgentService{
 		messages:          make([]MessageEvent, 0, 32),
+		conversations:     make([]Conversation, 0, 8),
 		auditEvents:       make([]AuditEvent, 0, 16),
 		gateway:           loadGatewayProxy(),
 		bootstrap:         newGatewayBootstrapper(),
 		activeSessions:    make(map[string]struct{}),
+		sessionAgents:     make(map[string]string),
 		manualGatewayMode: detectWailsDevMode(),
 		probeEventStream: func(ctx context.Context, proxy *gatewayProxy) error {
 			return probeGatewayEventStream(ctx, proxy)
@@ -312,49 +316,23 @@ func probeGatewayEventStream(ctx context.Context, proxy *gatewayProxy) error {
 	if proxy == nil {
 		return fmt.Errorf("gateway proxy is nil")
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	u, err := url.Parse(proxy.baseURL)
-	if err != nil {
-		return fmt.Errorf("gateway base URL is invalid: %w", err)
-	}
-	u.Path = path.Join(u.Path, "/v1/events/stream")
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return fmt.Errorf("build gateway stream probe request failed: %w", err)
-	}
-	req.Header.Set("Accept", "text/event-stream")
-	if token := strings.TrimSpace(proxy.token); token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	client := proxy.client
-	if client == nil {
-		client = http.DefaultClient
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("gateway stream probe request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		message := strings.TrimSpace(string(detail))
-		if message == "" {
-			message = fmt.Sprintf("gateway stream probe returned status %d", resp.StatusCode)
-		}
-		return errors.New(message)
-	}
-	return nil
+	return gatewayclient.New(proxy.baseURL, proxy.token).ProbeEvents(ctx)
 }
 
 func (s *AgentService) NewSession(ctx context.Context, req NewSessionRequest) (Conversation, error) {
-	var out gatewaySessionDTO
-	err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions", mapCreateSessionRequest(req), &out)
+	agentID, err := s.resolveGatewayAgentID(ctx, resolveAgentIDFromMode(req.Mode))
 	if err != nil {
 		return Conversation{}, err
 	}
-	conversation := mapGatewaySessionToConversation(out)
+	if err := s.startGatewayAgent(ctx, agentID); err != nil {
+		return Conversation{}, err
+	}
+	var out gatewayACPSessionDTO
+	if err := s.gatewayJSON(ctx, http.MethodPost, "/v1/agents/"+url.PathEscape(agentID)+"/sessions", mapCreateSessionRequest(req), &out); err != nil {
+		return Conversation{}, err
+	}
+	conversation := mapACPSessionToConversation(out, req, agentID)
+	s.rememberConversation(conversation, agentID)
 	s.setCurrentStreamSessionID(conversation.ID)
 	return conversation, nil
 }
@@ -364,17 +342,15 @@ func (s *AgentService) ConnectSession(ctx context.Context, req ConnectSessionReq
 	if req.SessionID == "" {
 		return Conversation{}, &BridgeError{Code: ErrorCodeInvalidArgument, Message: "sessionId is required", Retryable: false}
 	}
-	var out gatewaySessionDTO
-	if err := s.gatewayJSON(
-		ctx,
-		http.MethodPost,
-		"/v1/sessions/"+url.PathEscape(req.SessionID)+"/resume",
-		mapConnectSessionRequest(req),
-		&out,
-	); err != nil {
-		return Conversation{}, err
+	conversation, ok := s.conversationByID(req.SessionID)
+	if !ok {
+		conversation = Conversation{ID: req.SessionID, Type: "main", Title: req.SessionID, Status: "connected", CWD: strings.TrimSpace(req.Cwd), UpdatedAt: time.Now()}
 	}
-	conversation := mapGatewaySessionToConversation(out)
+	conversation.Status = "connected"
+	if cwd := strings.TrimSpace(req.Cwd); cwd != "" {
+		conversation.CWD = cwd
+	}
+	s.rememberConversation(conversation, s.sessionAgentID(req.SessionID))
 	s.setCurrentStreamSessionID(req.SessionID)
 	return conversation, nil
 }
@@ -384,11 +360,21 @@ func (s *AgentService) DisconnectSession(ctx context.Context, sessionID string) 
 	if sessionID == "" {
 		return Conversation{}, &BridgeError{Code: ErrorCodeInvalidArgument, Message: "sessionId is required", Retryable: false}
 	}
-	var out gatewaySessionDTO
-	if err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/close", nil, &out); err != nil {
+	agentID, err := s.resolveSessionAgentID(ctx, sessionID, "")
+	if err != nil {
 		return Conversation{}, err
 	}
-	conversation := mapGatewaySessionToConversation(out)
+	var out gatewayCloseSessionDTO
+	if err := s.gatewayJSON(ctx, http.MethodDelete, "/v1/agents/"+url.PathEscape(agentID)+"/sessions/"+url.PathEscape(sessionID), nil, &out); err != nil {
+		return Conversation{}, err
+	}
+	conversation, ok := s.conversationByID(sessionID)
+	if !ok {
+		conversation = Conversation{ID: sessionID, Type: "main", Title: sessionID}
+	}
+	conversation.Status = "disconnected"
+	conversation.UpdatedAt = time.Now()
+	s.rememberConversation(conversation, agentID)
 	s.setCurrentStreamSessionID(sessionID)
 	return conversation, nil
 }
@@ -398,11 +384,8 @@ func (s *AgentService) DeleteSession(ctx context.Context, sessionID string) (Con
 	if sessionID == "" {
 		return Conversation{}, &BridgeError{Code: ErrorCodeInvalidArgument, Message: "sessionId is required", Retryable: false}
 	}
-	var out gatewaySessionDTO
-	if err := s.gatewayJSON(ctx, http.MethodDelete, "/v1/sessions/"+url.PathEscape(sessionID), nil, &out); err != nil {
-		return Conversation{}, err
-	}
-	conversation := mapGatewaySessionToConversation(out)
+	conversation, _ := s.DisconnectSession(ctx, sessionID)
+	s.forgetConversation(sessionID)
 	return conversation, nil
 }
 
@@ -411,21 +394,19 @@ func (s *AgentService) LoadSession(ctx context.Context, sessionID string) (Conve
 	if sessionID == "" {
 		return Conversation{}, &BridgeError{Code: ErrorCodeInvalidArgument, Message: "sessionId is required", Retryable: false}
 	}
-	var out gatewaySessionDTO
-	if err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID), nil, &out); err != nil {
-		return Conversation{}, err
+	conversation, ok := s.conversationByID(sessionID)
+	if !ok {
+		return Conversation{}, &BridgeError{Code: ErrorCodeGatewayRequest, Message: "session not found", Retryable: false}
 	}
-	conversation := mapGatewaySessionToConversation(out)
 	s.setCurrentStreamSessionID(sessionID)
 	return conversation, nil
 }
 
 func (s *AgentService) ListConversations(ctx context.Context) ([]Conversation, error) {
-	var out []gatewaySessionDTO
-	if err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions", nil, &out); err != nil {
-		return nil, err
-	}
-	return mapGatewaySessionsToConversations(out), nil
+	_ = ctx
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]Conversation(nil), s.conversations...), nil
 }
 
 func (s *AgentService) Prompt(ctx context.Context, req PromptRequest) ([]MessageEvent, error) {
@@ -437,47 +418,68 @@ func (s *AgentService) Prompt(ctx context.Context, req PromptRequest) ([]Message
 	if req.Content == "" {
 		return nil, &BridgeError{Code: ErrorCodeInvalidArgument, Message: "content is required", Retryable: false}
 	}
-	var raw json.RawMessage
-	if err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(req.SessionID)+"/prompt", mapPromptRequest(req), &raw); err != nil {
+	agentID, err := s.resolveSessionAgentID(ctx, req.SessionID, resolveAgentIDFromMode(req.Mode))
+	if err != nil {
 		return nil, err
 	}
-	out, mapErr := parseGatewayPromptResponse(raw, req.SessionID)
-	if mapErr != nil {
-		return nil, &BridgeError{Code: ErrorCodeGatewayRequest, Message: "decode gateway prompt response failed", Retryable: false}
+	var out gatewayACPPromptResponse
+	if err := s.gatewayJSON(ctx, http.MethodPost, "/v1/agents/"+url.PathEscape(agentID)+"/sessions/"+url.PathEscape(req.SessionID)+"/prompts", gatewayACPPromptRequest{Text: req.Content}, &out); err != nil {
+		return nil, err
 	}
-	out = normalizeMessageEvents(out, req.SessionID)
+	events := []MessageEvent{
+		{
+			ID:        newBridgeEventID("msg"),
+			SessionID: req.SessionID,
+			Kind:      BridgeEventKindMessage,
+			Role:      "user",
+			Content:   req.Content,
+			CreatedAt: time.Now(),
+		},
+		{
+			ID:        newBridgeEventID("run"),
+			SessionID: req.SessionID,
+			Kind:      BridgeEventKindRun,
+			Status:    firstNonEmpty(out.StopReason, "completed"),
+			Summary:   "Prompt submitted to ACP agent",
+			CreatedAt: time.Now(),
+		},
+	}
+	s.appendLocalMessages(events)
 	s.setCurrentStreamSessionID(req.SessionID)
-	return out, nil
+	return events, nil
 }
 
 func (s *AgentService) Cancel(ctx context.Context, sessionID string) (RunSummary, error) {
-	var out gatewayRunDTO
-	if err := s.gatewayJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/cancel", nil, &out); err != nil {
+	agentID, err := s.resolveSessionAgentID(ctx, sessionID, "")
+	if err != nil {
+		return RunSummary{}, err
+	}
+	var out map[string]any
+	if err := s.gatewayJSON(ctx, http.MethodPost, "/v1/agents/"+url.PathEscape(agentID)+"/sessions/"+url.PathEscape(sessionID)+"/cancel", nil, &out); err != nil {
 		return RunSummary{}, err
 	}
 	s.setCurrentStreamSessionID(sessionID)
-	return mapGatewayRunToSummary(out), nil
+	now := time.Now()
+	return RunSummary{ID: newBridgeEventID("run"), SessionID: sessionID, Status: "cancelled", Label: "Cancelled", StartedAt: now, CompletedAt: &now}, nil
 }
 
 func (s *AgentService) ListMessages(ctx context.Context, sessionID string) ([]MessageEvent, error) {
-	var out []gatewayMessageDTO
-	if err := s.gatewayJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID)+"/messages", nil, &out); err != nil {
-		return nil, err
+	_ = ctx
+	s.mu.RLock()
+	filtered := make([]MessageEvent, 0)
+	for _, item := range s.messages {
+		if item.SessionID == sessionID {
+			filtered = append(filtered, item)
+		}
 	}
-	filtered := make([]MessageEvent, 0, len(out))
-	for _, item := range out {
-		filtered = append(filtered, mapGatewayMessageToEvent(item, sessionID))
-	}
+	s.mu.RUnlock()
 	s.setCurrentStreamSessionID(sessionID)
 	return filtered, nil
 }
 
 func (s *AgentService) ListRuns(ctx context.Context) ([]RunSummary, error) {
-	var out []gatewayRunDTO
-	if err := s.gatewayJSON(ctx, http.MethodGet, "/v1/runs", nil, &out); err != nil {
-		return nil, err
-	}
-	return mapGatewayRunsToSummaries(out), nil
+	_ = ctx
+	return []RunSummary{}, nil
 }
 
 func (s *AgentService) ListApprovals(ctx context.Context) ([]ApprovalDecision, error) {
@@ -801,6 +803,88 @@ func (s *AgentService) setCurrentStreamSessionID(sessionID string) {
 	s.mu.Unlock()
 }
 
+func (s *AgentService) rememberConversation(conversation Conversation, agentID string) {
+	if strings.TrimSpace(conversation.ID) == "" {
+		return
+	}
+	if conversation.UpdatedAt.IsZero() {
+		conversation.UpdatedAt = time.Now()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx := -1
+	for i, item := range s.conversations {
+		if item.ID == conversation.ID {
+			idx = i
+			break
+		}
+	}
+	if idx >= 0 {
+		s.conversations[idx] = conversation
+	} else {
+		s.conversations = append([]Conversation{conversation}, s.conversations...)
+	}
+	if s.activeSessions == nil {
+		s.activeSessions = make(map[string]struct{})
+	}
+	s.activeSessions[conversation.ID] = struct{}{}
+	if s.sessionAgents == nil {
+		s.sessionAgents = make(map[string]string)
+	}
+	if agentID = strings.TrimSpace(agentID); agentID != "" {
+		s.sessionAgents[conversation.ID] = agentID
+	}
+}
+
+func (s *AgentService) forgetConversation(sessionID string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.conversations[:0]
+	for _, item := range s.conversations {
+		if item.ID != sessionID {
+			out = append(out, item)
+		}
+	}
+	s.conversations = out
+	delete(s.activeSessions, sessionID)
+	delete(s.sessionAgents, sessionID)
+	if s.currentSessionID == sessionID {
+		s.currentSessionID = ""
+	}
+}
+
+func (s *AgentService) conversationByID(sessionID string) (Conversation, bool) {
+	sessionID = strings.TrimSpace(sessionID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, item := range s.conversations {
+		if item.ID == sessionID {
+			return item, true
+		}
+	}
+	return Conversation{}, false
+}
+
+func (s *AgentService) sessionAgentID(sessionID string) string {
+	sessionID = strings.TrimSpace(sessionID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return strings.TrimSpace(s.sessionAgents[sessionID])
+}
+
+func (s *AgentService) appendLocalMessages(items []MessageEvent) {
+	if len(items) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.messages = append(s.messages, items...)
+}
+
 func (s *AgentService) streamSubscriptionState() (string, string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -813,6 +897,52 @@ func (s *AgentService) streamSubscriptionState() (string, string) {
 		}
 	}
 	return s.lastEventID, ""
+}
+
+func (s *AgentService) resolveSessionAgentID(ctx context.Context, sessionID string, preferred string) (string, error) {
+	if agentID := strings.TrimSpace(preferred); agentID != "" {
+		if sessionID = strings.TrimSpace(sessionID); sessionID != "" {
+			s.mu.Lock()
+			if s.sessionAgents == nil {
+				s.sessionAgents = make(map[string]string)
+			}
+			s.sessionAgents[sessionID] = agentID
+			s.mu.Unlock()
+		}
+		return agentID, nil
+	}
+	if agentID := s.sessionAgentID(sessionID); agentID != "" {
+		return agentID, nil
+	}
+	return s.resolveGatewayAgentID(ctx, "")
+}
+
+func (s *AgentService) resolveGatewayAgentID(ctx context.Context, preferred string) (string, error) {
+	if agentID := strings.TrimSpace(preferred); agentID != "" {
+		return agentID, nil
+	}
+	var agents []gatewayAgentDTO
+	if err := s.gatewayJSON(ctx, http.MethodGet, "/v1/agents", nil, &agents); err != nil {
+		return "", err
+	}
+	for _, agent := range agents {
+		if agent.Enabled {
+			return strings.TrimSpace(agent.ID), nil
+		}
+	}
+	if len(agents) == 0 {
+		return "", &BridgeError{Code: ErrorCodeGatewayRequest, Message: "gateway has no enabled ACP agent", Retryable: false}
+	}
+	return "", &BridgeError{Code: ErrorCodeGatewayRequest, Message: "gateway has no enabled ACP agent", Retryable: false}
+}
+
+func (s *AgentService) startGatewayAgent(ctx context.Context, agentID string) error {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return &BridgeError{Code: ErrorCodeInvalidArgument, Message: "agentId is required", Retryable: false}
+	}
+	var out map[string]any
+	return s.gatewayJSON(ctx, http.MethodPost, "/v1/agents/"+url.PathEscape(agentID)+"/start", nil, &out)
 }
 
 func (s *AgentService) forwardGatewayEvent(in gatewayclient.StreamEnvelope) error {
@@ -983,60 +1113,26 @@ func (s *AgentService) mapGatewayStreamError(err error) *BridgeError {
 	return &BridgeError{Code: ErrorCodeGatewayUnavailable, Message: err.Error(), Retryable: true}
 }
 
-type gatewaySessionDTO struct {
-	ID             string    `json:"id"`
-	Title          string    `json:"title"`
-	WorkspaceID    string    `json:"workspaceId,omitempty"`
-	CWD            string    `json:"cwd,omitempty"`
-	StartupCommand string    `json:"startupCommand,omitempty"`
-	Mode           string    `json:"mode,omitempty"`
-	AgentID        string    `json:"agentId"`
-	Model          string    `json:"model,omitempty"`
-	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+type gatewayACPSessionDTO struct {
+	SessionID string `json:"sessionId"`
 }
 
-type gatewayCreateSessionRequest struct {
-	Title          string `json:"title"`
-	CWD            string `json:"cwd,omitempty"`
-	WorkspaceID    string `json:"workspaceId,omitempty"`
-	StartupCommand string `json:"startupCommand,omitempty"`
-	Mode           string `json:"mode,omitempty"`
-	AgentID        string `json:"agentId,omitempty"`
-	Model          string `json:"model,omitempty"`
+type gatewayCloseSessionDTO struct {
+	SessionID string `json:"sessionId,omitempty"`
 }
 
-type gatewayResumeSessionRequest struct {
-	CWD                   string   `json:"cwd,omitempty"`
+type gatewayACPNewSessionRequest struct {
+	CWD                   string   `json:"cwd"`
 	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
+	MCPServers            []any    `json:"mcpServers"`
 }
 
-type gatewayPromptRequest struct {
-	Content     string `json:"content"`
-	CWD         string `json:"cwd,omitempty"`
-	WorkspaceID string `json:"workspaceId,omitempty"`
-	Mode        string `json:"mode,omitempty"`
-	AgentID     string `json:"agentId,omitempty"`
-	Model       string `json:"model,omitempty"`
+type gatewayACPPromptRequest struct {
+	Text string `json:"text"`
 }
 
-type gatewayMessageDTO struct {
-	ID        string    `json:"id"`
-	SessionID string    `json:"sessionId"`
-	RunID     string    `json:"runId,omitempty"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"createdAt"`
-}
-
-type gatewayRunDTO struct {
-	ID        string     `json:"id"`
-	SessionID string     `json:"sessionId"`
-	AgentID   string     `json:"agentId"`
-	Status    string     `json:"status"`
-	StartedAt time.Time  `json:"startedAt"`
-	EndedAt   *time.Time `json:"endedAt,omitempty"`
+type gatewayACPPromptResponse struct {
+	StopReason string `json:"stopReason"`
 }
 
 type gatewayApprovalDTO struct {
@@ -1067,44 +1163,16 @@ type gatewayAgentDTO struct {
 	Name        string   `json:"name"`
 	Protocol    string   `json:"protocol"`
 	Models      []string `json:"models,omitempty"`
+	ModelsJSON  string   `json:"modelsJson,omitempty"`
 	Description string   `json:"description,omitempty"`
+	Enabled     bool     `json:"enabled"`
 }
 
-type gatewayPromptResponse struct {
-	Run      gatewayRunDTO       `json:"run"`
-	Messages []gatewayMessageDTO `json:"messages"`
-	Approval *gatewayApprovalDTO `json:"approval,omitempty"`
-}
-
-func mapCreateSessionRequest(in NewSessionRequest) gatewayCreateSessionRequest {
-	mode := strings.TrimSpace(in.Mode)
-	return gatewayCreateSessionRequest{
-		Title:          strings.TrimSpace(in.Title),
-		CWD:            strings.TrimSpace(in.Cwd),
-		WorkspaceID:    strings.TrimSpace(in.WorkspaceID),
-		StartupCommand: strings.TrimSpace(in.StartupCommand),
-		Mode:           mode,
-		AgentID:        resolveAgentIDFromMode(mode),
-		Model:          strings.TrimSpace(in.Model),
-	}
-}
-
-func mapPromptRequest(in PromptRequest) gatewayPromptRequest {
-	mode := strings.TrimSpace(in.Mode)
-	return gatewayPromptRequest{
-		Content:     strings.TrimSpace(in.Content),
-		CWD:         strings.TrimSpace(in.Cwd),
-		WorkspaceID: strings.TrimSpace(in.WorkspaceID),
-		Mode:        mode,
-		AgentID:     resolveAgentIDFromMode(mode),
-		Model:       strings.TrimSpace(in.Model),
-	}
-}
-
-func mapConnectSessionRequest(in ConnectSessionRequest) gatewayResumeSessionRequest {
-	return gatewayResumeSessionRequest{
+func mapCreateSessionRequest(in NewSessionRequest) gatewayACPNewSessionRequest {
+	return gatewayACPNewSessionRequest{
 		CWD:                   strings.TrimSpace(in.Cwd),
-		AdditionalDirectories: append([]string(nil), in.AdditionalDirectories...),
+		AdditionalDirectories: []string{},
+		MCPServers:            []any{},
 	}
 }
 
@@ -1125,88 +1193,6 @@ func mapApprovalDecisionRequest(in ApprovalDecisionRequest) gatewayApprovalDecis
 	return gatewayApprovalDecisionRequest{
 		Decision: strings.TrimSpace(in.Decision),
 	}
-}
-
-func mapGatewaySessionToConversation(in gatewaySessionDTO) Conversation {
-	updatedAt := in.UpdatedAt
-	if updatedAt.IsZero() {
-		updatedAt = in.CreatedAt
-	}
-	conversationType := "main"
-	if strings.HasPrefix(in.ID, "subsess_") {
-		conversationType = "subagent"
-	}
-	subtitle := strings.TrimSpace(in.Status)
-	if subtitle == "" {
-		subtitle = "unknown"
-	}
-	mode := strings.TrimSpace(in.Mode)
-	if mode == "" {
-		mode = strings.TrimSpace(in.AgentID)
-	}
-	return Conversation{
-		ID:             in.ID,
-		Type:           conversationType,
-		Title:          in.Title,
-		Subtitle:       subtitle,
-		Status:         in.Status,
-		UnreadCount:    0,
-		UpdatedAt:      updatedAt,
-		WorkspaceID:    strings.TrimSpace(in.WorkspaceID),
-		CWD:            in.CWD,
-		StartupCommand: in.StartupCommand,
-		Mode:           mode,
-		Model:          in.Model,
-	}
-}
-
-func mapGatewaySessionsToConversations(in []gatewaySessionDTO) []Conversation {
-	out := make([]Conversation, 0, len(in))
-	for _, item := range in {
-		out = append(out, mapGatewaySessionToConversation(item))
-	}
-	return out
-}
-
-func runStatusLabel(status string) string {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "running":
-		return "运行中"
-	case "completed":
-		return "已完成"
-	case "failed":
-		return "已失败"
-	case "cancelled":
-		return "已取消"
-	case "waiting_approval":
-		return "等待审批"
-	case "queued":
-		return "排队中"
-	default:
-		if strings.TrimSpace(status) == "" {
-			return "未知状态"
-		}
-		return status
-	}
-}
-
-func mapGatewayRunToSummary(in gatewayRunDTO) RunSummary {
-	return RunSummary{
-		ID:          in.ID,
-		SessionID:   in.SessionID,
-		Status:      in.Status,
-		Label:       runStatusLabel(in.Status),
-		StartedAt:   in.StartedAt,
-		CompletedAt: in.EndedAt,
-	}
-}
-
-func mapGatewayRunsToSummaries(in []gatewayRunDTO) []RunSummary {
-	out := make([]RunSummary, 0, len(in))
-	for _, item := range in {
-		out = append(out, mapGatewayRunToSummary(item))
-	}
-	return out
 }
 
 func mapGatewayApprovalToDecision(in gatewayApprovalDTO) ApprovalDecision {
@@ -1251,76 +1237,51 @@ func mapGatewaySkillsToInfos(in []gatewaySkillDTO) []SkillInfo {
 func mapGatewayAgentsToProfiles(in []gatewayAgentDTO) []AgentProfile {
 	out := make([]AgentProfile, 0, len(in))
 	for _, item := range in {
+		models := append([]string(nil), item.Models...)
+		if len(models) == 0 && strings.TrimSpace(item.ModelsJSON) != "" {
+			_ = json.Unmarshal([]byte(item.ModelsJSON), &models)
+		}
 		out = append(out, AgentProfile{
 			ID:          strings.TrimSpace(item.ID),
 			Name:        strings.TrimSpace(item.Name),
 			Protocol:    strings.TrimSpace(item.Protocol),
-			Models:      append([]string(nil), item.Models...),
+			Models:      models,
 			Description: strings.TrimSpace(item.Description),
 		})
 	}
 	return out
 }
 
-func mapGatewayMessageToEvent(in gatewayMessageDTO, fallbackSessionID string) MessageEvent {
-	sessionID := strings.TrimSpace(in.SessionID)
-	if sessionID == "" {
-		sessionID = strings.TrimSpace(fallbackSessionID)
+func mapACPSessionToConversation(in gatewayACPSessionDTO, req NewSessionRequest, agentID string) Conversation {
+	now := time.Now()
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = stringOrFallback(in.SessionID, "ACP Session")
 	}
-	return MessageEvent{
-		ID:        in.ID,
-		SessionID: sessionID,
-		Kind:      BridgeEventKindMessage,
-		Role:      in.Role,
-		Content:   in.Content,
-		CreatedAt: in.CreatedAt,
+	return Conversation{
+		ID:          strings.TrimSpace(in.SessionID),
+		Type:        "main",
+		Title:       title,
+		Subtitle:    strings.TrimSpace(agentID),
+		Status:      "connected",
+		UpdatedAt:   now,
+		WorkspaceID: strings.TrimSpace(req.WorkspaceID),
+		CWD:         strings.TrimSpace(req.Cwd),
+		Mode:        strings.TrimSpace(req.Mode),
+		Model:       strings.TrimSpace(req.Model),
 	}
 }
 
-func parseGatewayPromptResponse(raw json.RawMessage, fallbackSessionID string) ([]MessageEvent, error) {
-	var structured gatewayPromptResponse
-	if err := json.Unmarshal(raw, &structured); err != nil {
-		return nil, err
+func stringOrFallback(value string, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		return value
 	}
-	out := make([]MessageEvent, 0, len(structured.Messages)+1)
-	for _, message := range structured.Messages {
-		out = append(out, mapGatewayMessageToEvent(message, fallbackSessionID))
-	}
-	if structured.Approval != nil {
-		approval := mapGatewayApprovalToDecision(*structured.Approval)
-		status := strings.TrimSpace(structured.Approval.Status)
-		if status == "" {
-			status = approval.Decision
-		}
-		out = append(out, MessageEvent{
-			ID:        approval.ID,
-			SessionID: approval.SessionID,
-			Kind:      BridgeEventKindApproval,
-			Status:    status,
-			Decision:  approval.Decision,
-			Summary:   approval.Summary,
-			CreatedAt: approval.CreatedAt,
-		})
-	}
-	return out, nil
+	return fallback
 }
 
-func normalizeMessageEvents(items []MessageEvent, sessionID string) []MessageEvent {
-	normalized := make([]MessageEvent, 0, len(items))
-	for _, item := range items {
-		if strings.TrimSpace(item.SessionID) == "" {
-			item.SessionID = sessionID
-		}
-		if strings.TrimSpace(item.Kind) == "" {
-			if strings.TrimSpace(item.Role) != "" {
-				item.Kind = BridgeEventKindMessage
-			} else {
-				item.Kind = BridgeEventKindGateway
-			}
-		}
-		normalized = append(normalized, item)
-	}
-	return normalized
+func newBridgeEventID(prefix string) string {
+	return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
 }
 
 type gatewayProxy struct {
@@ -1393,8 +1354,52 @@ func (s *AgentService) gatewayJSON(ctx context.Context, method, rawPath string, 
 	if out == nil {
 		return nil
 	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8*1024*1024))
+	if err != nil {
+		return &BridgeError{Code: ErrorCodeGatewayRequest, Message: "read gateway response failed", Retryable: false}
+	}
+	if err := decodeGatewayResponse(raw, out); err != nil {
 		return &BridgeError{Code: ErrorCodeGatewayRequest, Message: "decode gateway response failed", Retryable: false}
 	}
 	return nil
+}
+
+func decodeGatewayResponse(raw []byte, out any) error {
+	var wrapped struct {
+		Code    string          `json:"code"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err == nil && strings.TrimSpace(wrapped.Code) != "" {
+		if wrapped.Code != "ok" {
+			return fmt.Errorf("%s", firstNonEmpty(wrapped.Message, wrapped.Code))
+		}
+		if len(wrapped.Data) == 0 || string(wrapped.Data) == "null" {
+			return nil
+		}
+		return decodeGatewayPayload(wrapped.Data, out)
+	}
+	return decodeGatewayPayload(raw, out)
+}
+
+func decodeGatewayPayload(raw []byte, out any) error {
+	if err := json.Unmarshal(raw, out); err == nil {
+		return nil
+	}
+	var page struct {
+		Items json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &page); err != nil || len(page.Items) == 0 {
+		return json.Unmarshal(raw, out)
+	}
+	return json.Unmarshal(page.Items, out)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
