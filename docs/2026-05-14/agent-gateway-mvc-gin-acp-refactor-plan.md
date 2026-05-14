@@ -655,22 +655,22 @@ TODO：
 TODO：
 
 - [x] 新建 `internal/runtime/mcp/manager.go`。
-- [ ] 支持 stdio transport。
-- [ ] 支持 sse/http transport。
+- [x] 支持 stdio transport。
+- [x] 支持 sse/http transport。
 - [x] 支持 command path `~` 展开。
 - [x] 支持 env/envFile/header/cwd。
 - [x] 支持连接状态：connecting/connected/failed/disconnected。
 - [x] 实现 tools list 刷新并写入 `ToolsJSON`。
 - [x] 实现 create/update 后异步 refresh tools。
 - [x] 实现禁用 MCP 时关闭 runtime connection。
-- [ ] 实现 MCP tool call API。
+- [x] 实现 MCP tool call API。
 - [x] 实现 session lost 后最多重连一次。
 
 验收 TODO：
 
 - [x] `POST /v1/mcp-servers/:id/refresh-tools` 可刷新 tools。
 - [x] `GET /v1/mcp-servers/:id` 返回 tools 和 last error。
-- [ ] MCP runtime 关闭时等待 in-flight tool call 完成。
+- [x] MCP runtime 关闭时等待 in-flight tool call 完成。
 - [x] MCP manager 单测覆盖连接失败、刷新失败、禁用关闭、重连。
 
 ### P4：AI Skill 管理

@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/config"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/controllers"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/database"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/events"
+	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/models"
 	"github.com/icoo-ai/icoo-ai/agent_gateway/internal/repositories"
 	runtimeacp "github.com/icoo-ai/icoo-ai/agent_gateway/internal/runtime/acp"
 	runtimemcp "github.com/icoo-ai/icoo-ai/agent_gateway/internal/runtime/mcp"
@@ -107,9 +109,16 @@ func Build(ctx context.Context, opts Options) (*Container, error) {
 		Skills:     repositories.NewSkillRepository(db),
 	}
 	managers := Managers{
-		MCP:    runtimemcp.NewManager(),
 		Events: events.NewBus(256),
 	}
+	managers.MCP = runtimemcp.NewManager(runtimemcp.WithStatusListener(func(status runtimemcp.ServerStatus) {
+		managers.Events.Publish(models.EventEnvelope{
+			BaseModel: models.BaseModel{ID: uuid.NewString()},
+			Type:      "mcp.server." + string(status.State),
+			Payload:   status,
+			CreatedAt: status.UpdatedAt,
+		})
+	}))
 	services := Services{
 		Agents:     adminservice.NewAgentService(repos.Agents),
 		AgentRoles: adminservice.NewAgentRoleService(repos.AgentRoles),

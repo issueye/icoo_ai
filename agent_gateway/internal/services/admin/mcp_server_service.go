@@ -114,6 +114,13 @@ func (s *MCPServerService) RefreshTools(ctx context.Context, id string) (models.
 	return item, s.repo.UpdateRuntimeState(ctx, item)
 }
 
+func (s *MCPServerService) CallTool(ctx context.Context, id string, call runtimemcp.ToolCall) (runtimemcp.CallResult, error) {
+	if s.runtime == nil {
+		return runtimemcp.CallResult{}, runtimemcp.ErrTransportUnavailable
+	}
+	return s.runtime.CallTool(ctx, id, call)
+}
+
 func (s *MCPServerService) syncRuntimeAsync(item models.MCPServer) {
 	if s.runtime == nil || !item.Enabled || strings.TrimSpace(item.ID) == "" {
 		return

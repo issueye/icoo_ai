@@ -101,6 +101,12 @@ func (g *ExtensionGateway) HandleExtensionMethod(ctx context.Context, method str
 			return nil, err
 		}
 		return g.services.MCPServers.RuntimeStatus(req.ID), nil
+	case "mcp.call":
+		var req mcpCallRequest
+		if err := decodeParams(params, &req); err != nil {
+			return nil, err
+		}
+		return g.services.MCPServers.CallTool(ctx, req.ID, runtimemcp.ToolCall{Name: req.Tool, Arguments: req.Arguments})
 	case "schedule.create":
 		return createResource[models.ScheduleTask](ctx, params, g.services.Schedules)
 	case "schedule.update":
@@ -353,6 +359,12 @@ type crudService[T any] interface {
 
 type idRequest struct {
 	ID string `json:"id"`
+}
+
+type mcpCallRequest struct {
+	ID        string         `json:"id"`
+	Tool      string         `json:"tool"`
+	Arguments map[string]any `json:"arguments"`
 }
 
 type updateRequest[T any] struct {

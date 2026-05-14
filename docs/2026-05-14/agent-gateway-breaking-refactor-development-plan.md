@@ -136,15 +136,15 @@
 开发 TODO：
 
 - [x] 新建 `internal/runtime/mcp/manager.go`。
-- [ ] 实现 MCP stdio 连接。
-- [ ] 实现 MCP sse/http 连接。
+- [x] 实现 MCP stdio 连接。
+- [x] 实现 MCP sse/http 连接。
 - [x] 支持 env/envFile/header/cwd。
 - [x] 支持 tools list。
 - [x] tools 写回 `MCPServer.ToolsJSON`。
 - [x] 创建/更新 MCP 后异步刷新 tools。
 - [x] 禁用/删除 MCP 后关闭连接。
 - [x] MCP 调用失败后重连一次。
-- [ ] 发布 MCP runtime events。
+- [x] 发布 MCP runtime events。
 
 验收 TODO：
 

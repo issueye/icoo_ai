@@ -9,10 +9,12 @@ import (
 )
 
 var ErrTransportUnavailable = errors.New("MCP transport connector is not configured")
+var ErrUnsupportedTransport = errors.New("unsupported MCP transport")
 
 // Client is the minimal runtime boundary needed from a concrete MCP SDK client.
 type Client interface {
 	ListTools(ctx context.Context) ([]Tool, error)
+	CallTool(ctx context.Context, call ToolCall) (CallResult, error)
 	Close() error
 }
 
@@ -38,12 +40,20 @@ func WithConnector(connector Connector) ManagerOption {
 	}
 }
 
+func WithStatusListener(listener func(ServerStatus)) ManagerOption {
+	return func(m *Manager) {
+		m.statusListener = listener
+	}
+}
+
 // Manager tracks long-lived MCP clients and their discovered tools.
 type Manager struct {
-	mu        sync.RWMutex
-	connector Connector
-	servers   map[string]*serverConnection
-	closed    bool
+	mu             sync.RWMutex
+	connector      Connector
+	servers        map[string]*serverConnection
+	inflight       sync.WaitGroup
+	statusListener func(ServerStatus)
+	closed         bool
 }
 
 type serverConnection struct {
@@ -53,11 +63,10 @@ type serverConnection struct {
 	status ServerStatus
 }
 
-// NewManager creates an MCP runtime manager. Without WithConnector it compiles
-// but cannot connect to real MCP transports yet.
+// NewManager creates an MCP runtime manager.
 func NewManager(opts ...ManagerOption) *Manager {
 	m := &Manager{
-		connector: unavailableConnector{},
+		connector: Mark3LabsConnector{},
 		servers:   make(map[string]*serverConnection),
 	}
 	for _, opt := range opts {
@@ -66,6 +75,30 @@ func NewManager(opts ...ManagerOption) *Manager {
 		}
 	}
 	return m
+}
+
+func (m *Manager) CallTool(ctx context.Context, serverID string, call ToolCall) (CallResult, error) {
+	key := ServerConfig{ID: serverID}.ServerKey()
+	if key == "" {
+		return CallResult{}, fmt.Errorf("MCP server id is required")
+	}
+
+	m.mu.RLock()
+	if m.closed {
+		m.mu.RUnlock()
+		return CallResult{}, fmt.Errorf("MCP manager is closed")
+	}
+	conn := m.servers[key]
+	if conn == nil || conn.client == nil {
+		m.mu.RUnlock()
+		return CallResult{}, fmt.Errorf("MCP server %s is not connected", key)
+	}
+	client := conn.client
+	m.inflight.Add(1)
+	m.mu.RUnlock()
+	defer m.inflight.Done()
+
+	return client.CallTool(ctx, call)
 }
 
 // RefreshTools connects or reconnects a server and returns its current tool list.
@@ -178,9 +211,11 @@ func (m *Manager) Close() error {
 		conn.status.State = StateClosed
 		conn.status.ToolCount = 0
 		conn.status.UpdatedAt = time.Now().UTC()
+		m.publishStatusLocked(conn.status)
 	}
 	m.mu.Unlock()
 
+	m.inflight.Wait()
 	return closeConnections(connections)
 }
 
@@ -216,13 +251,15 @@ func (m *Manager) setConnecting(key string, cfg ServerConfig, transport Transpor
 	}
 	now := time.Now().UTC()
 	conn := m.ensureConnectionLocked(key, cfg)
-	conn.status = ServerStatus{
+	status := ServerStatus{
 		ID:        key,
 		Name:      cfg.Name,
 		State:     StateConnecting,
 		Transport: string(transport),
 		UpdatedAt: now,
 	}
+	conn.status = status
+	m.publishStatusLocked(status)
 	return nil
 }
 
@@ -241,20 +278,22 @@ func (m *Manager) replaceConnected(
 
 	old := m.ensureConnectionLocked(key, cfg).client
 	now := time.Now().UTC()
+	status := ServerStatus{
+		ID:          key,
+		Name:        cfg.Name,
+		State:       StateConnected,
+		Transport:   string(transport),
+		ToolCount:   len(tools),
+		UpdatedAt:   now,
+		ConnectedAt: now,
+	}
 	m.servers[key] = &serverConnection{
 		cfg:    cfg,
 		client: client,
 		tools:  cloneTools(tools),
-		status: ServerStatus{
-			ID:          key,
-			Name:        cfg.Name,
-			State:       StateConnected,
-			Transport:   string(transport),
-			ToolCount:   len(tools),
-			UpdatedAt:   now,
-			ConnectedAt: now,
-		},
+		status: status,
 	}
+	m.publishStatusLocked(status)
 	return old, true
 }
 
@@ -271,6 +310,7 @@ func (m *Manager) recordFailure(key string, cfg ServerConfig, err error) {
 	conn.status.ToolCount = len(conn.tools)
 	conn.status.LastError = err.Error()
 	conn.status.UpdatedAt = time.Now().UTC()
+	m.publishStatusLocked(conn.status)
 }
 
 func (m *Manager) closeServerWithState(key string, cfg ServerConfig, state State, lastError string) error {
@@ -287,12 +327,22 @@ func (m *Manager) closeServerWithState(key string, cfg ServerConfig, state State
 	conn.status.ToolCount = 0
 	conn.status.LastError = lastError
 	conn.status.UpdatedAt = time.Now().UTC()
+	status := conn.status
+	m.publishStatusLocked(status)
 	m.mu.Unlock()
 
 	if client != nil {
 		return client.Close()
 	}
 	return nil
+}
+
+func (m *Manager) publishStatusLocked(status ServerStatus) {
+	if m.statusListener == nil {
+		return
+	}
+	copied := status
+	go m.statusListener(copied)
 }
 
 func (m *Manager) ensureConnectionLocked(key string, cfg ServerConfig) *serverConnection {

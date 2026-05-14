@@ -112,6 +112,19 @@ type Tool struct {
 	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
 }
 
+type ToolCall struct {
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments,omitempty"`
+}
+
+type CallResult struct {
+	Content  string         `json:"content,omitempty"`
+	Data     map[string]any `json:"data,omitempty"`
+	Error    string         `json:"error,omitempty"`
+	IsError  bool           `json:"isError,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
+}
+
 // State is the runtime connection state for a configured MCP server.
 type State string
 
